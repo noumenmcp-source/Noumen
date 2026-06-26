@@ -6,6 +6,7 @@
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -b",
+    "test": "pnpm -r --if-present test",
     "clean": "tsc -b --clean"
   },
   "devDependencies": {

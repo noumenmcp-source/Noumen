@@ -3,6 +3,12 @@
   "references": [
     { "path": "packages/contracts" },
     { "path": "packages/db" },
+    { "path": "packages/sdk" },
+    { "path": "modules/automation" },
+    { "path": "modules/consent" },
+    { "path": "modules/email" },
+    { "path": "modules/social-intel" },
+    { "path": "modules/youtube" },
     { "path": "apps/api" }
   ]
 }
