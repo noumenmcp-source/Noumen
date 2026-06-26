@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { resetConsentOverrides, setConsent } from "./consent.js";
+import { InMemoryIngestStore } from "./ingest-store.js";
 import { resetCounters } from "./routes/health.js";
 import { buildServer } from "./server.js";
 import { resetTenantRegistry } from "./tenant.js";
@@ -12,7 +13,8 @@ describe("api server", () => {
   });
 
   it("reports US health and counters", async () => {
-    const app = buildServer({ logger: false });
+    const store = new InMemoryIngestStore();
+    const app = buildServer({ logger: false, ingestStore: store });
     const res = await app.inject({ method: "GET", url: "/v1/health" });
     await app.close();
 
@@ -69,7 +71,8 @@ describe("api server", () => {
   });
 
   it("provisions a US tenant and accepts events through its write key", async () => {
-    const app = buildServer({ logger: false });
+    const store = new InMemoryIngestStore();
+    const app = buildServer({ logger: false, ingestStore: store });
     const signup = await app.inject({
       method: "POST",
       url: "/v1/signup",
@@ -118,10 +121,19 @@ describe("api server", () => {
       stored: 1,
       suppressed: 0,
     });
+    expect(store.listEvents()).toMatchObject([
+      {
+        tenantId: account.tenant.id,
+        anonymousId: "anon_new_tenant",
+        type: "track",
+        name: "Signup Completed",
+      },
+    ]);
   });
 
   it("stores consent-allowed events for the resolved tenant", async () => {
-    const app = buildServer({ logger: false });
+    const store = new InMemoryIngestStore();
+    const app = buildServer({ logger: false, ingestStore: store });
     const res = await app.inject({
       method: "POST",
       url: "/v1/track",
@@ -148,11 +160,22 @@ describe("api server", () => {
       stored: 1,
       suppressed: 0,
     });
+    expect(store.listEvents()).toMatchObject([
+      {
+        tenantId: "demo",
+        anonymousId: "anon_allowed",
+        type: "track",
+        name: "Pricing Viewed",
+        properties: { path: "/pricing" },
+        ts: "2026-06-01T00:00:00.000Z",
+      },
+    ]);
   });
 
   it("suppresses analytics when the tenant subject opted out", async () => {
     setConsent("demo", "anon_suppressed", "analytics", false);
-    const app = buildServer({ logger: false });
+    const store = new InMemoryIngestStore();
+    const app = buildServer({ logger: false, ingestStore: store });
     const res = await app.inject({
       method: "POST",
       url: "/v1/track",
@@ -177,5 +200,6 @@ describe("api server", () => {
       stored: 0,
       suppressed: 1,
     });
+    expect(store.listEvents()).toEqual([]);
   });
 });

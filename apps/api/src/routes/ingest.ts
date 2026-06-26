@@ -2,9 +2,14 @@ import type { FastifyInstance } from "fastify";
 import { ingestBatchSchema } from "@cdp-us/contracts";
 import { resolveTenant } from "../tenant.js";
 import { isAllowed } from "../consent.js";
+import type { IngestStore } from "../ingest-store.js";
+import { toStoredIngestEvent } from "../ingest-store.js";
 import { counters } from "./health.js";
 
-export function registerIngest(app: FastifyInstance): void {
+export function registerIngest(
+  app: FastifyInstance,
+  store: IngestStore,
+): void {
   app.post("/v1/track", async (req, reply) => {
     const parsed = ingestBatchSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -31,9 +36,9 @@ export function registerIngest(app: FastifyInstance): void {
         counters.suppressed++;
         continue;
       }
+      await store.save(toStoredIngestEvent(tenant.id, ev));
       stored++;
       counters.stored++;
-      // Persistence is wired in core-cdp service; foundation accepts + counts.
     }
 
     return reply.send({
