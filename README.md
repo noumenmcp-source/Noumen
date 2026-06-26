@@ -46,6 +46,30 @@ cdp-us/
 Фаза 0 — каркас сегментации. Код переносится/пишется по фазам (см.
 [docs/ROADMAP.md](docs/ROADMAP.md)). Каждый модуль продаётся как апселл; ядро — вход.
 
+## Быстрый запуск
+
+```bash
+pnpm install
+pnpm build
+pnpm test
+```
+
+API без `DATABASE_URL` работает на in-memory stores. Для Postgres:
+
+```bash
+cp .env.example .env
+pnpm --filter @cdp-us/db db:migrate
+pnpm --filter @cdp-us/api dev
+```
+
+Основные endpoints:
+
+- `POST /v1/signup`
+- `GET /v1/modules`
+- `POST /v1/tenants/:tenantId/modules/:moduleKey`
+- `POST /v1/track`
+- `GET /v1/health`
+
 ## Язык
 
 Внутренние док-и — на русском (владелец). **Всё клиентское (UI, лендинги, письма, документы)
