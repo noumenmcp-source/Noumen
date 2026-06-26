@@ -13,16 +13,23 @@ export function createTracker(opts: TrackerOptions) {
   function send(events: IngestEvent[]): void {
     if (events.length === 0) return;
     const body = JSON.stringify(buildBatch(opts.writeKey, events));
-    if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
-      navigator.sendBeacon(opts.endpoint, body);
-    } else {
-      void fetch(opts.endpoint, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body,
-        keepalive: true,
-      });
+    if (
+      typeof navigator !== "undefined" &&
+      typeof navigator.sendBeacon === "function" &&
+      typeof Blob !== "undefined"
+    ) {
+      const accepted = navigator.sendBeacon(
+        opts.endpoint,
+        new Blob([body], { type: "application/json" }),
+      );
+      if (accepted) return;
     }
+    void fetch(opts.endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+      keepalive: true,
+    });
   }
 
   return {
