@@ -10,16 +10,26 @@ import { registerHealth } from "./routes/health.js";
 import { registerIngest } from "./routes/ingest.js";
 import { registerModules } from "./routes/modules.js";
 import { registerSignup } from "./routes/signup.js";
+import {
+  DbTenantStore,
+  InMemoryTenantStore,
+  type TenantStore,
+} from "./tenant.js";
 
 export function buildServer(
-  opts: { logger?: boolean; ingestStore?: IngestStore } = {},
+  opts: {
+    logger?: boolean;
+    ingestStore?: IngestStore;
+    tenantStore?: TenantStore;
+  } = {},
 ) {
   const app = Fastify({ logger: opts.logger ?? true });
+  const tenantStore = opts.tenantStore ?? createDefaultTenantStore();
   const ingestStore = opts.ingestStore ?? createDefaultIngestStore();
   registerHealth(app);
-  registerModules(app);
-  registerSignup(app);
-  registerIngest(app, ingestStore);
+  registerModules(app, tenantStore);
+  registerSignup(app, tenantStore);
+  registerIngest(app, ingestStore, tenantStore);
   return app;
 }
 
@@ -29,6 +39,14 @@ function createDefaultIngestStore(): IngestStore {
     return new DbIngestStore(createDb(connectionString));
   }
   return new InMemoryIngestStore();
+}
+
+function createDefaultTenantStore(): TenantStore {
+  const connectionString = process.env.DATABASE_URL;
+  if (connectionString) {
+    return new DbTenantStore(createDb(connectionString));
+  }
+  return new InMemoryTenantStore();
 }
 
 const isEntry = process.argv[1] === fileURLToPath(import.meta.url);

@@ -1,8 +1,11 @@
 import type { FastifyInstance } from "fastify";
 import { selfServeSignupSchema } from "@cdp-us/contracts";
-import { createTenantAccount } from "../tenant.js";
+import type { TenantStore } from "../tenant.js";
 
-export function registerSignup(app: FastifyInstance): void {
+export function registerSignup(
+  app: FastifyInstance,
+  tenantStore: TenantStore,
+): void {
   app.post("/v1/signup", async (req, reply) => {
     const parsed = selfServeSignupSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -11,7 +14,7 @@ export function registerSignup(app: FastifyInstance): void {
         .send({ error: "invalid_signup", issues: parsed.error.issues });
     }
 
-    const { tenant, owner } = createTenantAccount({
+    const { tenant, owner } = await tenantStore.createTenantAccount({
       name: parsed.data.companyName,
       ownerEmail: parsed.data.ownerEmail,
     });

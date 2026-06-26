@@ -41,6 +41,9 @@ importers:
       '@cdp-us/youtube':
         specifier: workspace:*
         version: link:../../modules/youtube
+      drizzle-orm:
+        specifier: ^0.36.4
+        version: 0.36.4(@types/pg@8.20.0)(pg@8.22.0)(react@19.2.7)
       fastify:
         specifier: ^5.1.0
         version: 5.8.5

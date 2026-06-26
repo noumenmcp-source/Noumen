@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { ModuleKey, Tenant, User } from "@cdp-us/contracts";
+import { tenants, users, type Db } from "@cdp-us/db";
+import { eq } from "drizzle-orm";
 
 /**
  * In-memory tenant registry (foundation stub).
@@ -36,32 +38,137 @@ export interface TenantAccount {
   owner: User;
 }
 
-const byKey = new Map<string, Tenant>();
-const byId = new Map<string, Tenant>();
-const usersById = new Map<string, User>();
-
-function addTenant(account: TenantAccount): void {
-  if (byId.has(account.tenant.id)) {
-    throw new Error("tenant_id_exists");
-  }
-  if (byKey.has(account.tenant.writeKey)) {
-    throw new Error("write_key_exists");
-  }
-  byId.set(account.tenant.id, account.tenant);
-  byKey.set(account.tenant.writeKey, account.tenant);
-  usersById.set(account.owner.id, account.owner);
+export interface TenantStore {
+  createTenantAccount(input: CreateTenantAccountInput): Promise<TenantAccount>;
+  resolveTenant(writeKey: string): Promise<Tenant | undefined>;
+  getTenant(id: string): Promise<Tenant | undefined>;
+  enableTenantModule(
+    tenantId: string,
+    moduleKey: ModuleKey,
+  ): Promise<Tenant | undefined>;
+  listTenants(): Promise<Tenant[]>;
 }
 
-export function resetTenantRegistry(): void {
-  byKey.clear();
-  byId.clear();
-  usersById.clear();
-  addTenant({ tenant: demo, owner: demoOwner });
+export class InMemoryTenantStore implements TenantStore {
+  readonly #byKey = new Map<string, Tenant>();
+  readonly #byId = new Map<string, Tenant>();
+  readonly #usersById = new Map<string, User>();
+
+  constructor() {
+    this.reset();
+  }
+
+  reset(): void {
+    this.#byKey.clear();
+    this.#byId.clear();
+    this.#usersById.clear();
+    this.#addTenant({ tenant: demo, owner: demoOwner });
+  }
+
+  async createTenantAccount(
+    input: CreateTenantAccountInput,
+  ): Promise<TenantAccount> {
+    const account = buildTenantAccount(input);
+    this.#addTenant(account);
+    return account;
+  }
+
+  async resolveTenant(writeKey: string): Promise<Tenant | undefined> {
+    return this.#byKey.get(writeKey);
+  }
+
+  async getTenant(id: string): Promise<Tenant | undefined> {
+    return this.#byId.get(id);
+  }
+
+  async enableTenantModule(
+    tenantId: string,
+    moduleKey: ModuleKey,
+  ): Promise<Tenant | undefined> {
+    const tenant = this.#byId.get(tenantId);
+    if (!tenant) return undefined;
+    if (!tenant.enabledModules.includes(moduleKey)) {
+      tenant.enabledModules = [...tenant.enabledModules, moduleKey];
+    }
+    return tenant;
+  }
+
+  async listTenants(): Promise<Tenant[]> {
+    return [...this.#byId.values()];
+  }
+
+  #addTenant(account: TenantAccount): void {
+    if (this.#byId.has(account.tenant.id)) {
+      throw new Error("tenant_id_exists");
+    }
+    if (this.#byKey.has(account.tenant.writeKey)) {
+      throw new Error("write_key_exists");
+    }
+    this.#byId.set(account.tenant.id, account.tenant);
+    this.#byKey.set(account.tenant.writeKey, account.tenant);
+    this.#usersById.set(account.owner.id, account.owner);
+  }
 }
 
-export function createTenantAccount(
-  input: CreateTenantAccountInput,
-): TenantAccount {
+export class DbTenantStore implements TenantStore {
+  constructor(private readonly db: Db) {}
+
+  async createTenantAccount(
+    input: CreateTenantAccountInput,
+  ): Promise<TenantAccount> {
+    const account = buildTenantAccount(input);
+    await this.db.insert(tenants).values({
+      ...account.tenant,
+      createdAt: new Date(account.tenant.createdAt),
+    });
+    await this.db.insert(users).values({
+      ...account.owner,
+      createdAt: new Date(account.owner.createdAt),
+    });
+    return account;
+  }
+
+  async resolveTenant(writeKey: string): Promise<Tenant | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(tenants)
+      .where(eq(tenants.writeKey, writeKey))
+      .limit(1);
+    return row ? toTenant(row) : undefined;
+  }
+
+  async getTenant(id: string): Promise<Tenant | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(tenants)
+      .where(eq(tenants.id, id))
+      .limit(1);
+    return row ? toTenant(row) : undefined;
+  }
+
+  async enableTenantModule(
+    tenantId: string,
+    moduleKey: ModuleKey,
+  ): Promise<Tenant | undefined> {
+    const tenant = await this.getTenant(tenantId);
+    if (!tenant) return undefined;
+    const enabledModules = tenant.enabledModules.includes(moduleKey)
+      ? tenant.enabledModules
+      : [...tenant.enabledModules, moduleKey];
+    await this.db
+      .update(tenants)
+      .set({ enabledModules })
+      .where(eq(tenants.id, tenantId));
+    return { ...tenant, enabledModules };
+  }
+
+  async listTenants(): Promise<Tenant[]> {
+    const rows = await this.db.select().from(tenants);
+    return rows.map(toTenant);
+  }
+}
+
+function buildTenantAccount(input: CreateTenantAccountInput): TenantAccount {
   const createdAt = input.now?.() ?? new Date().toISOString();
   const tenant: Tenant = {
     id: input.id ?? `t_${randomUUID()}`,
@@ -78,32 +185,47 @@ export function createTenantAccount(
     role: "owner",
     createdAt,
   };
-  addTenant({ tenant, owner });
   return { tenant, owner };
 }
 
-export function resolveTenant(writeKey: string): Tenant | undefined {
-  return byKey.get(writeKey);
+function toTenant(row: typeof tenants.$inferSelect): Tenant {
+  return {
+    id: row.id,
+    name: row.name,
+    writeKey: row.writeKey,
+    region: "us",
+    enabledModules: row.enabledModules as ModuleKey[],
+    createdAt: row.createdAt.toISOString(),
+  };
 }
 
-export function getTenant(id: string): Tenant | undefined {
-  return byId.get(id);
+const defaultTenantStore = new InMemoryTenantStore();
+
+export function resetTenantRegistry(): void {
+  defaultTenantStore.reset();
+}
+
+export function createTenantAccount(
+  input: CreateTenantAccountInput,
+): Promise<TenantAccount> {
+  return defaultTenantStore.createTenantAccount(input);
+}
+
+export function resolveTenant(writeKey: string): Promise<Tenant | undefined> {
+  return defaultTenantStore.resolveTenant(writeKey);
+}
+
+export function getTenant(id: string): Promise<Tenant | undefined> {
+  return defaultTenantStore.getTenant(id);
 }
 
 export function enableTenantModule(
   tenantId: string,
   moduleKey: ModuleKey,
-): Tenant | undefined {
-  const tenant = byId.get(tenantId);
-  if (!tenant) return undefined;
-  if (!tenant.enabledModules.includes(moduleKey)) {
-    tenant.enabledModules = [...tenant.enabledModules, moduleKey];
-  }
-  return tenant;
+): Promise<Tenant | undefined> {
+  return defaultTenantStore.enableTenantModule(tenantId, moduleKey);
 }
 
-export function listTenants(): Tenant[] {
-  return [...byId.values()];
+export function listTenants(): Promise<Tenant[]> {
+  return defaultTenantStore.listTenants();
 }
-
-resetTenantRegistry();

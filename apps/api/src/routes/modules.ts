@@ -4,9 +4,12 @@ import {
   isModuleKey,
   listModuleManifests,
 } from "../module-registry.js";
-import { enableTenantModule } from "../tenant.js";
+import type { TenantStore } from "../tenant.js";
 
-export function registerModules(app: FastifyInstance): void {
+export function registerModules(
+  app: FastifyInstance,
+  tenantStore: TenantStore,
+): void {
   app.get("/v1/modules", async () => ({
     modules: listModuleManifests(),
   }));
@@ -19,7 +22,7 @@ export function registerModules(app: FastifyInstance): void {
       return reply.code(400).send({ error: "unknown_module" });
     }
 
-    const tenant = enableTenantModule(tenantId, moduleKey);
+    const tenant = await tenantStore.enableTenantModule(tenantId, moduleKey);
     if (!tenant) {
       return reply.code(404).send({ error: "unknown_tenant" });
     }

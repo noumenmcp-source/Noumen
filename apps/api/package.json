@@ -19,7 +19,8 @@
     "@cdp-us/db": "workspace:*",
     "@cdp-us/email": "workspace:*",
     "@cdp-us/social-intel": "workspace:*",
-    "@cdp-us/youtube": "workspace:*"
+    "@cdp-us/youtube": "workspace:*",
+    "drizzle-orm": "^0.36.4"
   },
   "devDependencies": {
     "vitest": "^2.1.8"

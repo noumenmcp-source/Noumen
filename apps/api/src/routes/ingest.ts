@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { ingestBatchSchema } from "@cdp-us/contracts";
-import { resolveTenant } from "../tenant.js";
+import type { TenantStore } from "../tenant.js";
 import { isAllowed } from "../consent.js";
 import type { IngestStore } from "../ingest-store.js";
 import { toStoredIngestEvent } from "../ingest-store.js";
@@ -9,6 +9,7 @@ import { counters } from "./health.js";
 export function registerIngest(
   app: FastifyInstance,
   store: IngestStore,
+  tenantStore: TenantStore,
 ): void {
   app.post("/v1/track", async (req, reply) => {
     const parsed = ingestBatchSchema.safeParse(req.body);
@@ -20,7 +21,7 @@ export function registerIngest(
     }
 
     const { writeKey, events } = parsed.data;
-    const tenant = resolveTenant(writeKey);
+    const tenant = await tenantStore.resolveTenant(writeKey);
     if (!tenant) {
       counters.failed++;
       return reply.code(401).send({ error: "unknown_write_key" });
