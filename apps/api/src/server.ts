@@ -2,10 +2,12 @@ import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
 import { registerHealth } from "./routes/health.js";
 import { registerIngest } from "./routes/ingest.js";
+import { registerSignup } from "./routes/signup.js";
 
 export function buildServer(opts: { logger?: boolean } = {}) {
   const app = Fastify({ logger: opts.logger ?? true });
   registerHealth(app);
+  registerSignup(app);
   registerIngest(app);
   return app;
 }

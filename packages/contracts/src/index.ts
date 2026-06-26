@@ -151,3 +151,10 @@ export const ingestBatchSchema = z.object({
   events: z.array(ingestEventSchema).min(1).max(500),
 });
 export type IngestBatch = z.infer<typeof ingestBatchSchema>;
+
+// ---- Self-serve signup (US platform) ----
+export const selfServeSignupSchema = z.object({
+  companyName: z.string().trim().min(1).max(120),
+  ownerEmail: z.string().trim().email().max(254),
+});
+export type SelfServeSignup = z.infer<typeof selfServeSignupSchema>;

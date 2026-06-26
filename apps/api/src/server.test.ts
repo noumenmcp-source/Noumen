@@ -2,11 +2,13 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { resetConsentOverrides, setConsent } from "./consent.js";
 import { resetCounters } from "./routes/health.js";
 import { buildServer } from "./server.js";
+import { resetTenantRegistry } from "./tenant.js";
 
 describe("api server", () => {
   beforeEach(() => {
     resetCounters();
     resetConsentOverrides();
+    resetTenantRegistry();
   });
 
   it("reports US health and counters", async () => {
@@ -51,6 +53,71 @@ describe("api server", () => {
 
     expect(res.statusCode).toBe(401);
     expect(res.json()).toEqual({ error: "unknown_write_key" });
+  });
+
+  it("rejects malformed self-serve signups", async () => {
+    const app = buildServer({ logger: false });
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/signup",
+      payload: { companyName: "", ownerEmail: "not-an-email" },
+    });
+    await app.close();
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe("invalid_signup");
+  });
+
+  it("provisions a US tenant and accepts events through its write key", async () => {
+    const app = buildServer({ logger: false });
+    const signup = await app.inject({
+      method: "POST",
+      url: "/v1/signup",
+      payload: {
+        companyName: "Northwind AI",
+        ownerEmail: "OWNER@Northwind.example",
+      },
+    });
+
+    expect(signup.statusCode).toBe(201);
+    const account = signup.json();
+    expect(account.tenant).toMatchObject({
+      name: "Northwind AI",
+      region: "us",
+      enabledModules: ["consent"],
+    });
+    expect(account.tenant.id).toMatch(/^t_/);
+    expect(account.tenant.writeKey).toMatch(/^wk_us_/);
+    expect(account.owner).toMatchObject({
+      tenantId: account.tenant.id,
+      email: "owner@northwind.example",
+      role: "owner",
+    });
+
+    const track = await app.inject({
+      method: "POST",
+      url: "/v1/track",
+      payload: {
+        writeKey: account.tenant.writeKey,
+        events: [
+          {
+            type: "track",
+            anonymousId: "anon_new_tenant",
+            event: "Signup Completed",
+          },
+        ],
+      },
+    });
+    await app.close();
+
+    expect(track.statusCode).toBe(200);
+    expect(track.json()).toMatchObject({
+      ok: true,
+      tenant: account.tenant.id,
+      received: 1,
+      stored: 1,
+      suppressed: 0,
+    });
   });
 
   it("stores consent-allowed events for the resolved tenant", async () => {
