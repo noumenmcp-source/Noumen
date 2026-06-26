@@ -35,3 +35,5 @@ export {
   DEFAULT_INTENT_TOPICS,
   type AnalyzeIntentOptions,
 } from "./analyze.js";
+
+export { socialIntelManifest } from "./manifest.js";

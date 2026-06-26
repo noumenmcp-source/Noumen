@@ -6,6 +6,7 @@ import {
 } from "./ingest-store.js";
 import { registerHealth } from "./routes/health.js";
 import { registerIngest } from "./routes/ingest.js";
+import { registerModules } from "./routes/modules.js";
 import { registerSignup } from "./routes/signup.js";
 
 export function buildServer(
@@ -14,6 +15,7 @@ export function buildServer(
   const app = Fastify({ logger: opts.logger ?? true });
   const ingestStore = opts.ingestStore ?? new InMemoryIngestStore();
   registerHealth(app);
+  registerModules(app);
   registerSignup(app);
   registerIngest(app, ingestStore);
   return app;

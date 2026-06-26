@@ -20,9 +20,24 @@ importers:
 
   apps/api:
     dependencies:
+      '@cdp-us/automation':
+        specifier: workspace:*
+        version: link:../../modules/automation
+      '@cdp-us/consent':
+        specifier: workspace:*
+        version: link:../../modules/consent
       '@cdp-us/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@cdp-us/email':
+        specifier: workspace:*
+        version: link:../../modules/email
+      '@cdp-us/social-intel':
+        specifier: workspace:*
+        version: link:../../modules/social-intel
+      '@cdp-us/youtube':
+        specifier: workspace:*
+        version: link:../../modules/youtube
       fastify:
         specifier: ^5.1.0
         version: 5.8.5

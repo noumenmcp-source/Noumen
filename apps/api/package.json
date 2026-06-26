@@ -11,9 +11,14 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@cdp-us/automation": "workspace:*",
+    "@cdp-us/consent": "workspace:*",
     "fastify": "^5.1.0",
     "zod": "^3.23.8",
-    "@cdp-us/contracts": "workspace:*"
+    "@cdp-us/contracts": "workspace:*",
+    "@cdp-us/email": "workspace:*",
+    "@cdp-us/social-intel": "workspace:*",
+    "@cdp-us/youtube": "workspace:*"
   },
   "devDependencies": {
     "vitest": "^2.1.8"

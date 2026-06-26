@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Tenant, User } from "@cdp-us/contracts";
+import type { ModuleKey, Tenant, User } from "@cdp-us/contracts";
 
 /**
  * In-memory tenant registry (foundation stub).
@@ -88,6 +88,18 @@ export function resolveTenant(writeKey: string): Tenant | undefined {
 
 export function getTenant(id: string): Tenant | undefined {
   return byId.get(id);
+}
+
+export function enableTenantModule(
+  tenantId: string,
+  moduleKey: ModuleKey,
+): Tenant | undefined {
+  const tenant = byId.get(tenantId);
+  if (!tenant) return undefined;
+  if (!tenant.enabledModules.includes(moduleKey)) {
+    tenant.enabledModules = [...tenant.enabledModules, moduleKey];
+  }
+  return tenant;
 }
 
 export function listTenants(): Tenant[] {

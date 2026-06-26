@@ -24,3 +24,5 @@ export {
   type BannerChoice,
   type ResolveConsentInput,
 } from "./cmp.js";
+
+export { consentManifest } from "./manifest.js";

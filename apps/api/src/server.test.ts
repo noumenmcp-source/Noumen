@@ -70,6 +70,21 @@ describe("api server", () => {
     expect(res.json().error).toBe("invalid_signup");
   });
 
+  it("lists available upsell modules", async () => {
+    const app = buildServer({ logger: false });
+    const res = await app.inject({ method: "GET", url: "/v1/modules" });
+    await app.close();
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().modules).toMatchObject([
+      { key: "consent" },
+      { key: "email" },
+      { key: "social-intel" },
+      { key: "youtube" },
+      { key: "automation" },
+    ]);
+  });
+
   it("provisions a US tenant and accepts events through its write key", async () => {
     const store = new InMemoryIngestStore();
     const app = buildServer({ logger: false, ingestStore: store });
@@ -129,6 +144,48 @@ describe("api server", () => {
         name: "Signup Completed",
       },
     ]);
+  });
+
+  it("enables tenant modules idempotently", async () => {
+    const app = buildServer({ logger: false });
+    const signup = await app.inject({
+      method: "POST",
+      url: "/v1/signup",
+      payload: {
+        companyName: "Module Buyer LLC",
+        ownerEmail: "owner@modulebuyer.example",
+      },
+    });
+    const tenantId = signup.json().tenant.id;
+
+    const first = await app.inject({
+      method: "POST",
+      url: `/v1/tenants/${tenantId}/modules/email`,
+    });
+    const second = await app.inject({
+      method: "POST",
+      url: `/v1/tenants/${tenantId}/modules/email`,
+    });
+    await app.close();
+
+    expect(first.statusCode).toBe(200);
+    expect(first.json().module).toMatchObject({
+      key: "email",
+      requiresConsent: ["marketing_email"],
+    });
+    expect(second.json().tenant.enabledModules).toEqual(["consent", "email"]);
+  });
+
+  it("rejects unknown modules before mutating tenants", async () => {
+    const app = buildServer({ logger: false });
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/tenants/demo/modules/not-a-module",
+    });
+    await app.close();
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: "unknown_module" });
   });
 
   it("stores consent-allowed events for the resolved tenant", async () => {
