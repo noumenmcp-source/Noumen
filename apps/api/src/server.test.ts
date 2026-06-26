@@ -26,6 +26,28 @@ describe("api server", () => {
     });
   });
 
+  it("allows browser SDK preflight requests", async () => {
+    const app = buildServer({ logger: false });
+    const res = await app.inject({
+      method: "OPTIONS",
+      url: "/v1/track",
+      headers: {
+        origin: "https://customer.example",
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "content-type",
+      },
+    });
+    await app.close();
+
+    expect(res.statusCode).toBe(204);
+    expect(res.headers["access-control-allow-origin"]).toBe(
+      "https://customer.example",
+    );
+    expect(res.headers["access-control-allow-headers"]).toContain(
+      "content-type",
+    );
+  });
+
   it("rejects malformed ingest payloads", async () => {
     const app = buildServer({ logger: false });
     const res = await app.inject({

@@ -1,11 +1,11 @@
 {
     "schema_version": 1,
-    "commit": "17e1291cb6ac4cef92aee08f7d99e974576481c8",
-    "indexed_at": "2026-06-26T22:03:26Z",
+    "commit": "b3b988ae3ea5d1208c65b8b8a644960e2e3d2872",
+    "indexed_at": "2026-06-26T22:05:26Z",
     "project": "Users-a1-cdp-us",
     "nodes": 535,
     "edges": 888,
     "original_size": 1966080,
-    "compressed_size": 111610,
+    "compressed_size": 111983,
     "compression_level": 3
 }

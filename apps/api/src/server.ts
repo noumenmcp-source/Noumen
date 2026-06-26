@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
+import cors from "@fastify/cors";
 import { createDb } from "@cdp-us/db";
 import {
   DbIngestStore,
@@ -26,6 +27,11 @@ export function buildServer(
   const app = Fastify({ logger: opts.logger ?? true });
   const tenantStore = opts.tenantStore ?? createDefaultTenantStore();
   const ingestStore = opts.ingestStore ?? createDefaultIngestStore();
+  void app.register(cors, {
+    origin: true,
+    methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: ["content-type"],
+  });
   registerHealth(app);
   registerModules(app, tenantStore);
   registerSignup(app, tenantStore);
