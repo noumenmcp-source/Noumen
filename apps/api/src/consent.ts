@@ -30,6 +30,10 @@ export function setConsent(
   overrides.set(k, current);
 }
 
+export function resetConsentOverrides(): void {
+  overrides.clear();
+}
+
 export function isAllowed(
   tenantId: string,
   subject: string,

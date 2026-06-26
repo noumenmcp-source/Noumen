@@ -7,11 +7,15 @@
   "scripts": {
     "build": "tsc -b",
     "dev": "tsx watch src/server.ts",
-    "start": "node dist/server.js"
+    "start": "node dist/server.js",
+    "test": "vitest run"
   },
   "dependencies": {
     "fastify": "^5.1.0",
     "zod": "^3.23.8",
     "@cdp-us/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.8"
   }
 }

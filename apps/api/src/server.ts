@@ -3,8 +3,8 @@ import Fastify from "fastify";
 import { registerHealth } from "./routes/health.js";
 import { registerIngest } from "./routes/ingest.js";
 
-export function buildServer() {
-  const app = Fastify({ logger: true });
+export function buildServer(opts: { logger?: boolean } = {}) {
+  const app = Fastify({ logger: opts.logger ?? true });
   registerHealth(app);
   registerIngest(app);
   return app;
