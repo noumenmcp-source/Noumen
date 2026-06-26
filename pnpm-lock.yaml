@@ -29,6 +29,9 @@ importers:
       '@cdp-us/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@cdp-us/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@cdp-us/email':
         specifier: workspace:*
         version: link:../../modules/email

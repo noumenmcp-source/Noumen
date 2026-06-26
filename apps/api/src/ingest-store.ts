@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { IngestEvent, TenantId } from "@cdp-us/contracts";
+import { events, type Db } from "@cdp-us/db";
 
 export interface StoredIngestEvent {
   id: string;
@@ -29,6 +30,22 @@ export class InMemoryIngestStore implements IngestStore {
 
   reset(): void {
     this.#events.length = 0;
+  }
+}
+
+export class DbIngestStore implements IngestStore {
+  constructor(private readonly db: Db) {}
+
+  async save(event: StoredIngestEvent): Promise<void> {
+    await this.db.insert(events).values({
+      id: event.id,
+      tenantId: event.tenantId,
+      anonymousId: event.anonymousId,
+      type: event.type,
+      name: event.name,
+      properties: event.properties,
+      ts: new Date(event.ts),
+    });
   }
 }
 

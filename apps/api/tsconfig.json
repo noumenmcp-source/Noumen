@@ -4,6 +4,7 @@
   "include": ["src/**/*"],
   "references": [
     { "path": "../../packages/contracts" },
+    { "path": "../../packages/db" },
     { "path": "../../modules/automation" },
     { "path": "../../modules/consent" },
     { "path": "../../modules/email" },
