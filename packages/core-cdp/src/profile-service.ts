@@ -1,5 +1,6 @@
 import type { Firmographics, IngestEvent, Profile, TenantId } from "@cdp-us/contracts";
 import { newProfile, resolveExisting } from "./identity.js";
+import { computeIntentScore, topicsForEvent } from "./intent.js";
 import type { ProfileStore } from "./profile-store.js";
 
 /** Firmographic keys lifted from event traits into Profile.firmographics. */
@@ -42,13 +43,18 @@ export class ProfileService {
     const base = existing ?? newProfile(tenantId, event, this.#now);
     const ts = this.#now();
     const traits = mergeTraits(base.traits, eventTraits(event));
+    // Accumulate intent topics (union -> idempotent on replay) and rescore.
+    const topics = [
+      ...new Set([...(base.intent.topics ?? []), ...topicsForEvent(event)]),
+    ].sort();
+    const score = computeIntentScore(topics, { lastActiveAt: ts, now: ts });
     const next: Profile = {
       ...base,
       anonymousId: base.anonymousId ?? event.anonymousId,
       userId: event.type === "identify" ? event.userId ?? base.userId : base.userId,
       traits,
       firmographics: liftFirmographics(base.firmographics, traits),
-      intent: { ...base.intent, lastActiveAt: ts },
+      intent: { ...base.intent, topics, score, lastActiveAt: ts },
       updatedAt: ts,
     };
     return this.#store.save(next);

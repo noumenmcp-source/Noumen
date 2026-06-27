@@ -62,4 +62,23 @@ describe("ProfileService.applyEvent", () => {
     const profile = await svc.applyEvent(TENANT, identify("a1", "u1", { company: "Acme Inc" }));
     expect(profile.firmographics.company).toBe("Acme Inc");
   });
+
+  it("accumulates intent topics and scores buying intent from events", async () => {
+    const store = new InMemoryProfileStore();
+    const svc = new ProfileService(store, now);
+    await svc.applyEvent(TENANT, track("a1", "Pricing Viewed"));
+    const profile = await svc.applyEvent(TENANT, track("a1", "Demo Requested"));
+    expect(profile.intent.topics).toEqual(expect.arrayContaining(["pricing", "evaluation"]));
+    expect(profile.intent.score).toBeGreaterThan(0);
+  });
+
+  it("intent score is idempotent on event replay", async () => {
+    const store = new InMemoryProfileStore();
+    const svc = new ProfileService(store, now);
+    await svc.applyEvent(TENANT, track("a1", "Pricing Viewed"));
+    const first = await svc.applyEvent(TENANT, track("a1", "Demo Requested"));
+    const replay = await svc.applyEvent(TENANT, track("a1", "Demo Requested"));
+    expect(replay.intent.score).toBe(first.intent.score);
+    expect(replay.intent.topics).toEqual(first.intent.topics);
+  });
 });

@@ -16,3 +16,4 @@ export {
   evaluateSegment,
   segmentMembers,
 } from "./segments.js";
+export { topicsForEvent, computeIntentScore } from "./intent.js";
