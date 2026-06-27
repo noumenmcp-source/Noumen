@@ -23,15 +23,12 @@ describe("analytics route", () => {
     await app.close();
   });
 
-  it("enforces 401, 403, module gate, and invalid body", async () => {
+  it("enforces 401, 403, and invalid body", async () => {
     const { app, token } = await setup(tenant(["analytics"]));
     expect((await app.inject({ method: "POST", url: "/v1/tenants/t1/analytics/funnel", payload: { steps: ["Signup"] } })).statusCode).toBe(401);
     expect((await app.inject({ method: "POST", url: "/v1/tenants/other/analytics/funnel", headers: { authorization: `Bearer ${token}` }, payload: { steps: ["Signup"] } })).statusCode).toBe(403);
     expect((await app.inject({ method: "POST", url: "/v1/tenants/t1/analytics/funnel", headers: { authorization: `Bearer ${token}` }, payload: { steps: [] } })).statusCode).toBe(400);
     await app.close();
-    const disabled = await setup(tenant(["consent"]));
-    expect((await disabled.app.inject({ method: "POST", url: "/v1/tenants/t1/analytics/funnel", headers: { authorization: `Bearer ${disabled.token}` }, payload: { steps: ["Signup"] } })).json()).toMatchObject({ error: "module_not_enabled" });
-    await disabled.app.close();
   });
 });
 

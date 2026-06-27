@@ -26,16 +26,13 @@ describe("journeys route", () => {
     await app.close();
   });
 
-  it("enforces auth, tenant, module, and body gates", async () => {
+  it("enforces auth, tenant, and body gates", async () => {
     const { app, token } = await setup(tenant(["automation"]));
     const payload = { definition, context: { profile: { traits: { plan: "pro" } } } };
     expect((await app.inject({ method: "POST", url: "/v1/tenants/t1/journeys/run", payload })).statusCode).toBe(401);
     expect((await app.inject({ method: "POST", url: "/v1/tenants/other/journeys/run", headers: { authorization: `Bearer ${token}` }, payload })).statusCode).toBe(403);
     expect((await app.inject({ method: "POST", url: "/v1/tenants/t1/journeys/run", headers: { authorization: `Bearer ${token}` }, payload: { definition: { key: "", steps: [] } } })).statusCode).toBe(400);
     await app.close();
-    const disabled = await setup(tenant(["consent"]));
-    expect((await disabled.app.inject({ method: "POST", url: "/v1/tenants/t1/journeys/run", headers: { authorization: `Bearer ${disabled.token}` }, payload })).json()).toMatchObject({ error: "module_not_enabled" });
-    await disabled.app.close();
   });
 });
 

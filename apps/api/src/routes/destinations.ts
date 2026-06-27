@@ -24,7 +24,6 @@ export function registerDestinations(app: FastifyInstance, tenantStore: TenantSt
 
     const tenant = await tenantStore.getTenant(tenantId);
     if (!tenant) return reply.code(404).send({ error: "unknown_tenant" });
-    if (!tenant.enabledModules.includes("automation")) return reply.code(403).send({ error: "module_not_enabled", module: "automation" });
 
     const parsed = bodySchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_sync", issues: parsed.error.issues });

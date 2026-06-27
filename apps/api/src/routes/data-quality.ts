@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import type { ModuleKey, Profile } from "@cdp-us/contracts";
+import type { Profile } from "@cdp-us/contracts";
 import { ingestEventSchema, type IngestEvent } from "@cdp-us/contracts";
 import { scoreQuality, validateEvent, validateProfile, type Issue } from "@cdp-us/data-quality";
 import { authenticate, roleSatisfies, type TokenStore } from "../auth.js";
@@ -10,7 +10,6 @@ export type ProfileReader = Readonly<{ getProfile(tenantId: string, profileId: s
 export type DataQualityDeps = Readonly<{ profileReader: ProfileReader }>;
 export type IndexedIssue = Readonly<{ index: number; issue: Issue }>;
 
-const QUALITY_MODULE = "social-intel" satisfies ModuleKey;
 const bodySchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("profile"), profileId: z.string().min(1) }),
   z.object({ kind: z.literal("events"), events: z.array(ingestEventSchema).min(1).max(500) }),
@@ -26,7 +25,6 @@ export function registerDataQuality(app: FastifyInstance, tenantStore: TenantSto
 
     const tenant = await tenantStore.getTenant(tenantId);
     if (!tenant) return reply.code(404).send({ error: "unknown_tenant" });
-    if (!tenant.enabledModules.includes(QUALITY_MODULE)) return reply.code(403).send({ error: "module_not_enabled", module: QUALITY_MODULE });
 
     const parsed = bodySchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_body", issues: parsed.error.issues });

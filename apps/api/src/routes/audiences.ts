@@ -1,6 +1,5 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import type { ModuleKey } from "@cdp-us/contracts";
 import type { ProfileStore, SegmentRule } from "@cdp-us/core-cdp";
 import { overlap, snapshot, type AudienceDefinition } from "@cdp-us/audiences";
 import { authenticate, roleSatisfies, type TokenStore } from "../auth.js";
@@ -26,7 +25,6 @@ export function registerAudiences(app: FastifyInstance, tenantStore: TenantStore
 
     const tenant = await tenantStore.getTenant(tenantId);
     if (!tenant) return reply.code(404).send({ error: "unknown_tenant" });
-    if (!tenant.enabledModules.includes("audiences" as ModuleKey)) return reply.code(403).send({ error: "module_not_enabled", module: "audiences" });
 
     const parsed = bodySchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_body", issues: parsed.error.issues });

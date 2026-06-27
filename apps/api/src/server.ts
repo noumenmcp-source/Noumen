@@ -2,7 +2,10 @@ import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
+import type { ConsentState, IngestEvent } from "@cdp-us/contracts";
 import { createDb } from "@cdp-us/db";
+import type { DsarReaders, Subject } from "@cdp-us/data-export";
+import type { Sender as DestinationSender } from "@cdp-us/destinations";
 import {
   DbTokenStore,
   InMemoryTokenStore,
@@ -29,11 +32,21 @@ import {
 } from "@cdp-us/automation";
 import { registerEmail } from "./routes/email.js";
 import { registerConsent } from "./routes/consent.js";
+import { isAllowed } from "./consent.js";
 import { registerIntel, type CollectorRegistry } from "./routes/intel.js";
 import { registerAutomations } from "./routes/automations.js";
+import { registerAnalytics } from "./routes/analytics.js";
+import { registerAttribution } from "./routes/attribution.js";
+import { registerAudiences } from "./routes/audiences.js";
+import { registerDataExport } from "./routes/data-export.js";
+import { registerDataQuality } from "./routes/data-quality.js";
+import { registerDestinations } from "./routes/destinations.js";
+import { registerJourneys } from "./routes/journeys.js";
+import { registerWarehouseSync } from "./routes/warehouse-sync.js";
 import {
   DbIngestStore,
   InMemoryIngestStore,
+  type StoredIngestEvent,
   type IngestStore,
 } from "./ingest-store.js";
 import { registerHealth } from "./routes/health.js";
@@ -103,6 +116,26 @@ export async function buildServer(
     social: socialAdapter,
     messenger: messengerAdapter,
   });
+  registerDataExport(app, tenantStore, tokenStore, {
+    readers: createDataExportReaders(profileStore, ingestStore),
+    now: () => new Date().toISOString(),
+  });
+  registerDestinations(app, tenantStore, tokenStore, {
+    profileStore,
+    sender: noopDestinationSender,
+  });
+  registerJourneys(app, tenantStore, tokenStore);
+  registerAttribution(app, tenantStore, tokenStore);
+  registerAnalytics(app, tenantStore, tokenStore, {
+    events: { listByTenant: async (tenantId) => (await ingestStore.listByTenant(tenantId)).map(toIngestEvent) },
+  });
+  registerAudiences(app, tenantStore, tokenStore, { profileStore });
+  registerDataQuality(app, tenantStore, tokenStore, {
+    profileReader: { getProfile: (tenantId, profileId) => profileStore.getById(tenantId, profileId) },
+  });
+  registerWarehouseSync(app, tenantStore, tokenStore, {
+    profileStore: { listProfiles: (tenantId) => profileStore.listByTenant(tenantId) },
+  });
   return app;
 }
 
@@ -147,6 +180,65 @@ function defaultRateLimit(): { max: number; timeWindow: number | string } {
   const timeWindow = process.env.RATE_LIMIT_WINDOW ?? "1 minute";
   return { max: Number.isFinite(max) && max > 0 ? max : 600, timeWindow };
 }
+
+function createDataExportReaders(profileStore: ProfileStore, ingestStore: IngestStore): DsarReaders {
+  return {
+    profiles: {
+      getBySubject: async (tenantId, subject) =>
+        findSubjectProfile(await profileStore.listByTenant(tenantId), subject) ?? null,
+    },
+    events: {
+      listBySubject: async (tenantId, subject) => {
+        const profile = findSubjectProfile(await profileStore.listByTenant(tenantId), subject);
+        const events = await ingestStore.listByTenant(tenantId);
+        return events.filter((event) => matchesSubject(event, subject, profile?.anonymousId)).map(toIngestEvent);
+      },
+    },
+    consent: {
+      getState: (tenantId, subject) => {
+        const key = subjectKey(subject);
+        return key ? consentState(tenantId, key) : null;
+      },
+    },
+  };
+}
+
+function findSubjectProfile(profiles: Awaited<ReturnType<ProfileStore["listByTenant"]>>, subject: Subject) {
+  return profiles.find((profile) =>
+    (subject.email !== undefined && profile.email === subject.email) ||
+    (subject.userId !== undefined && profile.userId === subject.userId) ||
+    (subject.anonymousId !== undefined && profile.anonymousId === subject.anonymousId),
+  );
+}
+
+function matchesSubject(event: StoredIngestEvent, subject: Subject, profileAnonymousId: string | undefined): boolean {
+  return event.anonymousId === subject.anonymousId || event.anonymousId === profileAnonymousId;
+}
+
+function subjectKey(subject: Subject): string | undefined {
+  return subject.anonymousId ?? subject.email ?? subject.userId;
+}
+
+function toIngestEvent(event: StoredIngestEvent): IngestEvent {
+  if (event.type === "identify") {
+    return { type: "identify", anonymousId: event.anonymousId, traits: event.properties, ts: event.ts };
+  }
+  return { type: "track", anonymousId: event.anonymousId, event: event.name ?? "Event", properties: event.properties, ts: event.ts };
+}
+
+function consentState(tenantId: string, subject: string): ConsentState {
+  return {
+    analytics: isAllowed(tenantId, subject, "analytics"),
+    marketing_email: isAllowed(tenantId, subject, "marketing_email"),
+    sale_or_share: isAllowed(tenantId, subject, "sale_or_share"),
+    messaging_tcpa: isAllowed(tenantId, subject, "messaging_tcpa"),
+    gpc: false,
+  };
+}
+
+const noopDestinationSender: DestinationSender = {
+  send: async (request) => ({ status: request.url ? 202 : 400 }),
+};
 
 const isEntry = process.argv[1] === fileURLToPath(import.meta.url);
 if (isEntry) {

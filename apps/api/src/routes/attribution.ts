@@ -1,6 +1,5 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import type { ModuleKey } from "@cdp-us/contracts";
 import { attribute, attributeMany, type AttributionModel, type AttributionOptions } from "@cdp-us/attribution";
 import { authenticate, roleSatisfies, type TokenStore } from "../auth.js";
 import type { TenantStore } from "../tenant.js";
@@ -22,7 +21,6 @@ export function registerAttribution(app: FastifyInstance, tenantStore: TenantSto
 
     const tenant = await tenantStore.getTenant(tenantId);
     if (!tenant) return reply.code(404).send({ error: "unknown_tenant" });
-    if (!tenant.enabledModules.includes("attribution" as ModuleKey)) return reply.code(403).send({ error: "module_not_enabled", module: "attribution" });
 
     const parsed = bodySchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_body", issues: parsed.error.issues });

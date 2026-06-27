@@ -24,17 +24,17 @@ describe("attribution route", () => {
     await app.close();
   });
 
-  it("reports missing tenant, disabled module, and invalid body", async () => {
+  it("reports missing tenant and invalid body", async () => {
     const tokenStore = new InMemoryTokenStore();
     await tokenStore.issue({ tenantId: "t1", userId: "u1", role: "analyst", token: "tok" });
     const auth = { authorization: "Bearer tok" };
-    const disabled = Fastify();
-    registerAttribution(disabled, store(tenant(["consent"])), tokenStore);
-    expect((await disabled.inject({ method: "POST", url: "/v1/tenants/t1/attribution", headers: auth, payload: { model: "linear", touchpoints: [{ channel: "x", ts: "bad" }] } })).json()).toMatchObject({ error: "module_not_enabled" });
+    const invalid = Fastify();
+    registerAttribution(invalid, store(tenant(["consent"])), tokenStore);
+    expect((await invalid.inject({ method: "POST", url: "/v1/tenants/t1/attribution", headers: auth, payload: { model: "linear", touchpoints: [{ channel: "x", ts: "bad" }] } })).statusCode).toBe(400);
     const missing = Fastify();
     registerAttribution(missing, store(undefined), tokenStore);
     expect((await missing.inject({ method: "POST", url: "/v1/tenants/t1/attribution", headers: auth, payload: { model: "linear", touchpoints: [] } })).statusCode).toBe(404);
-    await disabled.close();
+    await invalid.close();
     await missing.close();
   });
 });

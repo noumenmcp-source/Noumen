@@ -1,13 +1,11 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import type { ModuleKey } from "@cdp-us/contracts";
 import { ACCESS_REPORT_SCHEMA_VERSION, assembleAccessReport, planDeletion, redactProfile, TOMBSTONE_MARKER, type DsarReaders, type DsarRequest, type Subject } from "@cdp-us/data-export";
 import { authenticate, roleSatisfies, type TokenStore } from "../auth.js";
 import type { TenantStore } from "../tenant.js";
 
 export type DataExportDeps = Readonly<{ readers: DsarReaders; now?: () => string }>;
 
-const MODULE = "data-export" as ModuleKey;
 const subjectSchema = z.union([
   z.string().min(1),
   z.object({ email: z.string().email().optional(), userId: z.string().min(1).optional(), anonymousId: z.string().min(1).optional() }),
@@ -24,7 +22,6 @@ export function registerDataExport(app: FastifyInstance, tenantStore: TenantStor
 
     const tenant = await tenantStore.getTenant(tenantId);
     if (!tenant) return reply.code(404).send({ error: "unknown_tenant" });
-    if (!tenant.enabledModules.includes(MODULE)) return reply.code(403).send({ error: "module_not_enabled", module: "data-export" });
 
     const parsed = bodySchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_body", issues: parsed.error.issues });

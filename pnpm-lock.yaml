@@ -547,6 +547,19 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
 
+  packages/platform:
+    dependencies:
+      '@cdp-us/billing':
+        specifier: workspace:*
+        version: link:../billing
+      '@cdp-us/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
+
   packages/rate-limiter:
     devDependencies:
       vitest:

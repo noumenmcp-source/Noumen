@@ -18,16 +18,13 @@ describe("data quality route", () => {
     await app.close();
   });
 
-  it("enforces auth, tenant, module, and body gates", async () => {
+  it("enforces auth, tenant, and body gates", async () => {
     const { app, token } = await setup(tenant(["social-intel"]));
     const payload = { kind: "profile", profileId: "p1" };
     expect((await app.inject({ method: "POST", url: "/v1/tenants/t1/quality/check", payload })).statusCode).toBe(401);
     expect((await app.inject({ method: "POST", url: "/v1/tenants/other/quality/check", headers: { authorization: `Bearer ${token}` }, payload })).statusCode).toBe(403);
     expect((await app.inject({ method: "POST", url: "/v1/tenants/t1/quality/check", headers: { authorization: `Bearer ${token}` }, payload: { kind: "events", events: [] } })).statusCode).toBe(400);
     await app.close();
-    const disabled = await setup(tenant(["consent"]));
-    expect((await disabled.app.inject({ method: "POST", url: "/v1/tenants/t1/quality/check", headers: { authorization: `Bearer ${disabled.token}` }, payload })).json()).toMatchObject({ error: "module_not_enabled" });
-    await disabled.app.close();
   });
 });
 

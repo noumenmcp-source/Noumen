@@ -55,9 +55,5 @@ async function authorize(req: FastifyRequest, reply: FastifyReply, tenantId: str
     reply.code(404).send({ error: "unknown_tenant" });
     return false;
   }
-  if (!(tenant.enabledModules as readonly string[]).includes("analytics")) {
-    reply.code(403).send({ error: "module_not_enabled", module: "analytics" });
-    return false;
-  }
   return true;
 }
