@@ -7,6 +7,7 @@
     { "path": "packages/sdk" },
     { "path": "packages/billing" },
     { "path": "packages/data-export" },
+    { "path": "packages/integrations" },
     { "path": "modules/automation" },
     { "path": "modules/consent" },
     { "path": "modules/email" },
