@@ -1,7 +1,7 @@
 /**
- * @cdp-us/youtube — YouTube / video-analytics module.
+ * YouTube / video analytics — a capability of @cdp-us/social-intel
+ * (not a separate upsell module).
  *
- * Public API:
  * - YouTubeClient: Data API v3 client with an injectable fetcher.
  * - parseSearchResponse: JSON search.list -> VideoItem[].
  * - analyzeComments: deterministic topics + sentiment.
@@ -13,7 +13,6 @@
 export { YouTubeClient } from "./client.js";
 export { parseSearchResponse, watchUrl } from "./parse.js";
 export { analyzeComments, extractContentIdeas } from "./analyze.js";
-export { youtubeManifest } from "./manifest.js";
 
 export type {
   VideoItem,

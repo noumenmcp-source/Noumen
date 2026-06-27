@@ -41,11 +41,11 @@ export const PLANS: Readonly<Record<PlanKey, Plan>> = {
     limits: { eventsPerMonth: 100_000, emailsPerMonth: 25_000, seats: 3 },
   },
   growth: {
-    entitledModules: ["consent", "email", "social-intel", "youtube"],
+    entitledModules: ["consent", "email", "social-intel"],
     limits: { eventsPerMonth: 1_000_000, emailsPerMonth: 250_000, seats: 10 },
   },
   agency: {
-    entitledModules: ["consent", "email", "social-intel", "youtube", "automation"],
+    entitledModules: ["consent", "email", "social-intel", "automation"],
     limits: {
       eventsPerMonth: Infinity,
       emailsPerMonth: Infinity,

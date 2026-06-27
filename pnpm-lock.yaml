@@ -38,9 +38,6 @@ importers:
       '@cdp-us/social-intel':
         specifier: workspace:*
         version: link:../../modules/social-intel
-      '@cdp-us/youtube':
-        specifier: workspace:*
-        version: link:../../modules/youtube
       '@fastify/cors':
         specifier: ^10.0.2
         version: 10.1.0
@@ -95,16 +92,6 @@ importers:
         version: 2.1.9(@types/node@22.20.0)
 
   modules/social-intel:
-    dependencies:
-      '@cdp-us/contracts':
-        specifier: workspace:*
-        version: link:../../packages/contracts
-    devDependencies:
-      vitest:
-        specifier: ^2.1.8
-        version: 2.1.9(@types/node@22.20.0)
-
-  modules/youtube:
     dependencies:
       '@cdp-us/contracts':
         specifier: workspace:*

@@ -26,7 +26,6 @@ export interface User {
 export const MODULE_KEYS = [
   "email",
   "social-intel",
-  "youtube",
   "automation",
   "consent",
 ] as const;

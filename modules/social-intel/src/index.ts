@@ -37,3 +37,6 @@ export {
 } from "./analyze.js";
 
 export { socialIntelManifest } from "./manifest.js";
+
+// YouTube / video analytics is part of social-intel.
+export * from "./youtube/index.js";

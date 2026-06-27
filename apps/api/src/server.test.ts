@@ -102,7 +102,6 @@ describe("api server", () => {
       { key: "consent" },
       { key: "email" },
       { key: "social-intel" },
-      { key: "youtube" },
       { key: "automation" },
     ]);
   });

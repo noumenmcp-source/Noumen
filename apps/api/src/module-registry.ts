@@ -7,13 +7,11 @@ import { automationManifest } from "@cdp-us/automation";
 import { consentManifest } from "@cdp-us/consent";
 import { emailManifest } from "@cdp-us/email";
 import { socialIntelManifest } from "@cdp-us/social-intel";
-import { youtubeManifest } from "@cdp-us/youtube";
 
 const manifests: ModuleManifest[] = [
   consentManifest,
   emailManifest,
   socialIntelManifest,
-  youtubeManifest,
   automationManifest,
 ];
 

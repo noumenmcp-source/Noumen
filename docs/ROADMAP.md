@@ -20,8 +20,7 @@
 
 ## Фаза 3 — модули-апселлы
 - **email** — per-profile ИИ-персонализация (движок Dittofeed-класса);
-- **social-intel** — tenant-scoped соц-разведка (коллекторы YT/TikTok/X/Reddit);
-- **youtube** — видео-аналитика;
+- **social-intel** — tenant-scoped соц-разведка вкл. YouTube/видео-аналитику (коллекторы YT/TikTok/X/Reddit);
 - **automation** — авто-постинг соцсетей + авто-ответы в мессенджерах (мультитенант).
 
 ## Сквозное (с фазы 1)

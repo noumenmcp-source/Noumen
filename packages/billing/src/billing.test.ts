@@ -19,9 +19,8 @@ describe("entitlement per plan", () => {
     expect(canEnableModule(PLANS.starter, "social-intel")).toBe(false);
   });
 
-  it("growth includes social-intel and youtube, not automation", () => {
+  it("growth includes social-intel, not automation", () => {
     expect(canEnableModule(PLANS.growth, "social-intel")).toBe(true);
-    expect(canEnableModule(PLANS.growth, "youtube")).toBe(true);
     expect(canEnableModule(PLANS.growth, "automation")).toBe(false);
   });
 
@@ -29,7 +28,6 @@ describe("entitlement per plan", () => {
     for (const m of [
       "email",
       "social-intel",
-      "youtube",
       "automation",
       "consent",
     ] as const) {

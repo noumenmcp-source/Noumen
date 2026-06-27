@@ -8,7 +8,6 @@
     { "path": "../../modules/automation" },
     { "path": "../../modules/consent" },
     { "path": "../../modules/email" },
-    { "path": "../../modules/social-intel" },
-    { "path": "../../modules/youtube" }
+    { "path": "../../modules/social-intel" }
   ]
 }

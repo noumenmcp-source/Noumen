@@ -9,7 +9,6 @@
     { "path": "modules/consent" },
     { "path": "modules/email" },
     { "path": "modules/social-intel" },
-    { "path": "modules/youtube" },
     { "path": "apps/api" }
   ]
 }
