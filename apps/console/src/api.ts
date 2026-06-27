@@ -1,5 +1,5 @@
 import { asEvents, asHealth, asModules, asProfiles, asTenant } from "./guards";
-import type { Health, ModuleManifest, Profile, Tenant, TimelineEvent } from "./types";
+import type { AudienceEvaluateBody, AudienceResult, FunnelStep, Health, JourneyResult, ModuleManifest, Profile, RetentionPoint, Tenant, TimelineEvent } from "./types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8110";
 
@@ -93,4 +93,67 @@ cdp.track("Page Viewed", { path: window.location.pathname });`;
 
 function authed(path: string, token: string): Promise<unknown> {
   return request(path, { headers: { authorization: `Bearer ${token}` } });
+}
+
+/** @example const result = await evaluateAudience("t_1", token, { rule: [{ path: "traits.plan", equals: "pro" }] }); */
+export async function evaluateAudience(tenantId: string, token: string, body: AudienceEvaluateBody): Promise<AudienceResult | null> {
+  return asAudienceResult(await authedPost(`/v1/tenants/${tenantId}/audiences/evaluate`, token, body));
+}
+
+/** @example const result = await runJourney("t_1", token, { key: "welcome", steps: [] }); */
+export async function runJourney(tenantId: string, token: string, definition: unknown): Promise<JourneyResult | null> {
+  return asJourneyResult(await authedPost(`/v1/tenants/${tenantId}/journeys/run`, token, { definition }));
+}
+
+/** @example const steps = await analyticsFunnel("t_1", token, ["Signup", "Paid"]); */
+export async function analyticsFunnel(tenantId: string, token: string, steps: readonly string[]): Promise<readonly FunnelStep[]> {
+  const data = await authedPost(`/v1/tenants/${tenantId}/analytics/funnel`, token, { steps });
+  const root = isRecord(data) ? data.steps : undefined;
+  return Array.isArray(root) ? root.filter(isFunnelStep) : [];
+}
+
+/** @example const retained = await analyticsRetention("t_1", token, { cohortDay: "2026-06-01", windowDays: 7, now: "2026-06-08" }); */
+export async function analyticsRetention(tenantId: string, token: string, opts: { readonly cohortDay: string; readonly windowDays: number; readonly now: string }): Promise<readonly RetentionPoint[]> {
+  const data = await authedPost(`/v1/tenants/${tenantId}/analytics/retention`, token, opts);
+  const retained = isRecord(data) && Array.isArray(data.retained) ? data.retained : [];
+  return retained.map((rate, day) => ({ day, rate: typeof rate === "number" ? rate : 0 }));
+}
+
+function authedPost(path: string, token: string, body: unknown): Promise<unknown> {
+  return request(path, { method: "POST", headers: { authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
+}
+
+function asAudienceResult(value: unknown): AudienceResult | null {
+  if (!isRecord(value) || value.ok !== true || typeof value.tenantId !== "string" || typeof value.key !== "string" || typeof value.size !== "number" || !Array.isArray(value.sampleIds)) return null;
+  const overlap = asOverlap(value.overlap);
+  return { ok: true, tenantId: value.tenantId, key: value.key, size: value.size, sampleIds: value.sampleIds.filter(isString), ...(overlap ? { overlap } : {}) };
+}
+
+function asJourneyResult(value: unknown): JourneyResult | null {
+  if (!isRecord(value) || typeof value.journeyKey !== "string" || !isJourneyStatus(value.status) || !Array.isArray(value.results)) return null;
+  return { journeyKey: value.journeyKey, status: value.status, results: value.results.filter(isJourneyStepResult) };
+}
+
+function asOverlap(value: unknown): AudienceResult["overlap"] | null {
+  return isRecord(value) && typeof value.aOnly === "number" && typeof value.bOnly === "number" && typeof value.both === "number" ? { aOnly: value.aOnly, bOnly: value.bOnly, both: value.both } : null;
+}
+
+function isFunnelStep(value: unknown): value is FunnelStep {
+  return isRecord(value) && typeof value.step === "string" && typeof value.count === "number" && typeof value.dropoff === "number";
+}
+
+function isJourneyStepResult(value: unknown): value is JourneyResult["results"][number] {
+  return isRecord(value) && typeof value.key === "string" && typeof value.type === "string" && typeof value.status === "string";
+}
+
+function isJourneyStatus(value: unknown): value is JourneyResult["status"] {
+  return value === "completed" || value === "halted" || value === "rejected";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === "string";
 }
