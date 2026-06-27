@@ -1,0 +1,71 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`destinations > maps profiles for all supported destinations > hubspot 1`] = `
+{
+  "body": {
+    "company": "Acme",
+    "email": "buyer@example.com",
+    "external_id": "user_1",
+    "intent_score": 81,
+  },
+  "destination": {
+    "key": "hubspot",
+    "requiresConsent": "marketing_email",
+  },
+  "endpoint": "https://example.com/hubspot",
+  "key": "hubspot:profile_1",
+  "subject": "user_1",
+}
+`;
+
+exports[`destinations > maps profiles for all supported destinations > salesforce 1`] = `
+{
+  "body": {
+    "company": "Acme",
+    "email": "buyer@example.com",
+    "external_id": "user_1",
+    "intent_score": 81,
+  },
+  "destination": {
+    "key": "salesforce",
+    "requiresConsent": "marketing_email",
+  },
+  "endpoint": "https://example.com/salesforce",
+  "key": "salesforce:profile_1",
+  "subject": "user_1",
+}
+`;
+
+exports[`destinations > maps profiles for all supported destinations > slack 1`] = `
+{
+  "body": {
+    "company": "Acme",
+    "email": "buyer@example.com",
+    "external_id": "user_1",
+    "intent_score": 81,
+  },
+  "destination": {
+    "key": "slack",
+  },
+  "endpoint": "https://example.com/slack",
+  "key": "slack:profile_1",
+  "subject": "user_1",
+}
+`;
+
+exports[`destinations > maps profiles for all supported destinations > webhook 1`] = `
+{
+  "body": {
+    "company": "Acme",
+    "email": "buyer@example.com",
+    "external_id": "user_1",
+    "intent_score": 81,
+  },
+  "destination": {
+    "key": "webhook",
+  },
+  "endpoint": "https://example.com/webhook",
+  "key": "webhook:profile_1",
+  "subject": "user_1",
+}
+`;
