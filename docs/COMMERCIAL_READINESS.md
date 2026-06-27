@@ -31,9 +31,9 @@ Legend: ✅ done & verified · 🟡 partial · ❌ missing · 🔑 owner decisio
 | # | Gap | Sev | Effort | Notes |
 |---|-----|-----|--------|-------|
 | B1 | **No payment provider.** Billing *enforces* tiers but cannot *charge*. No Stripe/checkout/subscription lifecycle, no upgrade flow. | ❌ blocker | L 🔑 | The revenue mechanism itself. Stripe Billing + webhook → set tenant `plan`. |
-| B2 | **DSAR delete is a plan, not an execution.** `planDeletion` returns targets; nothing purges data. CCPA/CPRA right-to-delete is legally mandatory. | ❌ blocker | M | Add execute path: redact/tombstone profile + delete events/consent rows; audit it. |
-| B3 | **Consent ledger is in-memory.** `applyConsentState` writes a module-level Map; `consent_records` table exists but is unused. Consent proof is lost on restart. | ❌ blocker | L | Sync `isAllowed` gate must go async + DB-backed (ripples through ingest/email/automation). |
-| B4 | **No live environment.** AWS ECS Terraform (`infra/`) + Fly.io runbook exist but were never applied. No US Postgres provisioned, no domain, no TLS. | ❌ blocker | M 🔑 | Pick Fly.io (fast) vs AWS ECS (Terraform ready). Needs cloud creds + approval. |
+| B2 | ~~DSAR delete is a plan, not an execution.~~ **DONE** (`75bf46c`): `executeDeletion` deletes a subject's events + anonymizes the profile in place; wired into the DSAR route, audited, real-PG integration test. | ✅ done | — | Per-event deletion under a *partial* legal hold retains all (safe); not yet fine-grained. |
+| B3 | ~~Consent ledger is in-memory.~~ **DONE** (`3e7ba9e`): consent write-through to `consent_states` + cache rehydrate on boot; survives restart. | ✅ done | — | Per-process cache (multi-replica needs hydrate or async read); tamper-evident hash-chained `consent_records` ledger still pending. |
+| B4 | **No live environment.** AWS ECS Terraform (`infra/`) + Fly.io runbook exist but were never applied. No US Postgres provisioned, no domain, no TLS. **Host chosen: Fly.io.** | ❌ blocker | M 🔑 | Needs cloud creds + domain + approval. |
 
 ---
 
