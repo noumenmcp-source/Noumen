@@ -1,0 +1,37 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #f6f7f5;
+  color: #17211c;
+  font-family: Arial, Helvetica, sans-serif;
+  letter-spacing: 0;
+}
+
+@layer components {
+  .panel {
+    @apply rounded-md border border-line bg-white p-5 shadow-panel;
+  }
+
+  .input {
+    @apply min-h-10 rounded-md border border-line bg-white px-3 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent/20;
+  }
+
+  .btn {
+    @apply inline-flex min-h-10 items-center justify-center rounded-md bg-accent px-4 text-sm font-semibold text-white transition hover:bg-[#1b493b] focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2;
+  }
+
+  .navlink {
+    @apply rounded-md px-3 py-2 text-sm text-ink/70 hover:bg-field hover:text-ink focus:outline-none focus:ring-2 focus:ring-accent;
+  }
+}
