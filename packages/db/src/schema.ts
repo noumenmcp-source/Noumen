@@ -131,6 +131,26 @@ export const suppressionEntries = pgTable("suppression_entries", {
 });
 
 /**
+ * Durable current-consent snapshot for the consent gate. One row per
+ * (tenant, subject); `state` is the resolved ConsentState purposes. Lets the
+ * in-memory gate survive restarts (hydrated on boot). The tamper-evident
+ * hash-chained ledger (`consent_records`) is a separate concern.
+ */
+export const consentStates = pgTable(
+  "consent_states",
+  {
+    tenantId: text("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    subject: text("subject").notNull(),
+    state: jsonb("state").$type<Record<string, boolean>>().notNull(),
+    source: text("source").notNull().default("banner"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.tenantId, t.subject] })],
+);
+
+/**
  * Durable metered-usage accumulator backing billing limit enforcement. One row
  * per (tenant, metric); `count` is incremented atomically. Flat accumulator —
  * no period windowing (matches the UsageMeter contract; monthly reset is a

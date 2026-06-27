@@ -43,7 +43,7 @@ export function registerConsent(
     }
 
     const state = resolveConsent({ bannerChoice, gpc });
-    applyConsentState(tenant.id, subject, state);
+    await applyConsentState(tenant.id, subject, state);
     return reply.send({ ok: true, state });
   });
 }

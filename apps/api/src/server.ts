@@ -35,7 +35,8 @@ import {
 } from "@cdp-us/automation";
 import { registerEmail } from "./routes/email.js";
 import { registerConsent } from "./routes/consent.js";
-import { isAllowed } from "./consent.js";
+import { isAllowed, hydrateConsent, setConsentBackend } from "./consent.js";
+import { DbConsentStore } from "./consent-store.js";
 import { registerIntel, type CollectorRegistry } from "./routes/intel.js";
 import { registerAutomations } from "./routes/automations.js";
 import { registerAnalytics } from "./routes/analytics.js";
@@ -102,6 +103,15 @@ export async function buildServer(
   const profileService = new ProfileService(profileStore);
   const emailSender = opts.emailSender ?? createDefaultEmailSender();
   const usageMeter = opts.usageMeter ?? createDefaultUsageMeter();
+
+  // Durable consent: persist writes and rehydrate the in-process gate on boot.
+  const consentConnectionString = process.env.DATABASE_URL;
+  if (consentConnectionString) {
+    setConsentBackend(new DbConsentStore(createDb(consentConnectionString)));
+    await hydrateConsent();
+  } else {
+    setConsentBackend(undefined);
+  }
   // No social providers are wired by default: intel returns 503 per platform
   // until a collector (with the tenant's provider creds) is injected.
   const collectors = opts.collectors ?? {};

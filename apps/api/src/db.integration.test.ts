@@ -12,6 +12,8 @@ import { DbTokenStore } from "./auth.js";
 import { DbProfileStore } from "@cdp-us/core-cdp";
 import { TOMBSTONE_MARKER } from "@cdp-us/data-export";
 import { buildServer } from "./server.js";
+import { isAllowed, resetConsentOverrides } from "./consent.js";
+import { consentStates } from "@cdp-us/db";
 
 const url = process.env.DATABASE_URL;
 const run = describe.skipIf(!url);
@@ -276,5 +278,36 @@ run("db integration (real Postgres)", () => {
     const all = await profileStore.listByTenant(tenant.id);
     const scrubbed = all.find((p) => p.traits.phone === TOMBSTONE_MARKER);
     expect(scrubbed?.email).toBe(TOMBSTONE_MARKER);
+  });
+
+  it("consent persists and rehydrates the gate across a restart", async () => {
+    const { tenant } = await tenantStore.createTenantAccount({
+      name: `Integration Test ${randomUUID()}`,
+      ownerEmail: `owner-${randomUUID()}@example.com`,
+    });
+    const subject = `sub_${randomUUID()}`;
+
+    const app = await buildServer({ logger: false });
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/consent",
+      payload: { writeKey: tenant.writeKey, subject, bannerChoice: { marketingEmailOptIn: true } },
+    });
+    await app.close();
+    expect(res.statusCode).toBe(200);
+
+    // Row persisted in the durable snapshot table.
+    const rows = await db
+      .select()
+      .from(consentStates)
+      .where(eq(consentStates.tenantId, tenant.id));
+    expect(rows.some((r) => r.subject === subject)).toBe(true);
+
+    // Simulate a restart: wipe the in-process cache, then rebuild (hydrates).
+    resetConsentOverrides();
+    expect(isAllowed(tenant.id, subject, "marketing_email")).toBe(false);
+    const app2 = await buildServer({ logger: false });
+    await app2.close();
+    expect(isAllowed(tenant.id, subject, "marketing_email")).toBe(true);
   });
 });
