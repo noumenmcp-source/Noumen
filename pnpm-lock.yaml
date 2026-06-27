@@ -211,6 +211,16 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
 
+  packages/attribution:
+    dependencies:
+      '@cdp-us/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
+
   packages/billing:
     dependencies:
       '@cdp-us/contracts':
@@ -262,6 +272,16 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
 
+  packages/data-quality:
+    dependencies:
+      '@cdp-us/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
+
   packages/db:
     dependencies:
       drizzle-orm:
@@ -278,6 +298,16 @@ importers:
         specifier: ^0.28.1
         version: 0.28.1
 
+  packages/destinations:
+    dependencies:
+      '@cdp-us/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
+
   packages/email-templates:
     dependencies:
       mjml:
@@ -292,6 +322,16 @@ importers:
         version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
 
   packages/integrations:
+    dependencies:
+      '@cdp-us/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
+
+  packages/journeys:
     dependencies:
       '@cdp-us/contracts':
         specifier: workspace:*
@@ -337,6 +377,16 @@ importers:
       react-dom:
         specifier: ^19.0.0
         version: 19.2.7(react@19.2.7)
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
+
+  packages/warehouse-sync:
+    dependencies:
+      '@cdp-us/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
       vitest:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
