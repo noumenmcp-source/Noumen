@@ -122,7 +122,7 @@ export const CAPABILITIES: readonly Capability[] = [
     summary: "External social and web signals layered onto profiles.",
     desc: "external signals",
     features: ["Collector registry", "Signal ingestion", "Module-gated"],
-    role: "admin · module enabled", endpoints: [{ method: "GET", path: `${T}/intel` }],
+    role: "admin · paid module (billing required)", endpoints: [{ method: "GET", path: `${T}/intel` }],
   },
   {
     key: "warehouse-sync", name: "Warehouse sync", icon: "database",

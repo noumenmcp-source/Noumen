@@ -12,14 +12,23 @@ export class ApiError extends Error {
   }
 }
 
+const REQUEST_TIMEOUT_MS = 18000;
+
 async function request(path: string, init: RequestInit = {}): Promise<unknown> {
-  const res = await fetch(`${API_URL}${path}`, {
-    ...init,
-    headers: { "content-type": "application/json", ...init.headers },
-    cache: "no-store",
-  });
-  if (!res.ok) throw new ApiError(await errorText(res), res.status);
-  return res.json() as Promise<unknown>;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${API_URL}${path}`, {
+      ...init,
+      headers: { "content-type": "application/json", ...init.headers },
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new ApiError(await errorText(res), res.status);
+    return (await res.json()) as unknown;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function errorText(res: Response): Promise<string> {

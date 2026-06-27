@@ -2,11 +2,11 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { analyticsFunnel, analyticsTimeseries, audienceSize, getHealth } from "../src/api";
+import { analyticsFunnel, analyticsTimeseries, getHealth, getProfiles } from "../src/api";
 import type { TimePoint } from "../src/api";
 import { clearSession, effectiveSession } from "../src/session";
 import { CAPABILITIES } from "../src/capabilities";
-import type { FunnelStep, Health, Session } from "../src/types";
+import type { FunnelStep, Health, Profile, Session } from "../src/types";
 import { Badge, ErrorState, PageHeader, Shell } from "../src/ui";
 import {
   AreaChart, BreakdownBars, CapabilityGrid, FunnelChart, Kpi, SectionCard,
@@ -24,11 +24,14 @@ const DEVICES: ReadonlyArray<{ readonly v: string; readonly icon: BreakdownItem[
 const CHANNELS = ["paid_search", "linkedin_ads", "organic_search", "email", "webinar", "partner_referral", "direct"] as const;
 const INDUSTRIES = ["Manufacturing", "SaaS", "Fintech", "Healthcare", "Retail", "Media", "Logistics", "Education"] as const;
 
-interface Overview {
+interface Core {
   readonly total: number;
   readonly events: number;
   readonly funnel: readonly FunnelStep[];
   readonly series: readonly TimePoint[];
+}
+
+interface Breakdowns {
   readonly devices: readonly BreakdownItem[];
   readonly channels: readonly BreakdownItem[];
   readonly industries: readonly BreakdownItem[];
@@ -40,23 +43,23 @@ function windowDates(): { readonly from: string; readonly to: string } {
   return { from: from.toISOString().slice(0, 10), to: now.toISOString().slice(0, 10) };
 }
 
-async function loadBreakdown(
-  tenantId: string, token: string, path: string, values: readonly string[],
-  icons?: Record<string, BreakdownItem["icon"]>,
-): Promise<BreakdownItem[]> {
-  const rows = await Promise.all(
-    values.map((v) =>
-      audienceSize(tenantId, token, path, v)
-        .then((value): BreakdownItem => ({ label: v, value, icon: icons?.[v] }))
-        .catch((): BreakdownItem => ({ label: v, value: 0 })),
-    ),
-  );
-  return rows.sort((a, b) => b.value - a.value);
+/** Tally one trait across the profile set into sorted breakdown bars — a single
+ * /profiles read replaces N per-segment audience scans. */
+function tally(profiles: readonly Profile[], trait: string, icons?: Record<string, BreakdownItem["icon"]>): BreakdownItem[] {
+  const counts = new Map<string, number>();
+  for (const p of profiles) {
+    const v = p.traits[trait];
+    if (typeof v === "string") counts.set(v, (counts.get(v) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([label, value]): BreakdownItem => ({ label, value, icon: icons?.[label] }))
+    .sort((a, b) => b.value - a.value);
 }
 
 export default function DashboardPage() {
   const [ctx, setCtx] = useState<{ readonly session: Session; readonly demo: boolean } | null>(null);
-  const [overview, setOverview] = useState<Overview | null>(null);
+  const [core, setCore] = useState<Core | null>(null);
+  const [bd, setBd] = useState<Breakdowns | null>(null);
   const [health, setHealth] = useState<Health | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -74,25 +77,37 @@ export default function DashboardPage() {
     const demoTenant = process.env.NEXT_PUBLIC_DEMO_TENANT;
     const demoToken = process.env.NEXT_PUBLIC_DEMO_TOKEN;
 
-    async function loadWith(session: Session): Promise<number> {
+    // KPIs, chart and funnel — the cheap, fast calls. Rendered as soon as ready,
+    // independent of the heavier per-segment breakdowns below.
+    async function loadCore(session: Session): Promise<number> {
       const { tenantId, apiToken } = session;
-      const funnel: readonly FunnelStep[] = await analyticsFunnel(tenantId, apiToken, FUNNEL_STEPS as unknown as string[]).catch(() => []);
-      const series: readonly TimePoint[] = await analyticsTimeseries(tenantId, apiToken, { metric: "events", from, to }).catch(() => []);
-      const [devices, channels, industries] = await Promise.all([
-        loadBreakdown(tenantId, apiToken, "traits.deviceType", DEVICES.map((d) => d.v), deviceIcons),
-        loadBreakdown(tenantId, apiToken, "traits.acquisitionChannel", CHANNELS),
-        loadBreakdown(tenantId, apiToken, "traits.industry", INDUSTRIES),
+      const [funnel, series] = await Promise.all([
+        analyticsFunnel(tenantId, apiToken, FUNNEL_STEPS as unknown as string[]).catch(() => [] as readonly FunnelStep[]),
+        analyticsTimeseries(tenantId, apiToken, { metric: "events", from, to }).catch(() => [] as readonly TimePoint[]),
       ]);
       let events = 0;
       for (const p of series) events += p.value;
       const total = funnel[0]?.count ?? 0;
-      setOverview({ total, events, funnel, series, devices, channels, industries });
+      setCore({ total, events, funnel, series });
       return total;
+    }
+
+    // Breakdowns from a single /profiles read, aggregated client-side — one
+    // request instead of N server-side full-table scans. Loads separately from
+    // the KPIs so it never blocks them.
+    async function loadBreakdowns(session: Session): Promise<void> {
+      const profiles = await getProfiles(session.tenantId, session.apiToken).catch(() => [] as readonly Profile[]);
+      if (!profiles.length) return;
+      setBd({
+        devices: tally(profiles, "deviceType", deviceIcons),
+        channels: tally(profiles, "acquisitionChannel"),
+        industries: tally(profiles, "industry"),
+      });
     }
 
     const active = found;
     async function run(): Promise<void> {
-      const total = await loadWith(active.session).catch(() => 0);
+      const total = await loadCore(active.session).catch(() => 0);
       // A stored session that yields no data (stale/invalid token, or an empty
       // tenant) must not brick the public demo: blow it away and load the demo
       // workspace instead. A real, populated login (total > 0) is left untouched.
@@ -100,17 +115,20 @@ export default function DashboardPage() {
         clearSession();
         const demoSession: Session = { tenantId: demoTenant, apiToken: demoToken, tenant: null };
         setCtx({ session: demoSession, demo: true });
-        await loadWith(demoSession);
+        await loadCore(demoSession);
+        await loadBreakdowns(demoSession);
+        return;
       }
+      await loadBreakdowns(active.session);
     }
 
     run().catch((err: unknown) => setError(String(err))).finally(() => setLoading(false));
   }, []);
 
-  const conv = overview && overview.funnel.length > 1
-    ? pct(overview.funnel[overview.funnel.length - 1].count, overview.funnel[0].count) : "—";
-  const avgEvents = overview && overview.total ? (overview.events / overview.total).toFixed(1) : "—";
-  const capabilities = buildCapabilities(overview);
+  const conv = core && core.funnel.length > 1
+    ? pct(core.funnel[core.funnel.length - 1].count, core.funnel[0].count) : "—";
+  const avgEvents = core && core.total ? (core.events / core.total).toFixed(1) : "—";
+  const capabilities = buildCapabilities(core, bd);
 
   return (
     <Shell>
@@ -141,34 +159,34 @@ export default function DashboardPage() {
         ) : null}
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <Kpi icon="users" label="Profiles" value={overview ? fmt(overview.total) : <Skeleton />} sub={ctx?.demo ? "synthetic dataset" : undefined} />
-          <Kpi icon="activity" label="Events · 30d" value={overview ? fmt(overview.events) : <Skeleton />} sub={`${FUNNEL_STEPS.length + 1} event types`} />
-          <Kpi icon="funnel" label="Conversion" value={overview ? conv : <Skeleton />} sub="product → upgrade" subTone="ok" />
-          <Kpi icon="chart" label="Events / profile" value={overview ? avgEvents : <Skeleton />} sub="engagement depth" />
+          <Kpi icon="users" label="Profiles" value={core ? fmt(core.total) : <Skeleton />} sub={ctx?.demo ? "synthetic dataset" : undefined} />
+          <Kpi icon="activity" label="Events · 30d" value={core ? fmt(core.events) : <Skeleton />} sub={`${FUNNEL_STEPS.length + 1} event types`} />
+          <Kpi icon="funnel" label="Conversion" value={core ? conv : <Skeleton />} sub="product → upgrade" subTone="ok" />
+          <Kpi icon="chart" label="Events / profile" value={core ? avgEvents : <Skeleton />} sub="engagement depth" />
         </div>
 
         <div className="grid gap-4 xl:grid-cols-[1.4fr_1fr]">
           <SectionCard title="Event volume" hint="Daily tracked events · last 30 days" action={<Badge tone="info">events</Badge>}>
-            {overview ? <AreaChart points={overview.series} /> : <Skeleton block />}
+            {core ? <AreaChart points={core.series} /> : <Skeleton block />}
           </SectionCard>
           <SectionCard title="Acquisition funnel" hint="Product view → paid upgrade">
-            {overview && overview.funnel.length ? <FunnelChart steps={overview.funnel} /> : <Skeleton block />}
+            {core && core.funnel.length ? <FunnelChart steps={core.funnel} /> : <Skeleton block />}
           </SectionCard>
         </div>
 
         <div className="grid gap-4 md:grid-cols-3">
           <SectionCard title="Devices" hint="Sessions by device class">
-            {overview ? <BreakdownBars items={overview.devices} barClass="bg-blue-500" /> : <Skeleton block />}
+            {bd ? <BreakdownBars items={bd.devices} barClass="bg-blue-500" /> : <Skeleton block />}
           </SectionCard>
           <SectionCard title="Acquisition channels" hint="Where profiles come from">
-            {overview ? <BreakdownBars items={overview.channels} barClass="bg-indigo-500" /> : <Skeleton block />}
+            {bd ? <BreakdownBars items={bd.channels} barClass="bg-indigo-500" /> : <Skeleton block />}
           </SectionCard>
           <SectionCard title="Industries" hint="Firmographic mix">
-            {overview ? <BreakdownBars items={overview.industries} barClass="bg-teal-500" /> : <Skeleton block />}
+            {bd ? <BreakdownBars items={bd.industries} barClass="bg-teal-500" /> : <Skeleton block />}
           </SectionCard>
         </div>
 
-        <SectionCard title="Platform capabilities" hint="Every CDP module live on this US runtime" action={<Badge tone="ok">{capabilities.length} modules</Badge>}>
+        <SectionCard title="Platform capabilities" hint="Full CDP module surface — click any module for endpoints + live demo" action={<Badge tone="ok">{capabilities.length} modules</Badge>}>
           <CapabilityGrid items={capabilities} />
         </SectionCard>
 
@@ -185,8 +203,8 @@ export default function DashboardPage() {
           </SectionCard>
           <SectionCard title="Data coverage" hint="What this workspace is tracking">
             <dl className="grid grid-cols-2 gap-3 text-sm">
-              <Fact label="Tracked profiles" value={overview ? fmt(overview.total) : "—"} />
-              <Fact label="Events · 30d" value={overview ? fmt(overview.events) : "—"} />
+              <Fact label="Tracked profiles" value={core ? fmt(core.total) : "—"} />
+              <Fact label="Events · 30d" value={core ? fmt(core.events) : "—"} />
               <Fact label="Segments evaluated" value={String(DEVICES.length + CHANNELS.length + INDUSTRIES.length)} />
               <Fact label="Region" value={(health?.region ?? "us").toUpperCase()} />
             </dl>
@@ -197,9 +215,9 @@ export default function DashboardPage() {
   );
 }
 
-function buildCapabilities(o: Overview | null): readonly Capability[] {
-  const conv = o && o.funnel.length > 1 ? pct(o.funnel[o.funnel.length - 1].count, o.funnel[0].count) : undefined;
-  const topChannel = o?.channels[0]?.label.replace(/_/g, " ");
+function buildCapabilities(core: Core | null, bd: Breakdowns | null): readonly Capability[] {
+  const conv = core && core.funnel.length > 1 ? pct(core.funnel[core.funnel.length - 1].count, core.funnel[0].count) : undefined;
+  const topChannel = bd?.channels[0]?.label.replace(/_/g, " ");
   const segments = DEVICES.length + CHANNELS.length + INDUSTRIES.length;
   const liveStat: Record<string, string | undefined> = {
     analytics: conv ? `${conv} conversion` : undefined,
@@ -212,6 +230,7 @@ function buildCapabilities(o: Overview | null): readonly Capability[] {
     icon: c.icon,
     stat: liveStat[c.key] ?? c.desc,
     href: `/capabilities/${c.key}`,
+    live: Boolean(c.demo),
   }));
 }
 
