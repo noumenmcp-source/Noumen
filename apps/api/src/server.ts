@@ -16,6 +16,13 @@ import {
 } from "@cdp-us/core-cdp";
 import { registerData } from "./routes/data.js";
 import {
+  FakeSender,
+  ResendSender,
+  type EmailSender,
+} from "@cdp-us/email";
+import { InMemoryUsageMeter, type UsageMeter } from "@cdp-us/billing";
+import { registerEmail } from "./routes/email.js";
+import {
   DbIngestStore,
   InMemoryIngestStore,
   type IngestStore,
@@ -37,6 +44,8 @@ export async function buildServer(
     tenantStore?: TenantStore;
     tokenStore?: TokenStore;
     profileStore?: ProfileStore;
+    emailSender?: EmailSender;
+    usageMeter?: UsageMeter;
     rateLimit?: { max: number; timeWindow: number | string } | false;
   } = {},
 ) {
@@ -46,6 +55,8 @@ export async function buildServer(
   const tokenStore = opts.tokenStore ?? createDefaultTokenStore();
   const profileStore = opts.profileStore ?? createDefaultProfileStore();
   const profileService = new ProfileService(profileStore);
+  const emailSender = opts.emailSender ?? createDefaultEmailSender();
+  const usageMeter = opts.usageMeter ?? new InMemoryUsageMeter();
   await app.register(cors, {
     origin: true,
     methods: ["GET", "POST", "OPTIONS"],
@@ -63,6 +74,10 @@ export async function buildServer(
   registerSignup(app, tenantStore, tokenStore);
   registerIngest(app, ingestStore, tenantStore, profileService);
   registerData(app, profileStore, ingestStore, tokenStore);
+  registerEmail(app, profileStore, tokenStore, {
+    sender: emailSender,
+    usageMeter,
+  });
   return app;
 }
 
@@ -88,6 +103,10 @@ function createDefaultTokenStore(): TokenStore {
     return new DbTokenStore(createDb(connectionString));
   }
   return new InMemoryTokenStore();
+}
+
+function createDefaultEmailSender(): EmailSender {
+  return process.env.RESEND_API_KEY ? new ResendSender() : new FakeSender();
 }
 
 function createDefaultProfileStore(): ProfileStore {

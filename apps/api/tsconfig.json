@@ -6,6 +6,7 @@
     { "path": "../../packages/contracts" },
     { "path": "../../packages/db" },
     { "path": "../../packages/core-cdp" },
+    { "path": "../../packages/billing" },
     { "path": "../../modules/automation" },
     { "path": "../../modules/consent" },
     { "path": "../../modules/email" },

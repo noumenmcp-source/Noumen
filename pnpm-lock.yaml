@@ -23,6 +23,9 @@ importers:
       '@cdp-us/automation':
         specifier: workspace:*
         version: link:../../modules/automation
+      '@cdp-us/billing':
+        specifier: workspace:*
+        version: link:../../packages/billing
       '@cdp-us/consent':
         specifier: workspace:*
         version: link:../../modules/consent
