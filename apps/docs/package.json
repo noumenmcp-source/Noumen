@@ -1,0 +1,9 @@
+{
+  "name": "@cdp-us/docs",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "astro build" },
+  "dependencies": { "astro": "^5.14.8" },
+  "devDependencies": {}
+}

@@ -1,0 +1,136 @@
+---
+import { endpoints, modules } from "../content/docs";
+
+const nav = ["Quickstart", "Connector", "API", "SDKs", "Modules", "Architecture", "Compliance"];
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CDP-US Documentation</title>
+    <meta
+      name="description"
+      content="Developer documentation for CDP-US: connector setup, API reference, SDKs, modules, and US compliance notes."
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/">CDP-US Docs</a>
+      <nav aria-label="Documentation">
+        {nav.map((item) => <a href={`#${item.toLowerCase()}`}>{item}</a>)}
+      </nav>
+    </header>
+    <main>
+      <section class="hero" id="quickstart">
+        <p class="eyebrow">US B2B customer data platform</p>
+        <h1>Start with one write key, then add modules.</h1>
+        <p>
+          CDP-US collects customer events and profiles first. Email, social intelligence,
+          automation, consent, and billing modules consume that shared data foundation.
+        </p>
+        <ol class="steps">
+          <li>Sign up and save the tenant id, API token, and write key.</li>
+          <li>Install the browser connector or a server SDK.</li>
+          <li>Enable modules once profiles and events are flowing.</li>
+        </ol>
+      </section>
+
+      <section id="connector" class="section">
+        <div>
+          <p class="eyebrow">Install the connector</p>
+          <h2>Browser and server ingestion</h2>
+          <p>
+            The browser SDK sends page and identify events. Server SDKs use the same
+            <code>/v1/track</code> batch shape for backend events.
+          </p>
+        </div>
+        <pre><code>{`import { createTracker } from "@cdp-us/sdk";
+
+const cdp = createTracker({
+  writeKey: "wk_...",
+  endpoint: "https://api.example.com/v1/track"
+});
+
+cdp.track("Page Viewed", { path: location.pathname });`}</code></pre>
+        <pre><code>{`import { CdpServer } from "@cdp-us/sdk-node";
+
+const cdp = new CdpServer({ writeKey: "wk_..." });
+await cdp.track("anon_1", "Order Created", { value: 49 });
+await cdp.close();`}</code></pre>
+        <pre><code>{`from cdp_us import CdpClient
+
+with CdpClient("wk_...") as cdp:
+    cdp.track("anon_1", "Order Created", {"value": 49})`}</code></pre>
+      </section>
+
+      <section id="api" class="section">
+        <p class="eyebrow">API Reference</p>
+        <h2>Versioned HTTP surface</h2>
+        <div class="endpoint-grid">
+          {
+            endpoints.map((endpoint) => (
+              <article class="endpoint-card">
+                <div class="endpoint-title">
+                  <strong>{endpoint.method}</strong>
+                  <code>{endpoint.path}</code>
+                  <span class={`status ${endpoint.status}`}>{endpoint.status}</span>
+                </div>
+                <p><b>Auth:</b> {endpoint.auth}</p>
+                <pre><code>{endpoint.request}</code></pre>
+                <pre><code>{endpoint.response}</code></pre>
+              </article>
+            ))
+          }
+        </div>
+      </section>
+
+      <section id="sdks" class="section two-col">
+        <div>
+          <p class="eyebrow">SDKs</p>
+          <h2>Use the smallest client for each surface.</h2>
+        </div>
+        <ul class="feature-list">
+          <li><b>Browser:</b> <code>@cdp-us/sdk</code> exposes <code>createTracker</code>.</li>
+          <li><b>Node:</b> <code>@cdp-us/sdk-node</code> batches and retries server events.</li>
+          <li><b>Python:</b> <code>cdp-us</code> provides <code>CdpClient</code> for backend jobs.</li>
+          <li><b>Consent:</b> <code>@cdp-us/consent-sdk</code> gates analytics, email, sale/share, and TCPA messaging.</li>
+        </ul>
+      </section>
+
+      <section id="modules" class="section">
+        <p class="eyebrow">Modules</p>
+        <h2>Upsells consume CDP data.</h2>
+        <div class="module-grid">
+          {modules.map(([key, description]) => <article><h3>{key}</h3><p>{description}</p></article>)}
+        </div>
+      </section>
+
+      <section id="architecture" class="section two-col">
+        <div>
+          <p class="eyebrow">Architecture</p>
+          <h2>CDP first, modules second.</h2>
+        </div>
+        <p>
+          A tenant owns one US-region data foundation: write key, token, profiles,
+          events, consent state, and enabled modules. The CDP collects and resolves data;
+          modules read that data through product boundaries instead of owning separate identity stores.
+        </p>
+      </section>
+
+      <section id="compliance" class="section two-col">
+        <div>
+          <p class="eyebrow">Compliance (US)</p>
+          <h2>Controls that help teams meet obligations.</h2>
+        </div>
+        <p>
+          CDP-US is designed for US-only deployments and includes consent surfaces for
+          CCPA/CPRA, CAN-SPAM, and TCPA workflows. This documentation is not legal advice;
+          customers should review their own policies and notices.
+        </p>
+      </section>
+    </main>
+  </body>
+</html>
