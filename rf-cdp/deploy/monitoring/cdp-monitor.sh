@@ -3,10 +3,21 @@
 /opt/cdp/security/firewall.sh 2>/dev/null  # реаплай firewall (инцидент 2026-06-24)
 set -uo pipefail
 CFG=/opt/cdp/monitoring/telegram.env
+ENV_FILE=/opt/cdp/deploy/.env
 ST=/opt/cdp/monitoring/state; mkdir -p "$ST"
 ALOG=/opt/cdp/monitoring/alerts.log
 TLOG=/opt/cdp/monitoring/traffic.log
 TG_TOKEN=""; TG_CHAT=""; [ -f "$CFG" ] && . "$CFG" 2>/dev/null || true
+env_get(){ awk -F= -v key="$1" '$0 ~ "^[[:space:]]*#" { next } $1 == key { sub(/^[^=]*=/, ""); gsub(/^["'\''"]|["'\''"]$/, ""); print; exit }' "$ENV_FILE" 2>/dev/null; }
+ES_USER="${ES_USER:-$(env_get ES_USER)}"
+ES_PASSWORD="${ES_PASSWORD:-$(env_get ES_PASSWORD)}"
+CLICKHOUSE_USER="${CLICKHOUSE_USER:-$(env_get CLICKHOUSE_USER)}"
+CLICKHOUSE_PASSWORD="${CLICKHOUSE_PASSWORD:-$(env_get CLICKHOUSE_PASSWORD)}"
+CLICKHOUSE_USER="${CLICKHOUSE_USER:-dittofeed}"
+ES_AUTH_ARGS=()
+[ -n "${ES_USER:-}" ] && ES_AUTH_ARGS=(-u "${ES_USER}:${ES_PASSWORD:-}")
+CH_AUTH_ARGS=()
+[ -n "${CLICKHOUSE_USER:-}" ] && CH_AUTH_ARGS=(--user "$CLICKHOUSE_USER" --password "${CLICKHOUSE_PASSWORD:-}")
 tg(){ case "${TG_TOKEN:-}" in ""|PUT_TOKEN_HERE) : ;; *) curl -s -m 15 "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" --data-urlencode "chat_id=${TG_CHAT}" --data-urlencode "text=$1" >/dev/null 2>&1;; esac; }
 alert(){ printf "%s %s\n" "$(date -u +%FT%TZ)" "$1" >>"$ALOG"; tg "$1"; }
 traffic(){ printf "%s %s\n" "$(date -u +%FT%TZ)" "$1" >>"$TLOG"; tg "$1"; }
@@ -35,7 +46,7 @@ for c in cdp-ingest-gateway-1 cdp-lite-1 cdp-postgres-1 cdp-clickhouse-server-1 
   rc=$(docker inspect -f "{{.RestartCount}}" "$c" 2>/dev/null||echo 0); p=$(cat "$ST/rc_$c" 2>/dev/null||echo "$rc"); [ "$rc" != "$p" ] && add "RESTART $c ${p}->${rc}"; echo "$rc">"$ST/rc_$c"
 done
 [ -z "$h" ] && add "gateway UNREACHABLE"
-ec=$(curl -s -m 8 "http://127.0.0.1:9200/cdp_events_zavod/_count" 2>/dev/null | python3 -c "import sys,json;print(json.load(sys.stdin).get(\"count\",\"\"))" 2>/dev/null)
+ec=$(curl -s -m 8 "${ES_AUTH_ARGS[@]}" "http://127.0.0.1:9200/cdp_events_zavod/_count" 2>/dev/null | python3 -c "import sys,json;print(json.load(sys.stdin).get(\"count\",\"\"))" 2>/dev/null)
 gs=$(echo "$h" | python3 -c "import sys,json;print(json.load(sys.stdin)[\"raw\"][\"stored\"])" 2>/dev/null)
 if [ -n "$gs" ] && [ -n "$ec" ] && [ "${ec:-0}" != "" ] && [ "$gs" -gt "$(( ${ec:-0}+5 ))" ] 2>/dev/null; then [ "$(cat "$ST/loss" 2>/dev/null||echo 0)" = 0 ] && add "DATA-LOSS? gateway stored=$gs vs ES=$ec"; echo 1>"$ST/loss"; else echo 0>"$ST/loss"; fi
 ma=$(awk "/MemAvailable/{print int(\$2/1024)}" /proc/meminfo); [ -n "$ma" ] && [ "$ma" -lt 120 ] && add "low RAM ${ma}MB"
@@ -43,7 +54,7 @@ oc=$(dmesg 2>/dev/null | grep -c "oom-kill" 2>/dev/null | head -1); oc=$(echo "$
 
 # ====== CLICKHOUSE HEARTBEAT (функциональный пинг) ======
 ch_ok=0
-ch_rows=$(docker exec cdp-clickhouse-server-1 clickhouse-client --query "SELECT count() FROM dittofeed.user_events_v2" 2>/dev/null)
+ch_rows=$(docker exec cdp-clickhouse-server-1 clickhouse-client "${CH_AUTH_ARGS[@]}" --query "SELECT count() FROM dittofeed.user_events_v2" 2>/dev/null)
 if echo "$ch_rows" | grep -qE "^[0-9]+$"; then
   ch_ok=1
   prev_rows=$(cat "$ST/ch_rows" 2>/dev/null||echo "$ch_rows")
@@ -54,7 +65,7 @@ fi
 # CPU>50% на CH = аномалия (system-логи или merge-storm)
 ch_cpu=$(docker stats --no-stream cdp-clickhouse-server-1 --format "{{.CPUPerc}}" 2>/dev/null | tr -d % | cut -d. -f1)
 if [ -n "$ch_cpu" ] && [ "$ch_cpu" -gt 50 ] 2>/dev/null; then add "CH_CPU_HIGH ${ch_cpu}% (норма <20%)"; fi
-# mem > 950MB из лимита 1GB = предупреждение
+# mem > 90% of the ClickHouse container limit = warning
 ch_mem=$(docker stats --no-stream cdp-clickhouse-server-1 --format "{{.MemPerc}}" 2>/dev/null | tr -d % | cut -d. -f1)
 if [ -n "$ch_mem" ] && [ "$ch_mem" -gt 90 ] 2>/dev/null; then add "CH_MEM_HIGH ${ch_mem}% лимита"; fi
 

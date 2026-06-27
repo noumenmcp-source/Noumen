@@ -1,8 +1,13 @@
 # CDP ingest-gateway (production)
 
 Storefront events (POST /v1/track, /v1/identify) -> fast 204 ack -> async queue ->
-raw to Elasticsearch (`cdp_events`) + forward to Dittofeed (Basic auth, retry/backoff, DLQ).
-CORS echoes an allow-listed Origin (wildcard `*.vercel.app` supported). GET /v1/health -> counters.
+raw to tenant-scoped Elasticsearch (`cdp_events_<site>`) + forward to that tenant's Dittofeed workspace
+(Basic auth, retry/backoff, DLQ). CORS echoes an allow-listed Origin (wildcard `*.vercel.app`
+supported). GET /v1/health -> counters.
+
+RF ConsentOps receipt path: POST /v1/consent stores a tenant-scoped raw consent receipt in
+`cdp_consent_<site>` and does not forward it to Dittofeed. This keeps RF legal proof/audit data
+separate from marketing event flows.
 
 ## Run
     npm install

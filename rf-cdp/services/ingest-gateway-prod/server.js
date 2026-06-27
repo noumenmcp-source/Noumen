@@ -78,7 +78,9 @@ if (registry.size() === 0) { log.error('no tenants configured — refusing to st
 
 // Per-tenant "received" counters, seeded so every site shows up in /health (even at 0).
 const received = Object.create(null);
+const consentReceived = Object.create(null);
 for (const t of registry.list()) received[t.siteId] = 0;
+for (const t of registry.list()) consentReceived[t.siteId] = 0;
 
 // Non-tenant counters (resend webhook fills its own; see registerResendWebhook).
 const counters = {};
@@ -112,11 +114,25 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Map an internal queue item to the raw ES doc shape (adds site_id/workspace_id for audit).
 function toEsDoc(item) {
+  if (item.type === 'consent') {
+    return {
+      ts: item.timestamp || new Date().toISOString(),
+      site_id: item.siteId, workspace_id: item.workspaceId, write_key: item.writeKey,
+      anonymous_id: item.anonymousId || null, user_id: item.userId || null,
+      type: 'consent', event: 'consent.updated', properties: item.properties || null,
+      consent: item.consent, ip: item.ip, ua: item.ua, origin: item.origin,
+    };
+  }
   return {
     ts: item.timestamp || new Date().toISOString(),
     site_id: item.siteId, workspace_id: item.workspaceId, write_key: item.writeKey,
     anonymous_id: item.anonymousId, user_id: item.userId || null, type: item.type,
-    event: item.event || null, properties: item.properties || null, traits_present: !!item.traits,
+    event: item.event || null, properties: item.properties || null,
+    traits_present: !!item.traits,
+    // Persist the identify traits themselves (not just the boolean) so the
+    // profile-engine can materialize firmographics/traits from cdp_events_<site>.
+    // Additive field; back-compat with traits_present kept.
+    traits: item.traits || null,
     ip: item.ip, ua: item.ua, origin: item.origin,
   };
 }
@@ -129,7 +145,7 @@ async function drainWorker() {
     if (!item) { await sleep(20); continue; }
     try {
       bulk.add(item.esIndex, toEsDoc(item));      // raw audit -> THIS tenant's index, batched
-      if (cfg.DITTOFEED_URL && item.forwardUrl) { // downstream forward -> THIS tenant's workspace
+      if (!item.noForward && cfg.DITTOFEED_URL && item.forwardUrl) { // downstream forward -> THIS tenant's workspace
         pool.submit(item);                        // item carries forwardUrl + forwardAuth
       }
     } catch (e) {
@@ -191,10 +207,42 @@ function enqueue(tenant, base) {
     writeKey: tenant.writeKey,
     siteId: tenant.siteId,
     workspaceId: tenant.workspaceId,
-    esIndex: tenant.esIndex,                 // -> bulk.add(item.esIndex, doc)
+    esIndex: base.esIndex || tenant.esIndex, // -> bulk.add(item.esIndex, doc)
     forwardUrl: forwardUrlFor(tenant),       // -> pool.submit (per-item destination)
     forwardAuth: tenant.forwardAuth,         // 'Basic ' + base64(tenant.dittofeedWriteKey)
   });
+}
+
+function normalizeConsentPayload(body) {
+  const b = body || {};
+  const subject = b.subject || b.userId || b.anonymousId || b.email;
+  if (!subject) return { error: 'subject, anonymousId, userId, or email required' };
+  const rawState = b.state && typeof b.state === 'object' && !Array.isArray(b.state) ? b.state : {};
+  const state = {};
+  for (const [key, value] of Object.entries(rawState)) {
+    if (typeof key === 'string' && key.trim()) state[key.trim()] = Boolean(value);
+  }
+  const rawPurposes = Array.isArray(b.purposes) ? b.purposes : Object.keys(state);
+  const purposes = [...new Set(rawPurposes
+    .filter((purpose) => typeof purpose === 'string' && purpose.trim())
+    .map((purpose) => purpose.trim()))];
+  if (purposes.length === 0 && Object.keys(state).length === 0) {
+    return { error: 'purposes or state required' };
+  }
+  return {
+    consent: {
+      subject,
+      email: b.email || null,
+      accepted: b.accepted === undefined ? null : Boolean(b.accepted),
+      purposes,
+      state,
+      source: b.source || 'checkbox',
+      documentVersion: b.documentVersion || b.policyVersion || null,
+      policyUrl: b.policyUrl || null,
+      legalBasis: b.legalBasis || '152-fz-consent',
+      checkboxRequired: b.checkboxRequired === undefined ? true : Boolean(b.checkboxRequired),
+    },
+  };
 }
 
 app.post('/v1/track', async (req, reply) => {
@@ -227,6 +275,29 @@ app.post('/v1/identify', async (req, reply) => {
   reply.code(204).send();
 });
 
+// RF ConsentOps proof path. Raw-only: store a tenant-scoped consent receipt in
+// ES without forwarding to Dittofeed, so marketing journeys stay untouched.
+app.post('/v1/consent', async (req, reply) => {
+  const tenant = requireTenant(req, reply); if (!tenant) return;
+  const b = req.body || {};
+  const normalized = normalizeConsentPayload(b);
+  if (normalized.error) return reply.code(400).send({ error: normalized.error });
+  const ok = enqueue(tenant, {
+    type: 'consent',
+    noForward: true,
+    esIndex: `cdp_consent_${tenant.siteId}`,
+    anonymousId: b.anonymousId || undefined,
+    userId: b.userId || undefined,
+    properties: b.properties || {},
+    timestamp: b.timestamp,
+    consent: normalized.consent,
+    ...meta(req),
+  });
+  if (!ok) return reply.code(503).send({ error: 'overloaded' });
+  consentReceived[tenant.siteId] = (consentReceived[tenant.siteId] || 0) + 1;
+  reply.code(204).send();
+});
+
 // Resend bounce/complaint webhook -> suppression store. No write-key (Resend can't send one);
 // authenticated via Svix signature when RESEND_WEBHOOK_SECRET is set (stubbed otherwise).
 // NOTE: suppressions are global (one shared cdp_suppressions index), matching v2 behavior.
@@ -241,6 +312,7 @@ app.get('/v1/health', async () => ({
   received,                 // per-tenant received counts: { siteId: n }
   raw: bulk.stats(),        // global ES sink stats (across all tenant indices)
   forward: pool.stats(),    // global forward sink stats (across all tenant workspaces)
+  consent: consentReceived, // RF consent receipts accepted by tenant
   queued: queue.size(),
   dropped: queue.dropped,
   resend: { suppressed: counters.resend_suppressed || 0, failed: counters.resend_failed || 0 },

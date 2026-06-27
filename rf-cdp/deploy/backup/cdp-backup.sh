@@ -31,14 +31,33 @@ mkdir -p "$DAY_DIR"
 exec > >(tee -a "$LOG") 2>&1
 echo "=== CDP backup $STAMP (UTC) -> $DAY_DIR ==="
 
-# --- load credentials from the stack .env (DATABASE_USER, CLICKHOUSE_*) ---
-if [[ -f "$ENV_FILE" ]]; then
-  set -a; # shellcheck disable=SC1090
-  . "$ENV_FILE"; set +a
-fi
+env_get() {
+  local key="$1"
+  [[ -f "$ENV_FILE" ]] || return 0
+  awk -F= -v key="$key" '
+    $0 ~ "^[[:space:]]*#" { next }
+    $1 == key {
+      sub(/^[^=]*=/, "")
+      gsub(/^["'\'']|["'\'']$/, "")
+      print
+      exit
+    }
+  ' "$ENV_FILE"
+}
+
+# --- load only needed credentials from .env as data, not shell code ---
+DATABASE_USER="${DATABASE_USER:-$(env_get DATABASE_USER)}"
+CLICKHOUSE_USER="${CLICKHOUSE_USER:-$(env_get CLICKHOUSE_USER)}"
+CLICKHOUSE_PASSWORD="${CLICKHOUSE_PASSWORD:-$(env_get CLICKHOUSE_PASSWORD)}"
+ES_USER="${ES_USER:-$(env_get ES_USER)}"
+ES_PASSWORD="${ES_PASSWORD:-$(env_get ES_PASSWORD)}"
 DB_USER="${DATABASE_USER:-postgres}"
 CH_USER="${CLICKHOUSE_USER:-dittofeed}"
 CH_PASS="${CLICKHOUSE_PASSWORD:-password}"
+ES_AUTH_ARGS=()
+if [[ -n "${ES_USER:-}" ]]; then
+  ES_AUTH_ARGS=(-u "${ES_USER}:${ES_PASSWORD:-}")
+fi
 
 fail=0
 
@@ -63,20 +82,26 @@ fi
 # 2. ELASTICSEARCH — raw event audit. Config-free scroll export per cdp_* index.
 # ---------------------------------------------------------------------------
 echo "--- [2/4] Elasticsearch cdp_* indices (scroll -> gz NDJSON) ---"
-es_indices=$(curl -s "$ES_URL/_cat/indices/cdp_*?h=index" 2>/dev/null | awk '{print $1}')
+es_indices=$(curl -s "${ES_AUTH_ARGS[@]}" "$ES_URL/_cat/indices/cdp_*?h=index" 2>/dev/null | awk '{print $1}')
 if [[ -z "$es_indices" ]]; then
-  echo "WARN: no cdp_* indices found (or ES unreachable at $ES_URL)"
+  echo "FATAL: no cdp_* indices found (or ES unreachable/auth failed at $ES_URL)"
+  fail=1
 else
   mkdir -p "$DAY_DIR/es"
   for idx in $es_indices; do
     out="$DAY_DIR/es/$idx.ndjson"
     # Full scroll done in python — robust JSON handling, no bash cursor juggling.
-    if ES_URL="$ES_URL" IDX="$idx" OUT="$out" python3 - <<'PY'
-import json, os, time, urllib.request
+    if ES_URL="$ES_URL" ES_USER="${ES_USER:-}" ES_PASSWORD="${ES_PASSWORD:-}" IDX="$idx" OUT="$out" python3 - <<'PY'
+import base64, json, os, time, urllib.request
 es, idx, out = os.environ["ES_URL"], os.environ["IDX"], os.environ["OUT"]
+user, password = os.environ.get("ES_USER", ""), os.environ.get("ES_PASSWORD", "")
 def post(path, body):
+    headers = {"Content-Type": "application/json"}
+    if user:
+        token = base64.b64encode(f"{user}:{password}".encode()).decode()
+        headers["Authorization"] = f"Basic {token}"
     req = urllib.request.Request(es + path, data=json.dumps(body).encode(),
-                                 headers={"Content-Type": "application/json"})
+                                 headers=headers)
     last = None
     for attempt in range(4):
         try:
@@ -108,7 +133,7 @@ PY
     then
       lines=$(wc -l < "$out"); gzip -f "$out"; echo "OK $idx = $lines docs"
     else
-      echo "WARN: ES export failed for $idx"; fi
+      echo "FATAL: ES export failed for $idx"; fail=1; fi
   done
 fi
 
