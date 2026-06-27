@@ -98,3 +98,21 @@ export const apiTokens = pgTable(
   },
   (t) => [index("api_tokens_tenant_idx").on(t.tenantId)],
 );
+
+export const auditEntries = pgTable(
+  "audit_entries",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    actorId: text("actor_id").notNull(),
+    actorRole: text("actor_role").notNull(),
+    action: text("action").notNull(),
+    resourceType: text("resource_type").notNull(),
+    resourceId: text("resource_id").notNull(),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+    ts: timestamp("ts", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("audit_tenant_ts_idx").on(t.tenantId, t.ts)],
+);

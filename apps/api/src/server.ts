@@ -3,7 +3,7 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import type { ConsentState, IngestEvent } from "@cdp-us/contracts";
-import { InMemoryAuditStore } from "@cdp-us/audit-log";
+import { InMemoryAuditStore, type AuditStore } from "@cdp-us/audit-log";
 import { InMemorySuppressionStore } from "@cdp-us/deliverability";
 import { createDb } from "@cdp-us/db";
 import type { DsarReaders, Subject } from "@cdp-us/data-export";
@@ -71,6 +71,7 @@ import {
   InMemoryTenantStore,
   type TenantStore,
 } from "./tenant.js";
+import { DbAuditStore } from "./audit-store.js";
 
 export async function buildServer(
   opts: {
@@ -79,6 +80,7 @@ export async function buildServer(
     tenantStore?: TenantStore;
     tokenStore?: TokenStore;
     profileStore?: ProfileStore;
+    auditStore?: AuditStore;
     emailSender?: EmailSender;
     usageMeter?: UsageMeter;
     collectors?: CollectorRegistry;
@@ -92,6 +94,7 @@ export async function buildServer(
   const ingestStore = opts.ingestStore ?? createDefaultIngestStore();
   const tokenStore = opts.tokenStore ?? createDefaultTokenStore();
   const profileStore = opts.profileStore ?? createDefaultProfileStore();
+  const auditStore = opts.auditStore ?? createDefaultAuditStore();
   const profileService = new ProfileService(profileStore);
   const emailSender = opts.emailSender ?? createDefaultEmailSender();
   const usageMeter = opts.usageMeter ?? new InMemoryUsageMeter();
@@ -150,7 +153,7 @@ export async function buildServer(
     profileStore: { listProfiles: (tenantId) => profileStore.listByTenant(tenantId) },
   });
   registerEnrichment(app, { tenantStore, tokenStore, profileStore, providers: [] });
-  registerAuditLog(app, { tenantStore, tokenStore, store: new InMemoryAuditStore() });
+  registerAuditLog(app, { tenantStore, tokenStore, store: auditStore });
   registerFunnels(app, {
     tenantStore,
     tokenStore,
@@ -207,6 +210,14 @@ function createDefaultProfileStore(): ProfileStore {
     return new DbProfileStore(createDb(connectionString));
   }
   return new InMemoryProfileStore();
+}
+
+function createDefaultAuditStore(): AuditStore {
+  const connectionString = process.env.DATABASE_URL;
+  if (connectionString) {
+    return new DbAuditStore(createDb(connectionString));
+  }
+  return new InMemoryAuditStore();
 }
 
 function defaultRateLimit(): { max: number; timeWindow: number | string } {

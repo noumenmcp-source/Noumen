@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { createDb, events } from "@cdp-us/db";
 import { DbTenantStore } from "./tenant.js";
 import { DbIngestStore, toStoredIngestEvent } from "./ingest-store.js";
+import { DbAuditStore } from "./audit-store.js";
 import { DbTokenStore } from "./auth.js";
 
 const url = process.env.DATABASE_URL;
@@ -14,12 +15,14 @@ run("db integration (real Postgres)", () => {
   let tenantStore!: DbTenantStore;
   let ingestStore!: DbIngestStore;
   let tokenStore!: DbTokenStore;
+  let auditStore!: DbAuditStore;
 
   beforeAll(() => {
     db = createDb(url as string);
     tenantStore = new DbTenantStore(db);
     ingestStore = new DbIngestStore(db);
     tokenStore = new DbTokenStore(db);
+    auditStore = new DbAuditStore(db);
   });
 
   it("tenant lifecycle", async () => {
@@ -106,5 +109,49 @@ run("db integration (real Postgres)", () => {
     expect(principal?.role).toBe("owner");
 
     await expect(tokenStore.resolve("cdpus_bad")).resolves.toBeUndefined();
+  });
+
+  it("audit append + tenant-scoped filtered query", async () => {
+    const { tenant, owner } = await tenantStore.createTenantAccount({
+      name: `Integration Test ${randomUUID()}`,
+      ownerEmail: `owner-${randomUUID()}@example.com`,
+    });
+    const other = await tenantStore.createTenantAccount({
+      name: `Integration Test ${randomUUID()}`,
+      ownerEmail: `owner-${randomUUID()}@example.com`,
+    });
+
+    await auditStore.append({
+      tenantId: tenant.id,
+      actor: { id: owner.id, role: "owner" },
+      action: "read",
+      resource: { type: "profile", id: "p_1" },
+      ts: "2026-06-01T00:00:00.000Z",
+      metadata: { ip: "203.0.113.7" },
+    });
+    await auditStore.append({
+      tenantId: tenant.id,
+      actor: { id: owner.id, role: "owner" },
+      action: "export",
+      resource: { type: "profile", id: "p_2" },
+      ts: "2026-06-02T00:00:00.000Z",
+    });
+    // Foreign tenant entry must never surface in the first tenant's query.
+    await auditStore.append({
+      tenantId: other.tenant.id,
+      actor: { id: other.owner.id, role: "owner" },
+      action: "read",
+      resource: { type: "profile", id: "p_x" },
+      ts: "2026-06-01T12:00:00.000Z",
+    });
+
+    const all = await auditStore.query({ tenantId: tenant.id });
+    expect(all).toHaveLength(2);
+    expect(all.map((entry) => entry.action)).toEqual(["read", "export"]);
+    expect(all[0]?.metadata).toEqual({ ip: "203.0.113.7" });
+
+    const filtered = await auditStore.query({ tenantId: tenant.id, action: "export" });
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]?.resource.id).toBe("p_2");
   });
 });
