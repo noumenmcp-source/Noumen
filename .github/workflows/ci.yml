@@ -32,3 +32,48 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: cdp
+          POSTGRES_PASSWORD: cdp
+          POSTGRES_DB: cdp_us
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cdp"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgres://cdp:cdp@localhost:5432/cdp_us
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.3
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Migrate
+        run: pnpm --filter @cdp-us/db db:migrate
+
+      - name: Integration test (real Postgres)
+        run: pnpm --filter @cdp-us/api exec vitest run src/db.integration.test.ts
