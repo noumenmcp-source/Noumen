@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { PlanKey } from "@cdp-us/billing";
 import type { RawSocialItem, SocialCollector, SocialPlatform } from "@cdp-us/social-intel";
+import { InMemoryAuditStore } from "@cdp-us/audit-log";
 import { InMemoryTokenStore } from "./auth.js";
 import { resetConsentOverrides, setConsent } from "./consent.js";
 import { resetCounters } from "./routes/health.js";
@@ -77,6 +78,22 @@ describe("POST /v1/tenants/:id/modules/:moduleKey (platform enforcement)", () =>
     expect(res.json()).toMatchObject({
       error: "module_not_entitled",
       module: "automation",
+    });
+  });
+
+  it("emits a module.enable audit entry on success", async () => {
+    const auditStore = new InMemoryAuditStore();
+    const { app, account, token } = await setupTenant("agency", "active", { auditStore });
+    expect((await enableModule(app, account.tenant.id, token, "automation")).statusCode).toBe(200);
+    await app.close();
+
+    const entries = await auditStore.query({ tenantId: account.tenant.id });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      tenantId: account.tenant.id,
+      action: "module.enable",
+      resource: { type: "module", id: "automation" },
+      actor: { role: "owner" },
     });
   });
 

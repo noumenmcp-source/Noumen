@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { enforceEntitlement } from "@cdp-us/platform";
+import type { AuditStore } from "@cdp-us/audit-log";
 import {
   getModuleManifest,
   isModuleKey,
@@ -8,6 +9,9 @@ import {
 import { authenticate, roleSatisfies, type TokenStore } from "../auth.js";
 import { getPlatformTenantAccount } from "../platform.js";
 import type { TenantStore } from "../tenant.js";
+
+/** Optional audit emission for the privileged module-enable action. */
+export type ModulesDeps = Readonly<{ auditStore?: AuditStore; now?: () => string }>;
 
 /**
  * Module catalog (public) + tenant module enablement (auth + RBAC).
@@ -18,6 +22,7 @@ export function registerModules(
   app: FastifyInstance,
   tenantStore: TenantStore,
   tokenStore: TokenStore,
+  deps: ModulesDeps = {},
 ): void {
   app.get("/v1/modules", async () => ({ modules: listModuleManifests() }));
 
@@ -57,6 +62,23 @@ export function registerModules(
     const tenant = await tenantStore.enableTenantModule(tenantId, moduleKey);
     if (!tenant) {
       return reply.code(404).send({ error: "unknown_tenant" });
+    }
+
+    // Record the config change in the audit trail. Best-effort: the module is
+    // already enabled, so (unlike the read-only DSAR path) an audit write error
+    // must not fail the request — it would misreport a completed mutation.
+    if (deps.auditStore) {
+      try {
+        await deps.auditStore.append({
+          tenantId,
+          actor: { id: principal.userId, role: principal.role },
+          action: "module.enable",
+          resource: { type: "module", id: moduleKey },
+          ts: deps.now?.() ?? new Date().toISOString(),
+        });
+      } catch {
+        // swallow — durable audit of config changes is best-effort here
+      }
     }
 
     return reply.send({

@@ -122,7 +122,7 @@ export async function buildServer(
     });
   }
   registerHealth(app);
-  registerModules(app, tenantStore, tokenStore);
+  registerModules(app, tenantStore, tokenStore, { auditStore });
   registerSignup(app, tenantStore, tokenStore);
   registerIngest(app, ingestStore, tenantStore, profileService);
   registerData(app, profileStore, ingestStore, tokenStore);
