@@ -5,6 +5,7 @@ import {
   withinLimit,
   enforce,
   InMemoryUsageMeter,
+  billingPeriod,
 } from "./index.js";
 
 describe("entitlement per plan", () => {
@@ -58,6 +59,22 @@ describe("InMemoryUsageMeter record/current", () => {
     await meter.record("t1", "emailsPerMonth", 5);
     await meter.record("t1", "emailsPerMonth", 3);
     expect(await meter.current("t1", "emailsPerMonth")).toBe(8);
+  });
+
+  it("buckets by UTC billing month so quotas reset across the boundary", async () => {
+    expect(billingPeriod(new Date("2026-06-30T23:59:59.000Z"))).toBe("2026-06");
+    let clock = new Date("2026-06-15T00:00:00.000Z");
+    const meter = new InMemoryUsageMeter(() => clock);
+    await meter.record("t1", "emailsPerMonth", 10);
+    expect(await meter.current("t1", "emailsPerMonth")).toBe(10);
+
+    clock = new Date("2026-07-01T00:00:00.000Z");
+    expect(await meter.current("t1", "emailsPerMonth")).toBe(0);
+    await meter.record("t1", "emailsPerMonth", 4);
+    expect(await meter.current("t1", "emailsPerMonth")).toBe(4);
+
+    clock = new Date("2026-06-20T00:00:00.000Z");
+    expect(await meter.current("t1", "emailsPerMonth")).toBe(10);
   });
 
   it("isolates tenants and metrics", async () => {

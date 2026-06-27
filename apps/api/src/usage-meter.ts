@@ -1,14 +1,11 @@
 import { and, eq, sql } from "drizzle-orm";
 import type { TenantId } from "@cdp-us/contracts";
-import type { Metric, UsageMeter } from "@cdp-us/billing";
+import { billingPeriod, type Metric, type UsageMeter } from "@cdp-us/billing";
 import { usageCounters, type Db } from "@cdp-us/db";
 
-/** Current billing-period bucket "YYYY-MM" (UTC) for a given instant. */
-export function billingPeriod(date: Date): string {
-  const year = date.getUTCFullYear();
-  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
-  return `${year}-${month}`;
-}
+// Re-exported so existing importers (and tests) keep a stable path; the period
+// helper itself is owned by @cdp-us/billing so Db and in-memory meters agree.
+export { billingPeriod };
 
 /**
  * Postgres-backed {@link UsageMeter}: durable metered-usage counters so plan

@@ -14,6 +14,7 @@ export {
 export {
   type UsageMeter,
   InMemoryUsageMeter,
+  billingPeriod,
 } from "./usage-meter.js";
 export {
   type EnforcementResult,
