@@ -3,8 +3,10 @@ import { resetConsentOverrides, setConsent } from "./consent.js";
 import { InMemoryTokenStore } from "./auth.js";
 import { InMemoryIngestStore } from "./ingest-store.js";
 import { resetCounters } from "./routes/health.js";
-import { buildServer } from "./server.js";
+import { buildServer, installShutdownHandlers } from "./server.js";
 import { InMemoryTenantStore, resetTenantRegistry } from "./tenant.js";
+
+type ShutdownSignal = "SIGTERM" | "SIGINT";
 
 describe("api server", () => {
   beforeEach(() => {
@@ -25,6 +27,37 @@ describe("api server", () => {
       region: "us",
       counters: { received: 0, stored: 0, suppressed: 0, failed: 0 },
     });
+  });
+
+  it("closes the app on SIGTERM/SIGINT before exiting", async () => {
+    const listeners = new Map<ShutdownSignal, () => void | Promise<void>>();
+    const closeCalls: string[] = [];
+    const exitCodes: number[] = [];
+
+    installShutdownHandlers(
+      {
+        close: async () => {
+          closeCalls.push("close");
+        },
+        log: { info: () => undefined, error: () => undefined },
+      },
+      {
+        once: (signal, listener) => {
+          listeners.set(signal, listener);
+        },
+        exit: (code) => {
+          exitCodes.push(code);
+        },
+      },
+    );
+
+    expect([...listeners.keys()].sort()).toEqual(["SIGINT", "SIGTERM"]);
+
+    await listeners.get("SIGTERM")?.();
+    await listeners.get("SIGINT")?.();
+
+    expect(closeCalls).toEqual(["close"]);
+    expect(exitCodes).toEqual([0]);
   });
 
   it("allows browser SDK preflight requests", async () => {

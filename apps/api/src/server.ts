@@ -347,13 +347,49 @@ const noopDestinationSender: DestinationSender = {
   send: async (request) => ({ status: request.url ? 202 : 400 }),
 };
 
+type ShutdownSignal = "SIGTERM" | "SIGINT";
+type ShutdownApp = {
+  close(): Promise<unknown>;
+  log: {
+    info(fields: Record<string, unknown>, message: string): void;
+    error(fields: Record<string, unknown>, message: string): void;
+  };
+};
+type ShutdownRuntime = {
+  once(signal: ShutdownSignal, listener: () => void | Promise<void>): unknown;
+  exit(code: number): void;
+};
+
+export function installShutdownHandlers(
+  app: ShutdownApp,
+  runtime: ShutdownRuntime = process,
+): void {
+  let closing = false;
+  const shutdown = async (signal: ShutdownSignal) => {
+    if (closing) return;
+    closing = true;
+    app.log.info({ signal }, "shutdown_signal_received");
+    try {
+      await app.close();
+      runtime.exit(0);
+    } catch (err) {
+      app.log.error({ err, signal }, "shutdown_failed");
+      runtime.exit(1);
+    }
+  };
+
+  runtime.once("SIGTERM", () => shutdown("SIGTERM"));
+  runtime.once("SIGINT", () => shutdown("SIGINT"));
+}
+
 const isEntry = process.argv[1] === fileURLToPath(import.meta.url);
 if (isEntry) {
   const port = Number(process.env.PORT ?? 8110);
-  void buildServer().then((app) =>
-    app.listen({ port, host: "0.0.0.0" }).catch((err) => {
+  void buildServer().then((app) => {
+    installShutdownHandlers(app);
+    return app.listen({ port, host: "0.0.0.0" }).catch((err) => {
       app.log.error(err);
       process.exit(1);
-    }),
-  );
+    });
+  });
 }
