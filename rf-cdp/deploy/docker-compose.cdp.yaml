@@ -229,6 +229,57 @@ services:
       - "127.0.0.1:8120:8120"
     networks:
       - dittofeed-network-lite
+  # ---------------------------------------------------------------------------
+  # CDP profile-engine — materializes unified profiles from cdp_events_<site>
+  # into cdp_profiles_<site> (ported US core-cdp engine) + read/segment API.
+  # ---------------------------------------------------------------------------
+  profile-engine:
+    build:
+      context: ../services/profile-engine
+      dockerfile: Dockerfile
+    image: cdp/profile-engine:local
+    restart: always
+    logging:
+      driver: "local"
+    depends_on:
+      - elasticsearch
+    environment:
+      PORT: 8130
+      ES_URL: ${ES_URL:-http://elasticsearch:9200}
+      ES_USER: ${ES_USER:-elastic}
+      ES_PASSWORD: ${ES_PASSWORD:-}
+      # Bearer token for the read/segment API; empty => API open (loopback-only).
+      PROFILE_API_TOKEN: ${PROFILE_API_TOKEN:-}
+      MATERIALIZE_INTERVAL_MS: ${MATERIALIZE_INTERVAL_MS:-60000}
+    ports:
+      - "127.0.0.1:8130:8130"
+    networks:
+      - dittofeed-network-lite
+  # ---------------------------------------------------------------------------
+  # CDP consent-ledger (152-ФЗ) — append-only signed hash-chain built from the
+  # gateway's consent receipts (cdp_consent_<site>) + read/verify API.
+  # ---------------------------------------------------------------------------
+  consent-ledger:
+    build:
+      context: ../services/consent-ledger
+      dockerfile: Dockerfile
+    image: cdp/consent-ledger:local
+    restart: always
+    logging:
+      driver: "local"
+    depends_on:
+      - elasticsearch
+    environment:
+      PORT: 8140
+      ES_URL: ${ES_URL:-http://elasticsearch:9200}
+      ES_USER: ${ES_USER:-elastic}
+      ES_PASSWORD: ${ES_PASSWORD:-}
+      CONSENT_API_TOKEN: ${CONSENT_API_TOKEN:-}
+      LEDGER_INTERVAL_MS: ${LEDGER_INTERVAL_MS:-60000}
+    ports:
+      - "127.0.0.1:8140:8140"
+    networks:
+      - dittofeed-network-lite
 volumes:
   postgres:
   clickhouse_lib:

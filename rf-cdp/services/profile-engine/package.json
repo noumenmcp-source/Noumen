@@ -1,0 +1,15 @@
+{
+  "name": "rf-cdp-profile-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "RF segment: CDP profile engine (identity + profile + segments) ported from US core-cdp, rebuilt for the RF runtime (plain Node + Elasticsearch). Law-agnostic; cleaned per SEGMENTATION charter.",
+  "main": "lib/index.js",
+  "scripts": {
+    "test": "node --test",
+    "start": "node worker.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

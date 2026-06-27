@@ -1,0 +1,15 @@
+{
+  "name": "rf-cdp-consent-ledger",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "RF segment: 152-FZ consent ledger. Signed hash-chained consent evidence (ledger mechanics ported 1:1 from US modules/consent, law-agnostic) + a 152-FZ opt-in CMP that replaces the US CCPA/TCPA/GPC model. Builds an append-only chain from gateway consent receipts.",
+  "main": "lib/index.js",
+  "scripts": {
+    "test": "node --test",
+    "start": "node worker.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
