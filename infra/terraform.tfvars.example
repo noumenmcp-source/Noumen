@@ -1,0 +1,13 @@
+aws_region        = "us-east-1"
+environment       = "staging"
+api_image         = "123456789012.dkr.ecr.us-east-1.amazonaws.com/cdp-us-api:latest"
+database_name     = "cdp_us"
+database_username = "cdp"
+database_password = "replace-with-secure-secret"
+rate_limit_max    = 600
+rate_limit_window = 60
+
+# Optional integrations.
+resend_api_key       = ""
+ai_gateway_base_url  = ""
+ai_gateway_api_key   = ""
