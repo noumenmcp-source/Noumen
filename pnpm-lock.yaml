@@ -53,6 +53,15 @@ importers:
 
   apps/api:
     dependencies:
+      '@cdp-us/analytics':
+        specifier: workspace:*
+        version: link:../../packages/analytics
+      '@cdp-us/attribution':
+        specifier: workspace:*
+        version: link:../../packages/attribution
+      '@cdp-us/audiences':
+        specifier: workspace:*
+        version: link:../../packages/audiences
       '@cdp-us/automation':
         specifier: workspace:*
         version: link:../../modules/automation
@@ -68,15 +77,30 @@ importers:
       '@cdp-us/core-cdp':
         specifier: workspace:*
         version: link:../../packages/core-cdp
+      '@cdp-us/data-export':
+        specifier: workspace:*
+        version: link:../../packages/data-export
+      '@cdp-us/data-quality':
+        specifier: workspace:*
+        version: link:../../packages/data-quality
       '@cdp-us/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@cdp-us/destinations':
+        specifier: workspace:*
+        version: link:../../packages/destinations
       '@cdp-us/email':
         specifier: workspace:*
         version: link:../../modules/email
+      '@cdp-us/journeys':
+        specifier: workspace:*
+        version: link:../../packages/journeys
       '@cdp-us/social-intel':
         specifier: workspace:*
         version: link:../../modules/social-intel
+      '@cdp-us/warehouse-sync':
+        specifier: workspace:*
+        version: link:../../packages/warehouse-sync
       '@fastify/cors':
         specifier: ^10.0.2
         version: 10.1.0
