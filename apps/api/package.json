@@ -14,6 +14,7 @@
     "@cdp-us/automation": "workspace:*",
     "@cdp-us/consent": "workspace:*",
     "@cdp-us/contracts": "workspace:*",
+    "@cdp-us/core-cdp": "workspace:*",
     "@cdp-us/db": "workspace:*",
     "@cdp-us/email": "workspace:*",
     "@cdp-us/social-intel": "workspace:*",

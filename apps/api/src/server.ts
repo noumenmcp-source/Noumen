@@ -9,6 +9,13 @@ import {
   type TokenStore,
 } from "./auth.js";
 import {
+  DbProfileStore,
+  InMemoryProfileStore,
+  ProfileService,
+  type ProfileStore,
+} from "@cdp-us/core-cdp";
+import { registerData } from "./routes/data.js";
+import {
   DbIngestStore,
   InMemoryIngestStore,
   type IngestStore,
@@ -29,6 +36,7 @@ export async function buildServer(
     ingestStore?: IngestStore;
     tenantStore?: TenantStore;
     tokenStore?: TokenStore;
+    profileStore?: ProfileStore;
     rateLimit?: { max: number; timeWindow: number | string } | false;
   } = {},
 ) {
@@ -36,6 +44,8 @@ export async function buildServer(
   const tenantStore = opts.tenantStore ?? createDefaultTenantStore();
   const ingestStore = opts.ingestStore ?? createDefaultIngestStore();
   const tokenStore = opts.tokenStore ?? createDefaultTokenStore();
+  const profileStore = opts.profileStore ?? createDefaultProfileStore();
+  const profileService = new ProfileService(profileStore);
   await app.register(cors, {
     origin: true,
     methods: ["GET", "POST", "OPTIONS"],
@@ -51,7 +61,8 @@ export async function buildServer(
   registerHealth(app);
   registerModules(app, tenantStore, tokenStore);
   registerSignup(app, tenantStore, tokenStore);
-  registerIngest(app, ingestStore, tenantStore);
+  registerIngest(app, ingestStore, tenantStore, profileService);
+  registerData(app, profileStore, ingestStore, tokenStore);
   return app;
 }
 
@@ -77,6 +88,14 @@ function createDefaultTokenStore(): TokenStore {
     return new DbTokenStore(createDb(connectionString));
   }
   return new InMemoryTokenStore();
+}
+
+function createDefaultProfileStore(): ProfileStore {
+  const connectionString = process.env.DATABASE_URL;
+  if (connectionString) {
+    return new DbProfileStore(createDb(connectionString));
+  }
+  return new InMemoryProfileStore();
 }
 
 function defaultRateLimit(): { max: number; timeWindow: number | string } {
