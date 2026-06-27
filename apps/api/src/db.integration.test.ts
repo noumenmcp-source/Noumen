@@ -7,6 +7,7 @@ import { DbIngestStore, toStoredIngestEvent } from "./ingest-store.js";
 import { DbAuditStore } from "./audit-store.js";
 import { DbSuppressionStore } from "./suppression-store.js";
 import { shouldSuppress } from "@cdp-us/deliverability";
+import { DbUsageMeter } from "./usage-meter.js";
 import { DbTokenStore } from "./auth.js";
 
 const url = process.env.DATABASE_URL;
@@ -19,6 +20,7 @@ run("db integration (real Postgres)", () => {
   let tokenStore!: DbTokenStore;
   let auditStore!: DbAuditStore;
   let suppressionStore!: DbSuppressionStore;
+  let usageMeter!: DbUsageMeter;
 
   beforeAll(() => {
     db = createDb(url as string);
@@ -27,6 +29,7 @@ run("db integration (real Postgres)", () => {
     tokenStore = new DbTokenStore(db);
     auditStore = new DbAuditStore(db);
     suppressionStore = new DbSuppressionStore(db);
+    usageMeter = new DbUsageMeter(db);
   });
 
   it("tenant lifecycle", async () => {
@@ -173,5 +176,29 @@ run("db integration (real Postgres)", () => {
     expect(updated?.reason).toBe("complaint");
 
     expect(await suppressionStore.get(`absent-${randomUUID()}@acme.test`)).toBeNull();
+  });
+
+  it("usage meter accumulates atomically across concurrent records", async () => {
+    const { tenant } = await tenantStore.createTenantAccount({
+      name: `Integration Test ${randomUUID()}`,
+      ownerEmail: `owner-${randomUUID()}@example.com`,
+    });
+
+    expect(await usageMeter.current(tenant.id, "emailsPerMonth")).toBe(0);
+
+    // 20 concurrent +1 increments must all land (no lost updates).
+    await Promise.all(
+      Array.from({ length: 20 }, () => usageMeter.record(tenant.id, "emailsPerMonth", 1)),
+    );
+    expect(await usageMeter.current(tenant.id, "emailsPerMonth")).toBe(20);
+
+    await usageMeter.record(tenant.id, "emailsPerMonth", 5);
+    expect(await usageMeter.current(tenant.id, "emailsPerMonth")).toBe(25);
+
+    // Negative/zero deltas are no-ops; a different metric is independent.
+    await usageMeter.record(tenant.id, "emailsPerMonth", -100);
+    await usageMeter.record(tenant.id, "seats", 3);
+    expect(await usageMeter.current(tenant.id, "emailsPerMonth")).toBe(25);
+    expect(await usageMeter.current(tenant.id, "seats")).toBe(3);
   });
 });

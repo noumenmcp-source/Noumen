@@ -73,6 +73,7 @@ import {
 } from "./tenant.js";
 import { DbAuditStore } from "./audit-store.js";
 import { DbSuppressionStore } from "./suppression-store.js";
+import { DbUsageMeter } from "./usage-meter.js";
 
 export async function buildServer(
   opts: {
@@ -100,7 +101,7 @@ export async function buildServer(
   const suppressionStore = opts.suppressionStore ?? createDefaultSuppressionStore();
   const profileService = new ProfileService(profileStore);
   const emailSender = opts.emailSender ?? createDefaultEmailSender();
-  const usageMeter = opts.usageMeter ?? new InMemoryUsageMeter();
+  const usageMeter = opts.usageMeter ?? createDefaultUsageMeter();
   // No social providers are wired by default: intel returns 503 per platform
   // until a collector (with the tenant's provider creds) is injected.
   const collectors = opts.collectors ?? {};
@@ -229,6 +230,14 @@ function createDefaultSuppressionStore(): SuppressionStore {
     return new DbSuppressionStore(createDb(connectionString));
   }
   return new InMemorySuppressionStore();
+}
+
+function createDefaultUsageMeter(): UsageMeter {
+  const connectionString = process.env.DATABASE_URL;
+  if (connectionString) {
+    return new DbUsageMeter(createDb(connectionString));
+  }
+  return new InMemoryUsageMeter();
 }
 
 function defaultRateLimit(): { max: number; timeWindow: number | string } {

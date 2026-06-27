@@ -4,6 +4,8 @@ import {
   timestamp,
   jsonb,
   index,
+  bigint,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 
 /** Tenant-scoped schema. US-only. */
@@ -127,3 +129,22 @@ export const suppressionEntries = pgTable("suppression_entries", {
   reason: text("reason").notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * Durable metered-usage accumulator backing billing limit enforcement. One row
+ * per (tenant, metric); `count` is incremented atomically. Flat accumulator —
+ * no period windowing (matches the UsageMeter contract; monthly reset is a
+ * separate concern).
+ */
+export const usageCounters = pgTable(
+  "usage_counters",
+  {
+    tenantId: text("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    metric: text("metric").notNull(),
+    count: bigint("count", { mode: "number" }).notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.tenantId, t.metric] })],
+);
