@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { ConsentState, IngestEvent, ModuleKey, Profile, Tenant } from "@cdp-us/contracts";
 import type { DsarReaders, Subject } from "@cdp-us/data-export";
 import { ACCESS_REPORT_SCHEMA_VERSION, TOMBSTONE_MARKER } from "@cdp-us/data-export";
+import { InMemoryAuditStore } from "@cdp-us/audit-log";
 import { InMemoryTokenStore } from "./auth.js";
 import type { TenantStore } from "./tenant.js";
 import { registerDataExport } from "./routes/data-export.js";
@@ -20,6 +21,31 @@ describe("data export route", () => {
     expect(Array.isArray(deletionBody.plan?.deletableTargets)).toBe(true);
     expect(correct.json()).toMatchObject({ ok: true, tenantId: "t1", kind: "correct", tombstone: TOMBSTONE_MARKER, profile: { email: TOMBSTONE_MARKER } });
     await app.close();
+  });
+
+  it("emits an audit entry for each DSAR action", async () => {
+    const auditStore = new InMemoryAuditStore();
+    const tokenStore = new InMemoryTokenStore();
+    const { token } = await tokenStore.issue({ tenantId: "t1", userId: "admin_1", role: "admin", token: "tok" });
+    const app = Fastify();
+    registerDataExport(app, store(tenant(["data-export"])), tokenStore, {
+      readers: readers(),
+      now: () => "2026-06-01T00:00:00.000Z",
+      auditStore,
+    });
+    const headers = { authorization: `Bearer ${token}` };
+
+    expect((await post(app, headers, "access")).statusCode).toBe(200);
+    expect((await post(app, headers, "delete")).statusCode).toBe(200);
+    await app.close();
+
+    const entries = await auditStore.query({ tenantId: "t1" });
+    expect(entries.map((e) => e.action)).toEqual(["dsar.access", "dsar.delete"]);
+    expect(entries[0]).toMatchObject({
+      tenantId: "t1",
+      actor: { id: "admin_1", role: "admin" },
+      resource: { type: "subject", id: "buyer@example.com" },
+    });
   });
 
   it("enforces auth, tenant, and body gates", async () => {

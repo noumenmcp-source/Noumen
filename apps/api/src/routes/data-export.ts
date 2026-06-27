@@ -1,10 +1,11 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { ACCESS_REPORT_SCHEMA_VERSION, assembleAccessReport, planDeletion, redactProfile, TOMBSTONE_MARKER, type DsarReaders, type DsarRequest, type Subject } from "@cdp-us/data-export";
+import type { AuditStore } from "@cdp-us/audit-log";
 import { authenticate, roleSatisfies, type TokenStore } from "../auth.js";
 import type { TenantStore } from "../tenant.js";
 
-export type DataExportDeps = Readonly<{ readers: DsarReaders; now?: () => string }>;
+export type DataExportDeps = Readonly<{ readers: DsarReaders; now?: () => string; auditStore?: AuditStore }>;
 
 const subjectSchema = z.union([
   z.string().min(1),
@@ -25,16 +26,40 @@ export function registerDataExport(app: FastifyInstance, tenantStore: TenantStor
 
     const parsed = bodySchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_body", issues: parsed.error.issues });
-    const request = toRequest(tenantId, parsed.data.subject, deps.now?.() ?? "2026-01-01T00:00:00.000Z");
+    const now = deps.now?.() ?? "2026-01-01T00:00:00.000Z";
+    const request = toRequest(tenantId, parsed.data.subject, now);
     try {
-      if (parsed.data.kind === "access") return reply.send({ ok: true, tenantId, kind: "access", schemaVersion: ACCESS_REPORT_SCHEMA_VERSION, report: await assembleAccessReport(deps.readers, request) });
-      if (parsed.data.kind === "delete") return reply.send({ ok: true, tenantId, kind: "delete", plan: await planDeletion(deps.readers, request) });
-      const profile = await deps.readers.profiles.getBySubject(tenantId, request.subject);
-      return reply.send({ ok: true, tenantId, kind: "correct", tombstone: TOMBSTONE_MARKER, profile: profile ? redactProfile(profile) : null });
+      let body: Record<string, unknown>;
+      if (parsed.data.kind === "access") {
+        body = { ok: true, tenantId, kind: "access", schemaVersion: ACCESS_REPORT_SCHEMA_VERSION, report: await assembleAccessReport(deps.readers, request) };
+      } else if (parsed.data.kind === "delete") {
+        body = { ok: true, tenantId, kind: "delete", plan: await planDeletion(deps.readers, request) };
+      } else {
+        const profile = await deps.readers.profiles.getBySubject(tenantId, request.subject);
+        body = { ok: true, tenantId, kind: "correct", tombstone: TOMBSTONE_MARKER, profile: profile ? redactProfile(profile) : null };
+      }
+      // Record the privileged DSAR action in the audit trail before returning.
+      // Fail-closed: if the trail can't be written, the action is not confirmed.
+      if (deps.auditStore) {
+        await deps.auditStore.append({
+          tenantId,
+          actor: { id: principal.userId, role: principal.role },
+          action: `dsar.${parsed.data.kind}`,
+          resource: { type: "subject", id: subjectKey(parsed.data.subject) },
+          ts: now,
+        });
+      }
+      return reply.send(body);
     } catch {
       return reply.code(502).send({ error: "export_failed" });
     }
   });
+}
+
+/** Stable, non-empty subject reference for the audit resource id. */
+function subjectKey(raw: string | Subject): string {
+  if (typeof raw === "string") return raw;
+  return raw.email ?? raw.userId ?? raw.anonymousId ?? "unknown";
 }
 
 function toRequest(tenantId: string, raw: string | Subject, requestedAt: string): DsarRequest {

@@ -137,6 +137,7 @@ export async function buildServer(
     messenger: messengerAdapter,
   });
   registerDataExport(app, tenantStore, tokenStore, {
+    auditStore,
     readers: createDataExportReaders(profileStore, ingestStore),
     now: () => new Date().toISOString(),
   });
