@@ -150,9 +150,10 @@ export interface BreakdownItem {
   readonly icon?: IconName;
 }
 
-export function BreakdownBars(props: { readonly items: readonly BreakdownItem[] }) {
+export function BreakdownBars(props: { readonly items: readonly BreakdownItem[]; readonly barClass?: string }) {
   const max = Math.max(...props.items.map((i) => i.value), 1);
   const total = props.items.reduce((a, b) => a + b.value, 0);
+  const bar = props.barClass ?? "bg-accent";
   return (
     <div className="grid gap-3">
       {props.items.map((item) => (
@@ -164,8 +165,8 @@ export function BreakdownBars(props: { readonly items: readonly BreakdownItem[] 
             </span>
             <span className="text-muted">{fmt(item.value)} · {pct(item.value, total)}</span>
           </div>
-          <div className="h-1.5 overflow-hidden rounded-full bg-field">
-            <div className="h-full rounded-full bg-zinc-400" style={{ width: `${(item.value / max) * 100}%` }} />
+          <div className="h-2 overflow-hidden rounded-full bg-field">
+            <div className={`h-full rounded-full ${bar}`} style={{ width: `${(item.value / max) * 100}%` }} />
           </div>
         </div>
       ))}

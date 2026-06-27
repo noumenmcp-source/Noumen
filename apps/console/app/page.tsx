@@ -166,13 +166,13 @@ export default function DashboardPage() {
 
         <div className="grid gap-4 md:grid-cols-3">
           <SectionCard title="Devices" hint="Sessions by device class">
-            {overview ? <BreakdownBars items={overview.devices} /> : <Skeleton block />}
+            {overview ? <BreakdownBars items={overview.devices} barClass="bg-blue-500" /> : <Skeleton block />}
           </SectionCard>
           <SectionCard title="Acquisition channels" hint="Where profiles come from">
-            {overview ? <BreakdownBars items={overview.channels} /> : <Skeleton block />}
+            {overview ? <BreakdownBars items={overview.channels} barClass="bg-indigo-500" /> : <Skeleton block />}
           </SectionCard>
           <SectionCard title="Industries" hint="Firmographic mix">
-            {overview ? <BreakdownBars items={overview.industries} /> : <Skeleton block />}
+            {overview ? <BreakdownBars items={overview.industries} barClass="bg-teal-500" /> : <Skeleton block />}
           </SectionCard>
         </div>
 
