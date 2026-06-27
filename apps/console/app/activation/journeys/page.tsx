@@ -40,7 +40,7 @@ export default function JourneysPage() {
         <h1 className="text-2xl font-semibold">Journeys</h1>
         {!session ? <EmptyState title="No session" body="Sign in to run journey previews." /> : null}
         {error ? <ErrorState message={error} /> : null}
-        <Panel className="flex items-center justify-between gap-3"><span>Preview: enter → action → exit</span><Button disabled={!session} onClick={() => void submit()}>Run</Button></Panel>
+        <Panel className="flex items-center justify-between gap-3"><span>Preview: enter to action to exit</span><Button disabled={!session} onClick={() => void submit()}>Run</Button></Panel>
         {result ? <Panel><Badge tone={result.status === "completed" ? "ok" : "warm"}>{result.status}</Badge><div className="mt-3 grid gap-2 text-sm">{result.results.map((step) => <p key={step.key}>{step.key}: {step.status}</p>)}</div></Panel> : null}
       </div>
     </Shell>

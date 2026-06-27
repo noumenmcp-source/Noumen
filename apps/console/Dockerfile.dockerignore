@@ -1,0 +1,46 @@
+# Build context is the monorepo root:
+# docker build -f apps/console/Dockerfile .
+# BuildKit reads this file because it is named "<dockerfile>.dockerignore"
+# next to the Dockerfile.
+
+# dependencies are reinstalled in-image from the committed lockfile
+node_modules
+**/node_modules
+
+# build artifacts are rebuilt in-image
+dist
+**/dist
+build
+**/build
+.next
+**/.next
+out
+**/out
+*.tsbuildinfo
+**/*.tsbuildinfo
+
+# vcs / ci
+.git
+.gitignore
+.github
+
+# secrets / local env
+.env
+.env.*
+**/.env
+**/.env.*
+*.local
+
+# tooling / agent state
+.serena
+.claude
+.vercel
+.codebase-memory
+
+# docs are not needed for the console build/runtime image
+docs
+
+# os / logs
+.DS_Store
+Thumbs.db
+*.log

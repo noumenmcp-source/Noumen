@@ -4,6 +4,7 @@
 
 :root {
   color-scheme: light;
+  background: #f4f4f5;
 }
 
 * {
@@ -12,28 +13,49 @@
 
 body {
   margin: 0;
-  font-family: Arial, Helvetica, sans-serif;
+  background: #f4f4f5;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   letter-spacing: 0;
 }
 
 @layer components {
   .panel {
-    @apply rounded-md border border-line bg-white p-5 shadow-panel;
+    @apply rounded-xl border border-line bg-container p-4 shadow-panel;
   }
 
   .btn {
-    @apply inline-flex min-h-10 items-center justify-center rounded-md bg-accent px-4 text-sm font-semibold text-white transition hover:bg-[#176547] focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex min-h-9 items-center justify-center rounded-md bg-ink px-3 text-sm font-medium text-white transition hover:bg-zinc-700 focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .btn-secondary {
-    @apply inline-flex min-h-10 items-center justify-center rounded-md border border-line bg-white px-4 text-sm font-semibold text-ink transition hover:bg-field focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2;
+    @apply inline-flex min-h-9 items-center justify-center rounded-md border border-line bg-container px-3 text-sm font-medium text-ink transition hover:bg-field focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2;
   }
 
   .input {
-    @apply min-h-10 rounded-md border border-line bg-white px-3 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent/20;
+    @apply min-h-9 rounded-md border border-line bg-container px-3 text-sm outline-none placeholder:text-muted focus:border-accent focus:ring-2 focus:ring-accent/20;
   }
 
   .navlink {
-    @apply rounded-md px-3 py-2 text-ink/70 hover:bg-field hover:text-ink focus:outline-none focus:ring-2 focus:ring-accent;
+    @apply flex min-h-8 items-center gap-2 rounded-md px-2.5 text-sm text-muted transition hover:bg-field hover:text-ink focus:outline-none focus:ring-2 focus:ring-accent;
+  }
+
+  .navlink-active {
+    @apply bg-field text-ink shadow-panel;
+  }
+
+  .metric-card {
+    @apply relative overflow-hidden rounded-xl border border-line bg-container p-4 shadow-panel;
+  }
+
+  .table-shell {
+    @apply overflow-hidden rounded-xl border border-line bg-container shadow-panel;
+  }
+
+  .table-head {
+    @apply border-b border-line bg-field/70 text-left text-xs font-medium uppercase tracking-normal text-muted;
+  }
+
+  .table-row {
+    @apply border-b border-line last:border-b-0 hover:bg-field/60;
   }
 }

@@ -46,8 +46,8 @@ export default function ProfileDetailPage() {
               <p className="font-semibold">{profile?.email ?? profile?.anonymousId ?? profileId}</p>
               <p className="mt-1 text-sm text-ink/70">
                 {profile?.firmographics.company ?? "No firmographics yet"}
-                {profile?.firmographics.industry ? ` · ${profile.firmographics.industry}` : ""}
-                {profile?.firmographics.domain ? ` · ${profile.firmographics.domain}` : ""}
+                {profile?.firmographics.industry ? ` / ${profile.firmographics.industry}` : ""}
+                {profile?.firmographics.domain ? ` / ${profile.firmographics.domain}` : ""}
               </p>
             </div>
             {profile ? (() => {

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { readSession } from "../../src/session";
 import type { Session } from "../../src/types";
-import { EmptyState, Panel, Shell } from "../../src/ui";
+import { EmptyState, PageHeader, Panel, Shell } from "../../src/ui";
 
 const cards = [
   { href: "/activation/audiences", title: "Audiences", body: "Evaluate rules and inspect member samples." },
@@ -21,10 +21,11 @@ export default function ActivationPage() {
   return (
     <Shell>
       <div className="grid gap-5">
-        <div>
-          <h1 className="text-2xl font-semibold">Activation</h1>
-          <p className="mt-1 text-sm text-ink/70">Audience, journey, destination, and analytics controls for tenant activation.</p>
-        </div>
+        <PageHeader
+          eyebrow="Activation layer"
+          title="Activation"
+          body="Audience, journey, destination, and analytics controls for tenant activation."
+        />
         {!session ? <EmptyState title="No session" body="Sign in to load tenant activation." /> : null}
         <div className="grid gap-3 md:grid-cols-2">
           {cards.map((card) => (

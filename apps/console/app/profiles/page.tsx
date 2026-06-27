@@ -6,7 +6,7 @@ import { getProfiles } from "../../src/api";
 import { intentTier, intentValue } from "../../src/format";
 import { readSession } from "../../src/session";
 import type { Profile, Session } from "../../src/types";
-import { Badge, EmptyState, ErrorState, Panel, Shell } from "../../src/ui";
+import { Badge, EmptyState, ErrorState, PageHeader, Panel, Shell } from "../../src/ui";
 
 export default function ProfilesPage() {
   const [session, setSession] = useState<Session | null>(null);
@@ -36,35 +36,49 @@ export default function ProfilesPage() {
   return (
     <Shell>
       <div className="grid gap-5">
-        <div className="flex items-baseline justify-between">
-          <h1 className="text-2xl font-semibold">Profiles</h1>
-          {profiles.length > 0 ? (
-            <span className="text-sm text-ink/60">{profiles.length} ranked by intent</span>
-          ) : null}
-        </div>
+        <PageHeader
+          eyebrow="Customer graph"
+          title="Profiles"
+          body={profiles.length > 0 ? `${profiles.length} ranked by intent` : "Identity, firmographics, and activation priority for the current tenant."}
+        />
         {!session ? <EmptyState title="No session" body="Sign in to load tenant profiles." /> : null}
-        {loading ? <Panel>Loading profiles…</Panel> : null}
+        {loading ? <Panel>Loading profiles...</Panel> : null}
         {error ? <ErrorState message={error} /> : null}
         {!loading && session && !error && profiles.length === 0 ? (
           <EmptyState title="No profiles yet" body="Profiles appear here as events are ingested for this tenant." />
         ) : null}
-        <div className="grid gap-2">
-          {profiles.map((profile) => {
-            const tier = intentTier(profile.intent.score);
-            return (
-              <Link className="panel flex items-center justify-between gap-3 hover:border-accent" href={`/profiles/${profile.id}`} key={profile.id}>
-                <div>
-                  <p className="font-semibold">{profile.email ?? profile.anonymousId ?? profile.id}</p>
-                  <p className="text-sm text-ink/70">
-                    {profile.firmographics.company ?? "Unknown company"}
-                    {profile.firmographics.industry ? ` · ${profile.firmographics.industry}` : ""}
-                  </p>
-                </div>
-                <Badge tone={tier.tone}>{tier.label}</Badge>
-              </Link>
-            );
-          })}
-        </div>
+        {profiles.length > 0 ? (
+          <div className="table-shell overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="table-head">
+                <tr>
+                  <th className="px-4 py-3">Profile</th>
+                  <th className="px-4 py-3">Company</th>
+                  <th className="px-4 py-3">Industry</th>
+                  <th className="px-4 py-3">Intent</th>
+                </tr>
+              </thead>
+              <tbody>
+                {profiles.map((profile) => {
+                  const tier = intentTier(profile.intent.score);
+                  return (
+                    <tr className="table-row" key={profile.id}>
+                      <td className="px-4 py-4">
+                        <Link className="font-medium text-ink hover:text-accent" href={`/profiles/${profile.id}`}>
+                          {profile.email ?? profile.anonymousId ?? profile.id}
+                        </Link>
+                        <p className="mt-1 max-w-xs truncate text-xs text-muted">{profile.id}</p>
+                      </td>
+                      <td className="px-4 py-4 text-muted">{profile.firmographics.company ?? "Unknown company"}</td>
+                      <td className="px-4 py-4 text-muted">{profile.firmographics.industry ?? "-"}</td>
+                      <td className="px-4 py-4"><Badge tone={tier.tone}>{tier.label}</Badge></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
       </div>
     </Shell>
   );

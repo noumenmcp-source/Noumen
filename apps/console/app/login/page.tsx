@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { saveSession } from "../../src/session";
-import { Button, Field, Panel, Shell } from "../../src/ui";
+import { Button, Field, PageHeader, Panel, Shell } from "../../src/ui";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -19,8 +19,11 @@ export default function LoginPage() {
   return (
     <Shell>
       <Panel className="mx-auto max-w-xl">
-        <h1 className="text-2xl font-semibold">Sign in with API token</h1>
-        <p className="mt-2 text-sm text-ink/70">Paste a token and tenant ID. A token introspection endpoint is not available yet.</p>
+        <PageHeader
+          eyebrow="Operator access"
+          title="Use API token"
+          body="Paste a tenant token and tenant ID for the current browser session."
+        />
         <form className="mt-5 grid gap-4" onSubmit={submit}>
           <Field label="API token" required value={apiToken} onChange={setApiToken} />
           <Field label="Tenant ID" required value={tenantId} onChange={setTenantId} />
