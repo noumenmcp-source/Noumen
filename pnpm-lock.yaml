@@ -221,7 +221,60 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
 
+  packages/audiences:
+    dependencies:
+      '@cdp-us/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@cdp-us/core-cdp':
+        specifier: workspace:*
+        version: link:../core-cdp
+    devDependencies:
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
+
+  packages/audit-log:
+    dependencies:
+      '@cdp-us/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
+
   packages/billing:
+    dependencies:
+      '@cdp-us/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
+
+  packages/cohorts:
+    dependencies:
+      '@cdp-us/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
+
+  packages/computed-traits:
+    dependencies:
+      '@cdp-us/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
+
+  packages/consent-geo:
     dependencies:
       '@cdp-us/contracts':
         specifier: workspace:*
@@ -282,6 +335,16 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
 
+  packages/data-retention:
+    dependencies:
+      '@cdp-us/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
+
   packages/db:
     dependencies:
       drizzle-orm:
@@ -321,6 +384,16 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
 
+  packages/identity-graph:
+    dependencies:
+      '@cdp-us/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
+
   packages/integrations:
     dependencies:
       '@cdp-us/contracts':
@@ -336,6 +409,29 @@ importers:
       '@cdp-us/contracts':
         specifier: workspace:*
         version: link:../contracts
+    devDependencies:
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
+
+  packages/notifications:
+    dependencies:
+      '@cdp-us/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
+
+  packages/personalization:
+    dependencies:
+      '@cdp-us/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@cdp-us/core-cdp':
+        specifier: workspace:*
+        version: link:../core-cdp
     devDependencies:
       vitest:
         specifier: ^2.1.8
