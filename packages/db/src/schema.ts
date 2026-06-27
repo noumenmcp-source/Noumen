@@ -79,3 +79,20 @@ export const consentRecords = pgTable(
   },
   (t) => [index("consent_tenant_subject_idx").on(t.tenantId, t.subject)],
 );
+
+export const apiTokens = pgTable(
+  "api_tokens",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    role: text("role").notNull().default("viewer"),
+    tokenHash: text("token_hash").notNull().unique(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("api_tokens_tenant_idx").on(t.tenantId)],
+);

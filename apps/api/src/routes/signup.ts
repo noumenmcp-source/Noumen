@@ -1,10 +1,17 @@
 import type { FastifyInstance } from "fastify";
 import { selfServeSignupSchema } from "@cdp-us/contracts";
+import type { TokenStore } from "../auth.js";
 import type { TenantStore } from "../tenant.js";
 
+/**
+ * Self-serve US tenant signup. Creates the tenant + owner and mints the
+ * owner's API token (returned once as `apiToken`).
+ * @example POST /v1/signup { companyName, ownerEmail } -> 201 { tenant, owner, apiToken }
+ */
 export function registerSignup(
   app: FastifyInstance,
   tenantStore: TenantStore,
+  tokenStore: TokenStore,
 ): void {
   app.post("/v1/signup", async (req, reply) => {
     const parsed = selfServeSignupSchema.safeParse(req.body);
@@ -19,6 +26,12 @@ export function registerSignup(
       ownerEmail: parsed.data.ownerEmail,
     });
 
+    const { token } = await tokenStore.issue({
+      tenantId: tenant.id,
+      userId: owner.id,
+      role: owner.role,
+    });
+
     return reply.code(201).send({
       ok: true,
       tenant,
@@ -29,6 +42,7 @@ export function registerSignup(
         role: owner.role,
         createdAt: owner.createdAt,
       },
+      apiToken: token,
     });
   });
 }

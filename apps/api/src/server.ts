@@ -4,6 +4,11 @@ import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import { createDb } from "@cdp-us/db";
 import {
+  DbTokenStore,
+  InMemoryTokenStore,
+  type TokenStore,
+} from "./auth.js";
+import {
   DbIngestStore,
   InMemoryIngestStore,
   type IngestStore,
@@ -23,12 +28,14 @@ export async function buildServer(
     logger?: boolean;
     ingestStore?: IngestStore;
     tenantStore?: TenantStore;
+    tokenStore?: TokenStore;
     rateLimit?: { max: number; timeWindow: number | string } | false;
   } = {},
 ) {
   const app = Fastify({ logger: opts.logger ?? true });
   const tenantStore = opts.tenantStore ?? createDefaultTenantStore();
   const ingestStore = opts.ingestStore ?? createDefaultIngestStore();
+  const tokenStore = opts.tokenStore ?? createDefaultTokenStore();
   await app.register(cors, {
     origin: true,
     methods: ["GET", "POST", "OPTIONS"],
@@ -42,8 +49,8 @@ export async function buildServer(
     });
   }
   registerHealth(app);
-  registerModules(app, tenantStore);
-  registerSignup(app, tenantStore);
+  registerModules(app, tenantStore, tokenStore);
+  registerSignup(app, tenantStore, tokenStore);
   registerIngest(app, ingestStore, tenantStore);
   return app;
 }
@@ -62,6 +69,14 @@ function createDefaultTenantStore(): TenantStore {
     return new DbTenantStore(createDb(connectionString));
   }
   return new InMemoryTenantStore();
+}
+
+function createDefaultTokenStore(): TokenStore {
+  const connectionString = process.env.DATABASE_URL;
+  if (connectionString) {
+    return new DbTokenStore(createDb(connectionString));
+  }
+  return new InMemoryTokenStore();
 }
 
 function defaultRateLimit(): { max: number; timeWindow: number | string } {

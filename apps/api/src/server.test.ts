@@ -179,14 +179,17 @@ describe("api server", () => {
       },
     });
     const tenantId = signup.json().tenant.id;
+    const auth = { authorization: `Bearer ${signup.json().apiToken}` };
 
     const first = await app.inject({
       method: "POST",
       url: `/v1/tenants/${tenantId}/modules/email`,
+      headers: auth,
     });
     const second = await app.inject({
       method: "POST",
       url: `/v1/tenants/${tenantId}/modules/email`,
+      headers: auth,
     });
     await app.close();
 
