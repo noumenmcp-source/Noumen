@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { eq } from "drizzle-orm";
 import type { IngestEvent, TenantId } from "@cdp-us/contracts";
 import { events, type Db } from "@cdp-us/db";
 
@@ -15,6 +16,7 @@ export interface StoredIngestEvent {
 
 export interface IngestStore {
   save(event: StoredIngestEvent): Promise<void>;
+  listByTenant(tenantId: TenantId): Promise<StoredIngestEvent[]>;
 }
 
 export class InMemoryIngestStore implements IngestStore {
@@ -26,6 +28,10 @@ export class InMemoryIngestStore implements IngestStore {
 
   listEvents(): StoredIngestEvent[] {
     return [...this.#events];
+  }
+
+  async listByTenant(tenantId: TenantId): Promise<StoredIngestEvent[]> {
+    return this.#events.filter((e) => e.tenantId === tenantId);
   }
 
   reset(): void {
@@ -46,6 +52,23 @@ export class DbIngestStore implements IngestStore {
       properties: event.properties,
       ts: new Date(event.ts),
     });
+  }
+
+  async listByTenant(tenantId: TenantId): Promise<StoredIngestEvent[]> {
+    const rows = await this.db
+      .select()
+      .from(events)
+      .where(eq(events.tenantId, tenantId));
+    return rows.map((row) => ({
+      id: row.id,
+      tenantId: row.tenantId,
+      anonymousId: row.anonymousId,
+      type: row.type as IngestEvent["type"],
+      name: row.name ?? undefined,
+      properties: row.properties,
+      ts: row.ts.toISOString(),
+      receivedAt: row.ts.toISOString(),
+    }));
   }
 }
 

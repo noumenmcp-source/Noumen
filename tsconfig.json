@@ -3,6 +3,7 @@
   "references": [
     { "path": "packages/contracts" },
     { "path": "packages/db" },
+    { "path": "packages/core-cdp" },
     { "path": "packages/sdk" },
     { "path": "packages/billing" },
     { "path": "modules/automation" },

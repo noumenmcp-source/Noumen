@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { ingestBatchSchema } from "@cdp-us/contracts";
+import type { ProfileService } from "@cdp-us/core-cdp";
 import type { TenantStore } from "../tenant.js";
 import { isAllowed } from "../consent.js";
 import type { IngestStore } from "../ingest-store.js";
@@ -10,6 +11,7 @@ export function registerIngest(
   app: FastifyInstance,
   store: IngestStore,
   tenantStore: TenantStore,
+  profileService: ProfileService,
 ): void {
   app.post("/v1/track", async (req, reply) => {
     const parsed = ingestBatchSchema.safeParse(req.body);
@@ -38,6 +40,7 @@ export function registerIngest(
         continue;
       }
       await store.save(toStoredIngestEvent(tenant.id, ev));
+      await profileService.applyEvent(tenant.id, ev);
       stored++;
       counters.stored++;
     }
