@@ -75,6 +75,7 @@ import {
 import { DbAuditStore } from "./audit-store.js";
 import { DbSuppressionStore } from "./suppression-store.js";
 import { DbUsageMeter } from "./usage-meter.js";
+import { installObservability, type ObservabilityOptions } from "./observability.js";
 
 export async function buildServer(
   opts: {
@@ -91,9 +92,11 @@ export async function buildServer(
     socialAdapter?: SocialAdapter;
     messengerAdapter?: MessengerAdapter;
     rateLimit?: { max: number; timeWindow: number | string } | false;
+    observability?: ObservabilityOptions | false;
   } = {},
 ) {
   const app = Fastify({ logger: opts.logger ?? true });
+  installObservability(app, opts.observability);
   const tenantStore = opts.tenantStore ?? createDefaultTenantStore();
   const ingestStore = opts.ingestStore ?? createDefaultIngestStore();
   const tokenStore = opts.tokenStore ?? createDefaultTokenStore();
