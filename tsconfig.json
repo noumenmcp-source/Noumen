@@ -4,6 +4,7 @@
     { "path": "packages/contracts" },
     { "path": "packages/db" },
     { "path": "packages/sdk" },
+    { "path": "packages/billing" },
     { "path": "modules/automation" },
     { "path": "modules/consent" },
     { "path": "modules/email" },

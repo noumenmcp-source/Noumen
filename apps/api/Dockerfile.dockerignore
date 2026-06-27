@@ -1,0 +1,47 @@
+# Build context is the monorepo ROOT (docker build -f apps/api/Dockerfile .).
+# BuildKit reads this file because it is named "<dockerfile>.dockerignore"
+# next to the Dockerfile; a plain ".dockerignore" here would be IGNORED, since
+# the context root is the repo root (not apps/api) and Docker only reads a
+# ".dockerignore" at the context root or this Dockerfile-specific name.
+
+# dependencies (reinstalled in-image from the committed lockfile)
+node_modules
+**/node_modules
+
+# build artifacts (rebuilt in-image)
+dist
+**/dist
+build
+**/build
+.next
+**/.next
+out
+**/out
+*.tsbuildinfo
+**/*.tsbuildinfo
+
+# vcs / ci
+.git
+.gitignore
+.github
+
+# secrets / local env (never bake into the image)
+.env
+.env.*
+**/.env
+**/.env.*
+*.local
+
+# tooling / agent state
+.serena
+.claude
+.vercel
+.codebase-memory
+
+# docs are not needed at build/runtime
+docs
+
+# os / logs
+.DS_Store
+Thumbs.db
+*.log
