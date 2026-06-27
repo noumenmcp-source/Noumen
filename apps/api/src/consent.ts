@@ -1,4 +1,4 @@
-import type { ConsentPurpose } from "@cdp-us/contracts";
+import type { ConsentPurpose, ConsentState } from "@cdp-us/contracts";
 
 /**
  * Consent gate (foundation stub). Encodes the US default posture:
@@ -28,6 +28,20 @@ export function setConsent(
   const current = overrides.get(k) ?? {};
   current[purpose] = allowed;
   overrides.set(k, current);
+}
+
+/** Replace a subject's full consent state (written by POST /v1/consent). */
+export function applyConsentState(
+  tenantId: string,
+  subject: string,
+  state: ConsentState,
+): void {
+  overrides.set(key(tenantId, subject), {
+    analytics: state.analytics,
+    marketing_email: state.marketing_email,
+    sale_or_share: state.sale_or_share,
+    messaging_tcpa: state.messaging_tcpa,
+  });
 }
 
 export function resetConsentOverrides(): void {

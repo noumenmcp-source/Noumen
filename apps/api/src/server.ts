@@ -22,6 +22,7 @@ import {
 } from "@cdp-us/email";
 import { InMemoryUsageMeter, type UsageMeter } from "@cdp-us/billing";
 import { registerEmail } from "./routes/email.js";
+import { registerConsent } from "./routes/consent.js";
 import {
   DbIngestStore,
   InMemoryIngestStore,
@@ -78,6 +79,7 @@ export async function buildServer(
     sender: emailSender,
     usageMeter,
   });
+  registerConsent(app, tenantStore);
   return app;
 }
 
