@@ -3,14 +3,25 @@
 > Stop guessing who your customer is — see them in 3D. ECO SAS is the eyes of
 > marketing: it pulls data from everywhere, unifies it, and tells the client in
 > plain words how to sell more and which channel is bleeding money — and why.
+> It doesn't just advise — it **explains**, teaching a non-expert owner what
+> their metrics even mean, which surfaces the next service package to buy.
 
-## Two pillars
+## Three pillars
 
 1. **Purpose — help the client sell.** The unit of value is *insight → action*,
    not dashboards. Every feature must answer: *did this move revenue / CAC /
    ROAS?* If not, it doesn't ship.
 2. **Engine — take from everywhere, unify, explain, advise.** A CDP + marketing
-   attribution + an AI analyst that narrates the numbers.
+   attribution + SEO intelligence + an AI analyst that narrates the numbers.
+3. **Explain, don't just advise (the upsell flywheel).** A metric says "organic
+   traffic" — a non-expert owner has no idea what that is or where it comes from.
+   ECO SAS explains it in plain words: what it is, where it comes from, that
+   growth needs SEO, how to analyze it. The education *surfaces a need* → the
+   client buys the next package (SEO audit, attribution setup, a managed channel)
+   → **average check (ARPU) grows**. Win-win: we grow ARPU; the client keeps a
+   quality customer database and runs competent marketing. Every explanation and
+   recommendation is **grounded in the client's own numbers and cites them** — an
+   AI tutor over their data, not generic content.
 
 ### Honest framing of "3D"
 True person-level 3D is only possible on **first-party** data (profiles, events,
@@ -88,6 +99,25 @@ that sells itself.
   the long tail (Meta/LinkedIn/TikTok/…).*
 - **Attribution model for v1:** last-non-direct (recommended) vs multi-touch now.
 - **AI provider for the advisor:** must be grounded; pick model + guardrails.
+
+## Module — SEO intelligence (wedge candidate / v2)
+
+The user enters semantic/keyword queries; the system tracks **visibility &
+position dynamics by month and year**, and **competitors' dynamics** on the same
+queries. Positioned for our ICP (a non-SEO owner): *not "another Ahrefs"* —
+explain what the numbers mean and fold them into the same ROI picture
+("organic is X% of leads at $0 spend; here's the SEO gap and what to do").
+
+- **Data:** SERP positions / search volume / competitor visibility via a SEO
+  data API (DataForSEO / Ahrefs / SEMrush API) or an own SERP collector — pick on
+  cost/limits (see research prompt §E).
+- **Store:** time-series of rank/visibility per query × competitor × month.
+- **Explain layer:** the differentiator — teach + advise, drive the upsell to a
+  managed SEO package.
+
+This is the clearest second wedge after Channel ROI: it embodies pillar 3
+(explain → upsell) directly. Full research brief:
+[docs/prompts/MARKET_RESEARCH_PROMPT.md](prompts/MARKET_RESEARCH_PROMPT.md).
 
 ### <a name="clickhouse"></a>ClickHouse — when, not whether
 The earlier "why no ClickHouse in US?" connects here. v1 metric volume is small →
