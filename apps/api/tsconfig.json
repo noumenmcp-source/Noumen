@@ -7,6 +7,7 @@
     { "path": "../../packages/db" },
     { "path": "../../packages/core-cdp" },
     { "path": "../../packages/billing" },
+    { "path": "../../packages/platform" },
     { "path": "../../packages/analytics" },
     { "path": "../../packages/attribution" },
     { "path": "../../packages/audiences" },

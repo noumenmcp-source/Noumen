@@ -1,11 +1,15 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import type { PlanKey } from "@cdp-us/billing";
 import type { RawSocialItem, SocialCollector, SocialPlatform } from "@cdp-us/social-intel";
+import { InMemoryTokenStore } from "./auth.js";
 import { resetConsentOverrides, setConsent } from "./consent.js";
 import { resetCounters } from "./routes/health.js";
 import { buildServer } from "./server.js";
-import { resetTenantRegistry } from "./tenant.js";
+import { InMemoryTenantStore, resetTenantRegistry } from "./tenant.js";
+import type { TenantAccount as PlatformTenantAccount } from "@cdp-us/platform";
 
 type App = Awaited<ReturnType<typeof buildServer>>;
+type TenantStatus = PlatformTenantAccount["status"];
 
 async function signup(app: App) {
   const res = await app.inject({
@@ -24,6 +28,30 @@ async function enableModule(app: App, tid: string, token: string, key: string) {
   });
 }
 
+async function setupTenant(
+  plan: PlanKey,
+  status: TenantStatus = "active",
+) {
+  const tenantStore = new InMemoryTenantStore();
+  const tokenStore = new InMemoryTokenStore();
+  const account = await tenantStore.createTenantAccount({
+    id: `tenant_${plan}_${status}`,
+    writeKey: `wk_${plan}_${status}`,
+    ownerId: `owner_${plan}_${status}`,
+    name: `${plan} tenant`,
+    ownerEmail: `${plan}.${status}@example.test`,
+    plan,
+    status,
+  });
+  const { token } = await tokenStore.issue({
+    tenantId: account.tenant.id,
+    userId: account.owner.id,
+    role: account.owner.role,
+  });
+  const app = await buildServer({ logger: false, tenantStore, tokenStore });
+  return { app, account, token };
+}
+
 /** Fake collector: returns canned items offline, no network. */
 function fakeCollector(
   platform: SocialPlatform,
@@ -36,6 +64,32 @@ beforeEach(() => {
   resetCounters();
   resetConsentOverrides();
   resetTenantRegistry();
+});
+
+describe("POST /v1/tenants/:id/modules/:moduleKey (platform enforcement)", () => {
+  it("402s when the tenant plan is not entitled to the module", async () => {
+    const { app, account, token } = await setupTenant("starter");
+    const res = await enableModule(app, account.tenant.id, token, "automation");
+    await app.close();
+
+    expect(res.statusCode).toBe(402);
+    expect(res.json()).toMatchObject({
+      error: "module_not_entitled",
+      module: "automation",
+    });
+  });
+
+  it("403s suspended tenants before enabling an entitled module", async () => {
+    const { app, account, token } = await setupTenant("agency", "suspended");
+    const res = await enableModule(app, account.tenant.id, token, "automation");
+    await app.close();
+
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({
+      error: "tenant_suspended",
+      module: "automation",
+    });
+  });
 });
 
 describe("GET /v1/tenants/:id/intel (social-intel)", () => {

@@ -1,12 +1,17 @@
 import { randomUUID } from "node:crypto";
+import type { PlanKey } from "@cdp-us/billing";
 import type { ModuleKey, Tenant, User } from "@cdp-us/contracts";
 import { tenants, users, type Db } from "@cdp-us/db";
+import type { TenantAccount as PlatformTenantAccount } from "@cdp-us/platform";
 import { eq } from "drizzle-orm";
 
 /**
  * In-memory tenant registry (foundation stub).
  * Replaced by a db-backed lookup once the platform module lands.
  */
+const DEFAULT_PLAN: PlanKey = "agency";
+const DEFAULT_STATUS: PlatformTenantAccount["status"] = "active";
+
 const demo: Tenant = {
   id: "demo",
   name: "Demo US B2B",
@@ -31,17 +36,22 @@ export interface CreateTenantAccountInput {
   writeKey?: string;
   ownerId?: string;
   now?: () => string;
+  plan?: PlanKey;
+  status?: PlatformTenantAccount["status"];
 }
 
 export interface TenantAccount {
   tenant: Tenant;
   owner: User;
+  plan: PlanKey;
+  status: PlatformTenantAccount["status"];
 }
 
 export interface TenantStore {
   createTenantAccount(input: CreateTenantAccountInput): Promise<TenantAccount>;
   resolveTenant(writeKey: string): Promise<Tenant | undefined>;
   getTenant(id: string): Promise<Tenant | undefined>;
+  getTenantAccount?(id: string): Promise<TenantAccount | undefined>;
   enableTenantModule(
     tenantId: string,
     moduleKey: ModuleKey,
@@ -52,6 +62,7 @@ export interface TenantStore {
 export class InMemoryTenantStore implements TenantStore {
   readonly #byKey = new Map<string, Tenant>();
   readonly #byId = new Map<string, Tenant>();
+  readonly #accountsByTenantId = new Map<string, TenantAccount>();
   readonly #usersById = new Map<string, User>();
 
   constructor() {
@@ -61,8 +72,9 @@ export class InMemoryTenantStore implements TenantStore {
   reset(): void {
     this.#byKey.clear();
     this.#byId.clear();
+    this.#accountsByTenantId.clear();
     this.#usersById.clear();
-    this.#addTenant({ tenant: demo, owner: demoOwner });
+    this.#addTenant({ tenant: demo, owner: demoOwner, plan: DEFAULT_PLAN, status: DEFAULT_STATUS });
   }
 
   async createTenantAccount(
@@ -79,6 +91,10 @@ export class InMemoryTenantStore implements TenantStore {
 
   async getTenant(id: string): Promise<Tenant | undefined> {
     return this.#byId.get(id);
+  }
+
+  async getTenantAccount(id: string): Promise<TenantAccount | undefined> {
+    return this.#accountsByTenantId.get(id);
   }
 
   async enableTenantModule(
@@ -106,6 +122,7 @@ export class InMemoryTenantStore implements TenantStore {
     }
     this.#byId.set(account.tenant.id, account.tenant);
     this.#byKey.set(account.tenant.writeKey, account.tenant);
+    this.#accountsByTenantId.set(account.tenant.id, account);
     this.#usersById.set(account.owner.id, account.owner);
   }
 }
@@ -144,6 +161,18 @@ export class DbTenantStore implements TenantStore {
       .where(eq(tenants.id, id))
       .limit(1);
     return row ? toTenant(row) : undefined;
+  }
+
+  async getTenantAccount(id: string): Promise<TenantAccount | undefined> {
+    const tenant = await this.getTenant(id);
+    if (!tenant) return undefined;
+    const [owner] = await this.db
+      .select()
+      .from(users)
+      .where(eq(users.tenantId, id))
+      .limit(1);
+    if (!owner) return undefined;
+    return { tenant, owner: toUser(owner), plan: DEFAULT_PLAN, status: DEFAULT_STATUS };
   }
 
   async enableTenantModule(
@@ -185,7 +214,12 @@ function buildTenantAccount(input: CreateTenantAccountInput): TenantAccount {
     role: "owner",
     createdAt,
   };
-  return { tenant, owner };
+  return {
+    tenant,
+    owner,
+    plan: input.plan ?? DEFAULT_PLAN,
+    status: input.status ?? DEFAULT_STATUS,
+  };
 }
 
 function toTenant(row: typeof tenants.$inferSelect): Tenant {
@@ -195,6 +229,16 @@ function toTenant(row: typeof tenants.$inferSelect): Tenant {
     writeKey: row.writeKey,
     region: "us",
     enabledModules: row.enabledModules as ModuleKey[],
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+function toUser(row: typeof users.$inferSelect): User {
+  return {
+    id: row.id,
+    tenantId: row.tenantId,
+    email: row.email,
+    role: row.role as User["role"],
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -217,6 +261,10 @@ export function resolveTenant(writeKey: string): Promise<Tenant | undefined> {
 
 export function getTenant(id: string): Promise<Tenant | undefined> {
   return defaultTenantStore.getTenant(id);
+}
+
+export function getTenantAccount(id: string): Promise<TenantAccount | undefined> {
+  return defaultTenantStore.getTenantAccount(id);
 }
 
 export function enableTenantModule(

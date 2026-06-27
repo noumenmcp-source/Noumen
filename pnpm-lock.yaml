@@ -122,6 +122,9 @@ importers:
       '@cdp-us/notifications':
         specifier: workspace:*
         version: link:../../packages/notifications
+      '@cdp-us/platform':
+        specifier: workspace:*
+        version: link:../../packages/platform
       '@cdp-us/social-intel':
         specifier: workspace:*
         version: link:../../modules/social-intel

@@ -1,4 +1,6 @@
 import type { FastifyInstance } from "fastify";
+import { enforceEntitlement } from "@cdp-us/platform";
+import type { TenantAccount as PlatformTenantAccount } from "@cdp-us/platform";
 import {
   getModuleManifest,
   isModuleKey,
@@ -6,6 +8,9 @@ import {
 } from "../module-registry.js";
 import { authenticate, roleSatisfies, type TokenStore } from "../auth.js";
 import type { TenantStore } from "../tenant.js";
+
+const DEFAULT_PLAN = "agency" as const;
+const DEFAULT_STATUS = "active" as const;
 
 /**
  * Module catalog (public) + tenant module enablement (auth + RBAC).
@@ -37,6 +42,21 @@ export function registerModules(
       return reply.code(403).send({ error: "forbidden" });
     }
 
+    const account = await getPlatformTenantAccount(tenantStore, tenantId);
+    if (!account) {
+      return reply.code(404).send({ error: "unknown_tenant" });
+    }
+
+    const entitlement = enforceEntitlement(account, moduleKey);
+    if (!entitlement.ok) {
+      const error = account.status === "suspended" ? "tenant_suspended" : "module_not_entitled";
+      return reply.code(error === "tenant_suspended" ? 403 : 402).send({
+        error,
+        module: moduleKey,
+        reason: entitlement.reason,
+      });
+    }
+
     const tenant = await tenantStore.enableTenantModule(tenantId, moduleKey);
     if (!tenant) {
       return reply.code(404).send({ error: "unknown_tenant" });
@@ -48,4 +68,14 @@ export function registerModules(
       module: getModuleManifest(moduleKey),
     });
   });
+}
+
+async function getPlatformTenantAccount(
+  tenantStore: TenantStore,
+  tenantId: string,
+): Promise<PlatformTenantAccount | undefined> {
+  const account = await tenantStore.getTenantAccount?.(tenantId);
+  if (account) return account;
+  const tenant = await tenantStore.getTenant(tenantId);
+  return tenant ? { tenant, plan: DEFAULT_PLAN, status: DEFAULT_STATUS } : undefined;
 }
