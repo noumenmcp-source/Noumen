@@ -6,6 +6,7 @@
     { "path": "packages/core-cdp" },
     { "path": "packages/sdk" },
     { "path": "packages/billing" },
+    { "path": "packages/data-export" },
     { "path": "modules/automation" },
     { "path": "modules/consent" },
     { "path": "modules/email" },
