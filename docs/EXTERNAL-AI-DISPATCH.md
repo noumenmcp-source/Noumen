@@ -69,10 +69,13 @@ Acceptance / Test command / Risk / Качество). Каждая = новый 
 
 Трогают shared-файлы (`core-cdp` + `apps/api`), параллелить с волнами нельзя:
 
-- **Интент-скоринг → ingest/профили.** Сейчас ingest пишет только `intent.lastActiveAt`,
-  не `intent.score`; из-за этого интент-UI в console «спит» (бейдж «No intent yet»). Подключить
-  детерминированный скоринг (можно через `analyzeIntent` из social-intel или правила сегментов)
-  к `ProfileService.applyEvent`, чтобы профили получали 0..100 score. Спека: кандидат #23.
+- **Интент-скоринг → профили — спека готова: `docs/prompts/23-intent-scoring.md`.**
+  Сейчас `applyEvent` пишет только `intent.lastActiveAt`, не `intent.score`; интент-UI в console
+  «спит» (бейдж «No intent yet»). Спека: чистый модуль `core-cdp/src/intent.ts`
+  (`topicsForEvent` + `computeIntentScore`, детерминированно, аккумуляция `intent.topics` union →
+  идемпотентно) + минимальная проводка в `ProfileService.applyEvent`. Контракт НЕ меняется
+  (`IntentSignals` уже с `score?`/`topics?`); social-intel в core-cdp НЕ тянуть (база-слой).
+  Исполнять одним аккуратным агентом, интегрировать полным гейтом.
 - **Промоушн `traits.email` → `profile.email`** в identity-резолве (сейчас email живёт в traits,
   карточки показывают anonymousId). Мелкий фикс core-cdp.
 
