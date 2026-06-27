@@ -7,6 +7,12 @@ WORKDIR /app
 
 ARG NEXT_PUBLIC_API_URL=https://noumen.137-220-56-211.sslip.io
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+# Optional read-only demo workspace: when set, the dashboard auto-loads live
+# aggregates for this tenant so the public URL renders a populated cockpit.
+ARG NEXT_PUBLIC_DEMO_TENANT=
+ARG NEXT_PUBLIC_DEMO_TOKEN=
+ENV NEXT_PUBLIC_DEMO_TENANT=$NEXT_PUBLIC_DEMO_TENANT
+ENV NEXT_PUBLIC_DEMO_TOKEN=$NEXT_PUBLIC_DEMO_TOKEN
 ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN corepack enable

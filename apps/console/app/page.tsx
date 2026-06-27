@@ -2,100 +2,225 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { getHealth } from "../src/api";
+import { analyticsFunnel, analyticsTimeseries, audienceSize, getHealth } from "../src/api";
+import type { TimePoint } from "../src/api";
 import { readSession } from "../src/session";
-import type { Health, Session } from "../src/types";
-import { Badge, EmptyState, ErrorState, MetricCard, PageHeader, Panel, Shell } from "../src/ui";
+import type { FunnelStep, Health, Session } from "../src/types";
+import { Badge, ErrorState, PageHeader, Shell } from "../src/ui";
+import {
+  AreaChart, BreakdownBars, CapabilityGrid, FunnelChart, Kpi, SectionCard,
+  fmt, pct, type BreakdownItem, type Capability,
+} from "../src/widgets";
+
+const FUNNEL_STEPS = [
+  "Product Viewed", "Pricing Viewed", "Plan Compared", "Demo Requested",
+  "Trial Started", "Checkout Started", "Upgrade Clicked",
+] as const;
+
+const DEVICES: ReadonlyArray<{ readonly v: string; readonly icon: BreakdownItem["icon"] }> = [
+  { v: "desktop", icon: "desktop" }, { v: "mobile", icon: "mobile" }, { v: "tablet", icon: "tablet" },
+];
+const CHANNELS = ["paid_search", "linkedin_ads", "organic_search", "email", "webinar", "partner_referral", "direct"] as const;
+const INDUSTRIES = ["Manufacturing", "SaaS", "Fintech", "Healthcare", "Retail", "Media", "Logistics", "Education"] as const;
+
+interface Overview {
+  readonly total: number;
+  readonly events: number;
+  readonly funnel: readonly FunnelStep[];
+  readonly series: readonly TimePoint[];
+  readonly devices: readonly BreakdownItem[];
+  readonly channels: readonly BreakdownItem[];
+  readonly industries: readonly BreakdownItem[];
+}
+
+function effectiveSession(): { readonly session: Session; readonly demo: boolean } | null {
+  const live = readSession();
+  if (live && live.tenantId && live.apiToken) return { session: live, demo: false };
+  const tenantId = process.env.NEXT_PUBLIC_DEMO_TENANT;
+  const apiToken = process.env.NEXT_PUBLIC_DEMO_TOKEN;
+  if (tenantId && apiToken) return { session: { tenantId, apiToken, tenant: null }, demo: true };
+  return null;
+}
+
+function windowDates(): { readonly from: string; readonly to: string } {
+  const now = new Date();
+  const from = new Date(now.getTime() - 29 * 24 * 60 * 60 * 1000);
+  return { from: from.toISOString().slice(0, 10), to: now.toISOString().slice(0, 10) };
+}
+
+async function loadBreakdown(
+  tenantId: string, token: string, path: string, values: readonly string[],
+  icons?: Record<string, BreakdownItem["icon"]>,
+): Promise<BreakdownItem[]> {
+  const rows = await Promise.all(
+    values.map((v) =>
+      audienceSize(tenantId, token, path, v)
+        .then((value): BreakdownItem => ({ label: v, value, icon: icons?.[v] }))
+        .catch((): BreakdownItem => ({ label: v, value: 0 })),
+    ),
+  );
+  return rows.sort((a, b) => b.value - a.value);
+}
 
 export default function DashboardPage() {
-  const [session, setSession] = useState<Session | null>(null);
+  const [ctx, setCtx] = useState<{ readonly session: Session; readonly demo: boolean } | null>(null);
+  const [overview, setOverview] = useState<Overview | null>(null);
   const [health, setHealth] = useState<Health | null>(null);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    setSession(readSession());
-    getHealth().then(setHealth).catch((err: unknown) => setError(String(err)));
+    const found = effectiveSession();
+    setCtx(found);
+    getHealth().then(setHealth).catch(() => undefined);
+    if (!found) {
+      setLoading(false);
+      return;
+    }
+    const { tenantId, apiToken } = found.session;
+    const { from, to } = windowDates();
+    const deviceIcons = Object.fromEntries(DEVICES.map((d) => [d.v, d.icon]));
+
+    async function load(): Promise<void> {
+      const funnel: readonly FunnelStep[] = await analyticsFunnel(tenantId, apiToken, FUNNEL_STEPS as unknown as string[]).catch(() => []);
+      const series: readonly TimePoint[] = await analyticsTimeseries(tenantId, apiToken, { metric: "events", from, to }).catch(() => []);
+      const [devices, channels, industries] = await Promise.all([
+        loadBreakdown(tenantId, apiToken, "traits.deviceType", DEVICES.map((d) => d.v), deviceIcons),
+        loadBreakdown(tenantId, apiToken, "traits.acquisitionChannel", CHANNELS),
+        loadBreakdown(tenantId, apiToken, "traits.industry", INDUSTRIES),
+      ]);
+      let events = 0;
+      for (const p of series) events += p.value;
+      setOverview({ total: funnel[0]?.count ?? 0, events, funnel, series, devices, channels, industries });
+    }
+
+    load().catch((err: unknown) => setError(String(err))).finally(() => setLoading(false));
   }, []);
+
+  const conv = overview && overview.funnel.length > 1
+    ? pct(overview.funnel[overview.funnel.length - 1].count, overview.funnel[0].count) : "—";
+  const avgEvents = overview && overview.total ? (overview.events / overview.total).toFixed(1) : "—";
+  const capabilities = buildCapabilities(overview);
 
   return (
     <Shell>
       <div className="grid gap-5">
         <PageHeader
-          eyebrow="US-only workspace"
+          eyebrow={ctx?.demo ? "Demo workspace · live US runtime" : "US-only workspace"}
           title="Operations dashboard"
-          body="Live intake, tenant state, and activation surfaces for the current customer account."
-          actions={<Link className="btn-secondary" href="/modules">Manage modules</Link>}
+          body="Live intake, segmentation, and activation across the full customer data platform."
+          actions={
+            <>
+              <Badge tone={health?.status === "ok" ? "ok" : "warm"}>API {health?.status ?? "…"}</Badge>
+              {ctx?.demo ? <Link className="btn-secondary" href="/login">Use your token</Link> : null}
+              <Link className="btn-secondary" href="/modules">Modules</Link>
+            </>
+          }
         />
-        {!session ? <EmptyState title="No session" body="Sign up or paste an API token to manage a tenant." /> : null}
+
         {error ? <ErrorState message={error} /> : null}
-        <div className="grid gap-4 md:grid-cols-4">
-          {counterCards.map((card) => (
-            <MetricCard
-              detail={card.detail}
-              key={card.key}
-              label={card.label}
-              tone={card.tone}
-              value={health?.counters[card.key] ?? "-"}
-            />
-          ))}
-        </div>
-        <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-          <Panel>
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-sm text-muted">Tenant</p>
-                <h2 className="mt-1 text-xl font-medium">{session?.tenant?.name ?? session?.tenantId ?? "Not selected"}</h2>
-              </div>
-              <Badge tone={session ? "ok" : "neutral"}>{session ? "session" : "empty"}</Badge>
-            </div>
-            <div className="mt-5 grid gap-3 sm:grid-cols-3">
-              <TenantFact label="Tenant ID" value={session?.tenantId ?? "-"} />
-              <TenantFact label="Region" value={session?.tenant?.region ?? health?.region ?? "-"} />
-              <TenantFact label="Modules" value={String(session?.tenant?.enabledModules.length ?? 0)} />
-            </div>
-            <div className="mt-5 flex flex-wrap gap-2">
-              <Link className="btn-secondary" href="/signup">Create tenant</Link>
+        {!ctx && !loading ? (
+          <div className="rounded-xl border border-dashed border-line bg-field/70 p-5 text-sm">
+            <p className="font-semibold text-ink">Connect a workspace</p>
+            <p className="mt-1 text-muted">Sign up or paste an API token to load live profiles, funnels, and activation.</p>
+            <div className="mt-3 flex gap-2">
+              <Link className="btn" href="/signup">Create tenant</Link>
               <Link className="btn-secondary" href="/login">Use token</Link>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <Kpi icon="users" label="Profiles" value={overview ? fmt(overview.total) : <Skeleton />} sub={ctx?.demo ? "synthetic dataset" : undefined} />
+          <Kpi icon="activity" label="Events · 30d" value={overview ? fmt(overview.events) : <Skeleton />} sub={`${FUNNEL_STEPS.length + 1} event types`} />
+          <Kpi icon="funnel" label="Conversion" value={overview ? conv : <Skeleton />} sub="product → upgrade" subTone="ok" />
+          <Kpi icon="chart" label="Events / profile" value={overview ? avgEvents : <Skeleton />} sub="engagement depth" />
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-[1.4fr_1fr]">
+          <SectionCard title="Event volume" hint="Daily tracked events · last 30 days" action={<Badge tone="info">events</Badge>}>
+            {overview ? <AreaChart points={overview.series} /> : <Skeleton block />}
+          </SectionCard>
+          <SectionCard title="Acquisition funnel" hint="Product view → paid upgrade">
+            {overview && overview.funnel.length ? <FunnelChart steps={overview.funnel} /> : <Skeleton block />}
+          </SectionCard>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-3">
+          <SectionCard title="Devices" hint="Sessions by device class">
+            {overview ? <BreakdownBars items={overview.devices} /> : <Skeleton block />}
+          </SectionCard>
+          <SectionCard title="Acquisition channels" hint="Where profiles come from">
+            {overview ? <BreakdownBars items={overview.channels} /> : <Skeleton block />}
+          </SectionCard>
+          <SectionCard title="Industries" hint="Firmographic mix">
+            {overview ? <BreakdownBars items={overview.industries} /> : <Skeleton block />}
+          </SectionCard>
+        </div>
+
+        <SectionCard title="Platform capabilities" hint="Every CDP module live on this US runtime" action={<Badge tone="ok">{capabilities.length} modules</Badge>}>
+          <CapabilityGrid items={capabilities} />
+        </SectionCard>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <SectionCard title="Compliance posture" hint="US privacy regime enforced at intake">
+            <div className="flex flex-wrap gap-2">
+              {["CCPA / CPRA", "CAN-SPAM", "TCPA"].map((c) => <Badge key={c} tone="ok">{c}</Badge>)}
+            </div>
+            <p className="mt-3 text-sm text-muted">Consent gating runs before any event is persisted. Right-to-delete (DSAR) and suppression lists are wired into every module.</p>
+            <div className="mt-4 flex gap-2">
+              <Link className="btn-secondary" href="/modules">Module control</Link>
               <Link className="btn-secondary" href="/connect">Install connector</Link>
             </div>
-          </Panel>
-          <Panel>
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-sm text-muted">API status</p>
-                <h2 className="mt-1 text-xl font-medium">{health?.status ?? "unknown"}</h2>
-              </div>
-              <Badge tone={health?.status === "ok" ? "ok" : "warm"}>{health?.region ?? "us"}</Badge>
-            </div>
-            <div className="mt-5 grid gap-2 text-sm">
-              <Link className="rounded-lg border border-line px-3 py-2 hover:bg-field" href="/profiles">Profiles</Link>
-              <Link className="rounded-lg border border-line px-3 py-2 hover:bg-field" href="/activation">Activation</Link>
-              <Link className="rounded-lg border border-line px-3 py-2 hover:bg-field" href="/modules">Module control</Link>
-            </div>
-          </Panel>
+          </SectionCard>
+          <SectionCard title="Data coverage" hint="What this workspace is tracking">
+            <dl className="grid grid-cols-2 gap-3 text-sm">
+              <Fact label="Tracked profiles" value={overview ? fmt(overview.total) : "—"} />
+              <Fact label="Events · 30d" value={overview ? fmt(overview.events) : "—"} />
+              <Fact label="Segments evaluated" value={String(DEVICES.length + CHANNELS.length + INDUSTRIES.length)} />
+              <Fact label="Region" value={(health?.region ?? "us").toUpperCase()} />
+            </dl>
+          </SectionCard>
         </div>
       </div>
     </Shell>
   );
 }
 
-function TenantFact(props: { readonly label: string; readonly value: string }) {
+function buildCapabilities(o: Overview | null): readonly Capability[] {
+  const conv = o && o.funnel.length > 1 ? pct(o.funnel[o.funnel.length - 1].count, o.funnel[0].count) : undefined;
+  const topChannel = o?.channels[0]?.label.replace(/_/g, " ");
+  const segments = DEVICES.length + CHANNELS.length + INDUSTRIES.length;
+  return [
+    { name: "Analytics", desc: "funnel · retention", icon: "chart", stat: conv ? `${conv} conversion` : "funnel · retention" },
+    { name: "Audiences", desc: "live segments", icon: "users", stat: `${segments} segments live` },
+    { name: "Cohorts", desc: "retention grids", icon: "layers" },
+    { name: "Journeys", desc: "multi-step flows", icon: "route" },
+    { name: "Automations", desc: "event triggers", icon: "bolt" },
+    { name: "Lead scoring", desc: "0–100 intent", icon: "target" },
+    { name: "Enrichment", desc: "firmographics", icon: "sparkle" },
+    { name: "Deliverability", desc: "inbox health", icon: "mail" },
+    { name: "Destinations", desc: "warehouse + tools", icon: "plug" },
+    { name: "Attribution", desc: "multi-touch", icon: "share", stat: topChannel ? `top: ${topChannel}` : "multi-touch" },
+    { name: "Data quality", desc: "validation rules", icon: "shield" },
+    { name: "Forms", desc: "lead capture", icon: "form" },
+    { name: "Social intel", desc: "external signals", icon: "globe" },
+    { name: "Warehouse sync", desc: "scheduled export", icon: "database" },
+    { name: "Webhooks", desc: "inbound events", icon: "webhook" },
+    { name: "Data export", desc: "DSAR + bulk", icon: "download" },
+    { name: "Audit log", desc: "immutable trail", icon: "history" },
+  ];
+}
+
+function Fact(props: { readonly label: string; readonly value: string }) {
   return (
-    <div className="rounded-lg border border-line bg-field/60 p-3">
-      <p className="text-xs font-medium uppercase text-muted">{props.label}</p>
-      <p className="mt-1 truncate text-sm font-medium">{props.value}</p>
+    <div className="rounded-lg border border-line bg-field/50 p-3">
+      <dt className="text-xs text-muted">{props.label}</dt>
+      <dd className="mt-1 text-lg font-medium text-ink">{props.value}</dd>
     </div>
   );
 }
 
-const counterCards: readonly {
-  readonly key: keyof Health["counters"];
-  readonly label: string;
-  readonly detail: string;
-  readonly tone: "neutral" | "ok" | "warm" | "hot" | "info";
-}[] = [
-  { key: "received", label: "Received", detail: "Accepted by track API", tone: "info" },
-  { key: "stored", label: "Stored", detail: "Persisted events", tone: "ok" },
-  { key: "suppressed", label: "Suppressed", detail: "Compliance gated", tone: "warm" },
-  { key: "failed", label: "Failed", detail: "Rejected or errored", tone: "hot" },
-];
+function Skeleton(props: { readonly block?: boolean }) {
+  return <span className={`inline-block animate-pulse rounded bg-field ${props.block ? "h-32 w-full" : "h-7 w-16"}`} />;
+}

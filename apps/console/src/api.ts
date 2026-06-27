@@ -119,6 +119,40 @@ export async function analyticsRetention(tenantId: string, token: string, opts: 
   return retained.map((rate, day) => ({ day, rate: typeof rate === "number" ? rate : 0 }));
 }
 
+export interface TimePoint {
+  readonly date: string;
+  readonly value: number;
+}
+
+/** Daily event/user volume for the dashboard time series.
+ * @example const points = await analyticsTimeseries("t_1", token, { metric: "events", from: "2026-05-28", to: "2026-06-27" }); */
+export async function analyticsTimeseries(
+  tenantId: string,
+  token: string,
+  opts: { readonly metric: "events" | "users"; readonly from: string; readonly to: string },
+): Promise<readonly TimePoint[]> {
+  const data = await authedPost(`/v1/tenants/${tenantId}/analytics/timeseries`, token, {
+    metric: opts.metric,
+    bucket: "day",
+    from: opts.from,
+    to: opts.to,
+  });
+  const points = isRecord(data) && Array.isArray(data.points) ? data.points : [];
+  return points.filter(isTimePoint);
+}
+
+/** Exact segment size via the audiences engine — powers live dashboard breakdowns
+ * without shipping every profile to the browser.
+ * @example const desktops = await audienceSize("t_1", token, "traits.deviceType", "desktop"); */
+export async function audienceSize(tenantId: string, token: string, path: string, equals: unknown): Promise<number> {
+  const result = await evaluateAudience(tenantId, token, { name: path, rule: [{ path, equals }], sampleSize: 1 });
+  return result?.size ?? 0;
+}
+
+function isTimePoint(value: unknown): value is TimePoint {
+  return isRecord(value) && typeof value.date === "string" && typeof value.value === "number";
+}
+
 function authedPost(path: string, token: string, body: unknown): Promise<unknown> {
   return request(path, { method: "POST", headers: { authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
 }
