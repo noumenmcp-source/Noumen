@@ -1,0 +1,15 @@
+{
+  "name": "rf-cdp-social-intel",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "RF segment: social intelligence. Ported from US modules/social-intel (normalize -> deterministic buying-intent analysis + YouTube parse/comment-analysis/content-ideas), law-agnostic engine, rebuilt with Russian intent topics & lexicon and Cyrillic-aware tokenization. Live collection (API keys) is a follow-up.",
+  "main": "lib/index.js",
+  "scripts": {
+    "test": "node --test",
+    "start": "node worker.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

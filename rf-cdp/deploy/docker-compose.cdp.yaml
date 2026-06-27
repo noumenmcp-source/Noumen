@@ -308,6 +308,24 @@ services:
       - "127.0.0.1:8150:8150"
     networks:
       - dittofeed-network-lite
+  # ---------------------------------------------------------------------------
+  # CDP social-intel — deterministic social/intent + YouTube analysis API.
+  # ---------------------------------------------------------------------------
+  social-intel:
+    build:
+      context: ../services/social-intel
+      dockerfile: Dockerfile
+    image: cdp/social-intel:local
+    restart: always
+    logging:
+      driver: "local"
+    environment:
+      PORT: 8160
+      SOCIAL_API_TOKEN: ${SOCIAL_API_TOKEN:-}
+    ports:
+      - "127.0.0.1:8160:8160"
+    networks:
+      - dittofeed-network-lite
 volumes:
   postgres:
   clickhouse_lib:
