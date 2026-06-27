@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import type { ReactNode } from "react";
 import type { TimePoint } from "./api";
 import type { FunnelStep } from "./types";
@@ -15,11 +16,11 @@ export function pct(part: number, whole: number): string {
   return `${Math.round((part / whole) * 1000) / 10}%`;
 }
 
-type IconName =
+export type IconName =
   | "chart" | "users" | "layers" | "route" | "bolt" | "target" | "sparkle"
   | "mail" | "plug" | "share" | "shield" | "form" | "globe" | "database"
   | "webhook" | "download" | "history" | "funnel" | "desktop" | "mobile"
-  | "tablet" | "trend" | "scale" | "activity";
+  | "tablet" | "trend" | "scale" | "activity" | "arrow";
 
 const PATHS: Record<IconName, ReactNode> = {
   chart: <><path d="M4 20V4" /><path d="M4 20h16" /><rect x="7" y="12" width="3" height="5" /><rect x="12" y="9" width="3" height="8" /><rect x="17" y="6" width="3" height="11" /></>,
@@ -46,6 +47,7 @@ const PATHS: Record<IconName, ReactNode> = {
   trend: <><path d="m4 15 5-5 4 4 7-7" /><path d="M17 4h4v4" /></>,
   scale: <><path d="M12 3v18" /><path d="M7 7h10" /><path d="m5 7-2 6h4l-2-6Z" /><path d="m19 7-2 6h4l-2-6Z" /></>,
   activity: <path d="M3 12h4l3 8 4-16 3 8h4" />,
+  arrow: <><path d="M5 12h14" /><path d="m13 6 6 6-6 6" /></>,
 };
 
 export function Icon(props: { readonly name: IconName; readonly className?: string }) {
@@ -180,23 +182,35 @@ export interface Capability {
   readonly icon: IconName;
   readonly stat?: string;
   readonly live?: boolean;
+  readonly href?: string;
 }
 
 export function CapabilityGrid(props: { readonly items: readonly Capability[] }) {
   return (
     <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-4">
-      {props.items.map((c) => (
-        <div key={c.name} className="rounded-lg border border-line bg-container p-3 transition hover:border-zinc-300 hover:bg-field/40">
-          <div className="flex items-start justify-between gap-2">
-            <span className="grid size-8 place-items-center rounded-md border border-line bg-field text-ink">
-              <Icon name={c.icon} className="size-4" />
-            </span>
-            <span className={`size-1.5 rounded-full ${c.live === false ? "bg-zinc-300" : "bg-emerald-500"}`} title={c.live === false ? "ready" : "live"} />
-          </div>
-          <p className="mt-2.5 text-sm font-medium text-ink">{c.name}</p>
-          <p className="mt-0.5 text-xs text-muted">{c.stat ?? c.desc}</p>
-        </div>
-      ))}
+      {props.items.map((c) => {
+        const inner = (
+          <>
+            <div className="flex items-start justify-between gap-2">
+              <span className="grid size-8 place-items-center rounded-md border border-line bg-field text-ink">
+                <Icon name={c.icon} className="size-4" />
+              </span>
+              <span className={`size-1.5 rounded-full ${c.live === false ? "bg-zinc-300" : "bg-emerald-500"}`} title={c.live === false ? "ready" : "live"} />
+            </div>
+            <p className="mt-2.5 flex items-center gap-1 text-sm font-medium text-ink">
+              {c.name}
+              {c.href ? <Icon name="arrow" className="size-3.5 text-muted transition group-hover:translate-x-0.5 group-hover:text-ink" /> : null}
+            </p>
+            <p className="mt-0.5 text-xs text-muted">{c.stat ?? c.desc}</p>
+          </>
+        );
+        const cls = "group block rounded-lg border border-line bg-container p-3 transition hover:border-accent/40 hover:bg-field/40 hover:shadow-panel";
+        return c.href ? (
+          <Link key={c.name} href={c.href} className={cls}>{inner}</Link>
+        ) : (
+          <div key={c.name} className={cls}>{inner}</div>
+        );
+      })}
     </div>
   );
 }

@@ -36,3 +36,21 @@ export function clearSession(): void {
 export function sessionFromSignup(apiToken: string, tenant: Tenant): Session {
   return { apiToken, tenant, tenantId: tenant.id };
 }
+
+export interface ActiveContext {
+  readonly session: Session;
+  readonly demo: boolean;
+}
+
+/** The session the console should act as: a stored login if present, otherwise
+ * the optional read-only demo workspace baked in at build time.
+ * @example const ctx = effectiveSession(); if (ctx) load(ctx.session);
+ */
+export function effectiveSession(): ActiveContext | null {
+  const live = readSession();
+  if (live && live.tenantId && live.apiToken) return { session: live, demo: false };
+  const tenantId = process.env.NEXT_PUBLIC_DEMO_TENANT;
+  const apiToken = process.env.NEXT_PUBLIC_DEMO_TOKEN;
+  if (tenantId && apiToken) return { session: { tenantId, apiToken, tenant: null }, demo: true };
+  return null;
+}

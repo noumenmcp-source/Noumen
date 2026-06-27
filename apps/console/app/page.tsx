@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { analyticsFunnel, analyticsTimeseries, audienceSize, getHealth } from "../src/api";
 import type { TimePoint } from "../src/api";
-import { clearSession, readSession } from "../src/session";
+import { clearSession, effectiveSession } from "../src/session";
+import { CAPABILITIES } from "../src/capabilities";
 import type { FunnelStep, Health, Session } from "../src/types";
 import { Badge, ErrorState, PageHeader, Shell } from "../src/ui";
 import {
@@ -31,15 +32,6 @@ interface Overview {
   readonly devices: readonly BreakdownItem[];
   readonly channels: readonly BreakdownItem[];
   readonly industries: readonly BreakdownItem[];
-}
-
-function effectiveSession(): { readonly session: Session; readonly demo: boolean } | null {
-  const live = readSession();
-  if (live && live.tenantId && live.apiToken) return { session: live, demo: false };
-  const tenantId = process.env.NEXT_PUBLIC_DEMO_TENANT;
-  const apiToken = process.env.NEXT_PUBLIC_DEMO_TOKEN;
-  if (tenantId && apiToken) return { session: { tenantId, apiToken, tenant: null }, demo: true };
-  return null;
 }
 
 function windowDates(): { readonly from: string; readonly to: string } {
@@ -209,25 +201,18 @@ function buildCapabilities(o: Overview | null): readonly Capability[] {
   const conv = o && o.funnel.length > 1 ? pct(o.funnel[o.funnel.length - 1].count, o.funnel[0].count) : undefined;
   const topChannel = o?.channels[0]?.label.replace(/_/g, " ");
   const segments = DEVICES.length + CHANNELS.length + INDUSTRIES.length;
-  return [
-    { name: "Analytics", desc: "funnel · retention", icon: "chart", stat: conv ? `${conv} conversion` : "funnel · retention" },
-    { name: "Audiences", desc: "live segments", icon: "users", stat: `${segments} segments live` },
-    { name: "Cohorts", desc: "retention grids", icon: "layers" },
-    { name: "Journeys", desc: "multi-step flows", icon: "route" },
-    { name: "Automations", desc: "event triggers", icon: "bolt" },
-    { name: "Lead scoring", desc: "0–100 intent", icon: "target" },
-    { name: "Enrichment", desc: "firmographics", icon: "sparkle" },
-    { name: "Deliverability", desc: "inbox health", icon: "mail" },
-    { name: "Destinations", desc: "warehouse + tools", icon: "plug" },
-    { name: "Attribution", desc: "multi-touch", icon: "share", stat: topChannel ? `top: ${topChannel}` : "multi-touch" },
-    { name: "Data quality", desc: "validation rules", icon: "shield" },
-    { name: "Forms", desc: "lead capture", icon: "form" },
-    { name: "Social intel", desc: "external signals", icon: "globe" },
-    { name: "Warehouse sync", desc: "scheduled export", icon: "database" },
-    { name: "Webhooks", desc: "inbound events", icon: "webhook" },
-    { name: "Data export", desc: "DSAR + bulk", icon: "download" },
-    { name: "Audit log", desc: "immutable trail", icon: "history" },
-  ];
+  const liveStat: Record<string, string | undefined> = {
+    analytics: conv ? `${conv} conversion` : undefined,
+    audiences: `${segments} segments live`,
+    attribution: topChannel ? `top: ${topChannel}` : undefined,
+  };
+  return CAPABILITIES.map((c) => ({
+    name: c.name,
+    desc: c.desc,
+    icon: c.icon,
+    stat: liveStat[c.key] ?? c.desc,
+    href: `/capabilities/${c.key}`,
+  }));
 }
 
 function Fact(props: { readonly label: string; readonly value: string }) {
