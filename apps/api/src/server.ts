@@ -21,8 +21,16 @@ import {
   type EmailSender,
 } from "@cdp-us/email";
 import { InMemoryUsageMeter, type UsageMeter } from "@cdp-us/billing";
+import {
+  InMemorySocialAdapter,
+  InMemoryMessengerAdapter,
+  type SocialAdapter,
+  type MessengerAdapter,
+} from "@cdp-us/automation";
 import { registerEmail } from "./routes/email.js";
 import { registerConsent } from "./routes/consent.js";
+import { registerIntel, type CollectorRegistry } from "./routes/intel.js";
+import { registerAutomations } from "./routes/automations.js";
 import {
   DbIngestStore,
   InMemoryIngestStore,
@@ -47,6 +55,9 @@ export async function buildServer(
     profileStore?: ProfileStore;
     emailSender?: EmailSender;
     usageMeter?: UsageMeter;
+    collectors?: CollectorRegistry;
+    socialAdapter?: SocialAdapter;
+    messengerAdapter?: MessengerAdapter;
     rateLimit?: { max: number; timeWindow: number | string } | false;
   } = {},
 ) {
@@ -58,6 +69,11 @@ export async function buildServer(
   const profileService = new ProfileService(profileStore);
   const emailSender = opts.emailSender ?? createDefaultEmailSender();
   const usageMeter = opts.usageMeter ?? new InMemoryUsageMeter();
+  // No social providers are wired by default: intel returns 503 per platform
+  // until a collector (with the tenant's provider creds) is injected.
+  const collectors = opts.collectors ?? {};
+  const socialAdapter = opts.socialAdapter ?? new InMemorySocialAdapter();
+  const messengerAdapter = opts.messengerAdapter ?? new InMemoryMessengerAdapter();
   await app.register(cors, {
     origin: true,
     methods: ["GET", "POST", "OPTIONS"],
@@ -80,6 +96,11 @@ export async function buildServer(
     usageMeter,
   });
   registerConsent(app, tenantStore);
+  registerIntel(app, tenantStore, tokenStore, { collectors });
+  registerAutomations(app, tenantStore, tokenStore, {
+    social: socialAdapter,
+    messenger: messengerAdapter,
+  });
   return app;
 }
 
