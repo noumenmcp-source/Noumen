@@ -225,6 +225,12 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
 
+  packages/ab-testing:
+    devDependencies:
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
+
   packages/analytics:
     dependencies:
       '@cdp-us/contracts':
@@ -385,6 +391,16 @@ importers:
         specifier: ^0.28.1
         version: 0.28.1
 
+  packages/deliverability:
+    dependencies:
+      '@cdp-us/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
+
   packages/destinations:
     dependencies:
       '@cdp-us/contracts':
@@ -404,6 +420,36 @@ importers:
       '@types/mjml':
         specifier: ^4.7.4
         version: 4.7.4
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
+
+  packages/enrichment:
+    dependencies:
+      '@cdp-us/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
+
+  packages/forms:
+    dependencies:
+      '@cdp-us/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
+
+  packages/funnels:
+    dependencies:
+      '@cdp-us/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
       vitest:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
@@ -438,6 +484,16 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
 
+  packages/lead-scoring:
+    dependencies:
+      '@cdp-us/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
+
   packages/notifications:
     dependencies:
       '@cdp-us/contracts':
@@ -456,6 +512,18 @@ importers:
       '@cdp-us/core-cdp':
         specifier: workspace:*
         version: link:../core-cdp
+    devDependencies:
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
+
+  packages/rate-limiter:
+    devDependencies:
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
+
+  packages/scheduler:
     devDependencies:
       vitest:
         specifier: ^2.1.8
@@ -513,6 +581,19 @@ importers:
 
   packages/webhooks:
     devDependencies:
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
+
+  packages/webhooks-inbound:
+    dependencies:
+      '@cdp-us/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.20.0
       vitest:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
