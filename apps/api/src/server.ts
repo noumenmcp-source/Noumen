@@ -3,9 +3,12 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import type { ConsentState, IngestEvent } from "@cdp-us/contracts";
+import { InMemoryAuditStore } from "@cdp-us/audit-log";
+import { InMemorySuppressionStore } from "@cdp-us/deliverability";
 import { createDb } from "@cdp-us/db";
 import type { DsarReaders, Subject } from "@cdp-us/data-export";
 import type { Sender as DestinationSender } from "@cdp-us/destinations";
+import { InboundRegistry } from "@cdp-us/webhooks-inbound";
 import {
   DbTokenStore,
   InMemoryTokenStore,
@@ -36,12 +39,22 @@ import { isAllowed } from "./consent.js";
 import { registerIntel, type CollectorRegistry } from "./routes/intel.js";
 import { registerAutomations } from "./routes/automations.js";
 import { registerAnalytics } from "./routes/analytics.js";
+import { registerAbTesting } from "./routes/ab-testing.js";
 import { registerAttribution } from "./routes/attribution.js";
 import { registerAudiences } from "./routes/audiences.js";
+import { registerAuditLog } from "./routes/audit-log.js";
+import { registerCohorts } from "./routes/cohorts.js";
 import { registerDataExport } from "./routes/data-export.js";
 import { registerDataQuality } from "./routes/data-quality.js";
 import { registerDestinations } from "./routes/destinations.js";
+import { registerDeliverability } from "./routes/deliverability.js";
+import { registerEnrichment } from "./routes/enrichment.js";
+import { registerForms } from "./routes/forms.js";
+import { registerFunnels } from "./routes/funnels.js";
 import { registerJourneys } from "./routes/journeys.js";
+import { registerLeadScoring } from "./routes/lead-scoring.js";
+import { registerNotifications } from "./routes/notifications.js";
+import { registerWebhooksInbound } from "./routes/webhooks-inbound.js";
 import { registerWarehouseSync } from "./routes/warehouse-sync.js";
 import {
   DbIngestStore,
@@ -92,7 +105,7 @@ export async function buildServer(
     methods: ["GET", "POST", "OPTIONS"],
     // authorization is required: the console + SDKs send Bearer tokens on
     // read/write endpoints; without it the browser blocks the CORS preflight.
-    allowedHeaders: ["content-type", "authorization"],
+    allowedHeaders: ["content-type", "authorization", "x-cdp-write-key", "x-signature", "stripe-signature", "x-hub-signature-256"],
   });
   const rateLimitConfig = opts.rateLimit ?? defaultRateLimit();
   if (rateLimitConfig !== false) {
@@ -135,6 +148,27 @@ export async function buildServer(
   });
   registerWarehouseSync(app, tenantStore, tokenStore, {
     profileStore: { listProfiles: (tenantId) => profileStore.listByTenant(tenantId) },
+  });
+  registerEnrichment(app, { tenantStore, tokenStore, profileStore, providers: [] });
+  registerAuditLog(app, { tenantStore, tokenStore, store: new InMemoryAuditStore() });
+  registerFunnels(app, {
+    tenantStore,
+    tokenStore,
+    events: { readRows: async (tenantId) => (await ingestStore.listByTenant(tenantId)).map(toFunnelRow) },
+  });
+  registerLeadScoring(app, { tenantStore, tokenStore, profileStore, now: new Date().toISOString() });
+  registerDeliverability(app, { tenantStore, tokenStore, store: new InMemorySuppressionStore() });
+  registerCohorts(app, {
+    tenantStore,
+    tokenStore,
+    store: { loadRows: async (tenantId) => (await ingestStore.listByTenant(tenantId)).map(toCohortRow) },
+  });
+  registerNotifications(app, { tenantStore, tokenStore, senders: {} });
+  registerAbTesting(app, { tenantStore, tokenStore });
+  registerForms(app, tenantStore, profileService, { resolveForm: () => null });
+  registerWebhooksInbound(app, tenantStore, profileService, {
+    registry: new InboundRegistry(),
+    resolveSecret: () => undefined,
   });
   return app;
 }
@@ -224,6 +258,14 @@ function toIngestEvent(event: StoredIngestEvent): IngestEvent {
     return { type: "identify", anonymousId: event.anonymousId, traits: event.properties, ts: event.ts };
   }
   return { type: "track", anonymousId: event.anonymousId, event: event.name ?? "Event", properties: event.properties, ts: event.ts };
+}
+
+function toFunnelRow(event: StoredIngestEvent) {
+  return { subject: event.anonymousId, eventName: event.name ?? event.type, ts: event.ts };
+}
+
+function toCohortRow(event: StoredIngestEvent) {
+  return { subject: event.anonymousId, ts: event.ts, step: event.name };
 }
 
 function consentState(tenantId: string, subject: string): ConsentState {
