@@ -9,6 +9,9 @@ import { DbSuppressionStore } from "./suppression-store.js";
 import { shouldSuppress } from "@cdp-us/deliverability";
 import { DbUsageMeter } from "./usage-meter.js";
 import { DbTokenStore } from "./auth.js";
+import { DbProfileStore } from "@cdp-us/core-cdp";
+import { TOMBSTONE_MARKER } from "@cdp-us/data-export";
+import { buildServer } from "./server.js";
 
 const url = process.env.DATABASE_URL;
 const run = describe.skipIf(!url);
@@ -220,5 +223,58 @@ run("db integration (real Postgres)", () => {
 
     // June's accrued usage is untouched by July writes.
     expect(await june.current(tenant.id, "emailsPerMonth")).toBe(200);
+  });
+
+  it("DSAR delete actually erases: events removed, profile anonymized", async () => {
+    const { tenant, owner } = await tenantStore.createTenantAccount({
+      name: `Integration Test ${randomUUID()}`,
+      ownerEmail: `owner-${randomUUID()}@example.com`,
+    });
+    const { token } = await tokenStore.issue({
+      tenantId: tenant.id,
+      userId: owner.id,
+      role: "owner",
+    });
+
+    const profileStore = new DbProfileStore(db);
+    const anon = `anon_${randomUUID()}`;
+    const email = `subject-${randomUUID()}@example.com`;
+    await profileStore.save({
+      id: `p_${randomUUID()}`,
+      tenantId: tenant.id,
+      anonymousId: anon,
+      email,
+      firmographics: {},
+      intent: {},
+      traits: { phone: "+15555550100" },
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    for (const name of ["Pricing Viewed", "Signup Started"]) {
+      await ingestStore.save(
+        toStoredIngestEvent(tenant.id, { type: "track", anonymousId: anon, event: name, properties: {} }),
+      );
+    }
+
+    const app = await buildServer({ logger: false });
+    const res = await app.inject({
+      method: "POST",
+      url: `/v1/tenants/${tenant.id}/dsar`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { subject: { email }, kind: "delete" },
+    });
+    await app.close();
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ executed: true, result: { anonymizedProfiles: 1, deletedEvents: 2 } });
+
+    // Events for the subject are gone; the profile's direct identifiers are scrubbed.
+    const remaining = (await ingestStore.listByTenant(tenant.id)).filter((e) => e.anonymousId === anon);
+    expect(remaining).toHaveLength(0);
+    const anonProfile = await profileStore.getByAnonymousId(tenant.id, anon);
+    expect(anonProfile).toBeUndefined();
+    const all = await profileStore.listByTenant(tenant.id);
+    const scrubbed = all.find((p) => p.traits.phone === TOMBSTONE_MARKER);
+    expect(scrubbed?.email).toBe(TOMBSTONE_MARKER);
   });
 });

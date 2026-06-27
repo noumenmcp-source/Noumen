@@ -1,11 +1,11 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { ACCESS_REPORT_SCHEMA_VERSION, assembleAccessReport, planDeletion, redactProfile, TOMBSTONE_MARKER, type DsarReaders, type DsarRequest, type Subject } from "@cdp-us/data-export";
+import { ACCESS_REPORT_SCHEMA_VERSION, assembleAccessReport, executeDeletion, planDeletion, redactProfile, TOMBSTONE_MARKER, type DsarEraser, type DsarReaders, type DsarRequest, type Subject } from "@cdp-us/data-export";
 import type { AuditStore } from "@cdp-us/audit-log";
 import { authenticate, roleSatisfies, type TokenStore } from "../auth.js";
 import type { TenantStore } from "../tenant.js";
 
-export type DataExportDeps = Readonly<{ readers: DsarReaders; now?: () => string; auditStore?: AuditStore }>;
+export type DataExportDeps = Readonly<{ readers: DsarReaders; now?: () => string; auditStore?: AuditStore; eraser?: DsarEraser }>;
 
 const subjectSchema = z.union([
   z.string().min(1),
@@ -33,7 +33,15 @@ export function registerDataExport(app: FastifyInstance, tenantStore: TenantStor
       if (parsed.data.kind === "access") {
         body = { ok: true, tenantId, kind: "access", schemaVersion: ACCESS_REPORT_SCHEMA_VERSION, report: await assembleAccessReport(deps.readers, request) };
       } else if (parsed.data.kind === "delete") {
-        body = { ok: true, tenantId, kind: "delete", plan: await planDeletion(deps.readers, request) };
+        const plan = await planDeletion(deps.readers, request);
+        // Execute the erasure when an eraser is wired (production); otherwise
+        // return the plan only (preview/dry-run for callers without a store).
+        if (deps.eraser) {
+          const result = await executeDeletion(deps.eraser, plan);
+          body = { ok: true, tenantId, kind: "delete", executed: true, result, plan };
+        } else {
+          body = { ok: true, tenantId, kind: "delete", executed: false, plan };
+        }
       } else {
         const profile = await deps.readers.profiles.getBySubject(tenantId, request.subject);
         body = { ok: true, tenantId, kind: "correct", tombstone: TOMBSTONE_MARKER, profile: profile ? redactProfile(profile) : null };

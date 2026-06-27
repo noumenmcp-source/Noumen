@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { IngestEvent, TenantId } from "@cdp-us/contracts";
 import { events, type Db } from "@cdp-us/db";
 
@@ -17,6 +17,8 @@ export interface StoredIngestEvent {
 export interface IngestStore {
   save(event: StoredIngestEvent): Promise<void>;
   listByTenant(tenantId: TenantId): Promise<StoredIngestEvent[]>;
+  /** Hard-delete every event for a subject (by anonymousId); returns the count. */
+  deleteByAnonymousId(tenantId: TenantId, anonymousId: string): Promise<number>;
 }
 
 export class InMemoryIngestStore implements IngestStore {
@@ -32,6 +34,18 @@ export class InMemoryIngestStore implements IngestStore {
 
   async listByTenant(tenantId: TenantId): Promise<StoredIngestEvent[]> {
     return this.#events.filter((e) => e.tenantId === tenantId);
+  }
+
+  async deleteByAnonymousId(tenantId: TenantId, anonymousId: string): Promise<number> {
+    let removed = 0;
+    for (let i = this.#events.length - 1; i >= 0; i--) {
+      const e = this.#events[i];
+      if (e && e.tenantId === tenantId && e.anonymousId === anonymousId) {
+        this.#events.splice(i, 1);
+        removed += 1;
+      }
+    }
+    return removed;
   }
 
   reset(): void {
@@ -69,6 +83,14 @@ export class DbIngestStore implements IngestStore {
       ts: row.ts.toISOString(),
       receivedAt: row.ts.toISOString(),
     }));
+  }
+
+  async deleteByAnonymousId(tenantId: TenantId, anonymousId: string): Promise<number> {
+    const deleted = await this.db
+      .delete(events)
+      .where(and(eq(events.tenantId, tenantId), eq(events.anonymousId, anonymousId)))
+      .returning({ id: events.id });
+    return deleted.length;
   }
 }
 

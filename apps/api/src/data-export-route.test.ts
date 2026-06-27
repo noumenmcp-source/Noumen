@@ -1,5 +1,5 @@
 import Fastify from "fastify";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ConsentState, IngestEvent, ModuleKey, Profile, Tenant } from "@cdp-us/contracts";
 import type { DsarReaders, Subject } from "@cdp-us/data-export";
 import { ACCESS_REPORT_SCHEMA_VERSION, TOMBSTONE_MARKER } from "@cdp-us/data-export";
@@ -21,6 +21,31 @@ describe("data export route", () => {
     expect(Array.isArray(deletionBody.plan?.deletableTargets)).toBe(true);
     expect(correct.json()).toMatchObject({ ok: true, tenantId: "t1", kind: "correct", tombstone: TOMBSTONE_MARKER, profile: { email: TOMBSTONE_MARKER } });
     await app.close();
+  });
+
+  it("executes erasure (not just plans) when an eraser is wired", async () => {
+    const anonymizeProfile = vi.fn(async () => undefined);
+    const deleteEvents = vi.fn(async () => 2);
+    const tokenStore = new InMemoryTokenStore();
+    const { token } = await tokenStore.issue({ tenantId: "t1", userId: "u1", role: "admin", token: "tok" });
+    const app = Fastify();
+    registerDataExport(app, store(tenant(["data-export"])), tokenStore, {
+      readers: readers(),
+      now: () => "2026-06-01T00:00:00.000Z",
+      eraser: { anonymizeProfile, deleteEvents },
+    });
+
+    const res = await post(app, { authorization: `Bearer ${token}` }, "delete");
+    await app.close();
+
+    expect(res.json()).toMatchObject({
+      ok: true,
+      kind: "delete",
+      executed: true,
+      result: { anonymizedProfiles: 1, deletedEvents: 2 },
+    });
+    expect(anonymizeProfile).toHaveBeenCalledWith("t1", "p1");
+    expect(deleteEvents).toHaveBeenCalledWith("t1", { email: "buyer@example.com" });
   });
 
   it("emits an audit entry for each DSAR action", async () => {

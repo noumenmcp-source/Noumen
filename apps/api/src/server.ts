@@ -6,7 +6,7 @@ import type { ConsentState, IngestEvent } from "@cdp-us/contracts";
 import { InMemoryAuditStore, type AuditStore } from "@cdp-us/audit-log";
 import { InMemorySuppressionStore, type SuppressionStore } from "@cdp-us/deliverability";
 import { createDb } from "@cdp-us/db";
-import type { DsarReaders, Subject } from "@cdp-us/data-export";
+import { redactProfile, type DsarEraser, type DsarReaders, type Subject } from "@cdp-us/data-export";
 import type { Sender as DestinationSender } from "@cdp-us/destinations";
 import { InboundRegistry } from "@cdp-us/webhooks-inbound";
 import {
@@ -138,6 +138,7 @@ export async function buildServer(
   });
   registerDataExport(app, tenantStore, tokenStore, {
     auditStore,
+    eraser: createDsarEraser(profileStore, ingestStore),
     readers: createDataExportReaders(profileStore, ingestStore),
     now: () => new Date().toISOString(),
   });
@@ -265,6 +266,28 @@ function createDataExportReaders(profileStore: ProfileStore, ingestStore: Ingest
         const key = subjectKey(subject);
         return key ? consentState(tenantId, key) : null;
       },
+    },
+  };
+}
+
+function createDsarEraser(profileStore: ProfileStore, ingestStore: IngestStore): DsarEraser {
+  return {
+    anonymizeProfile: async (tenantId, profileId) => {
+      const profile = await profileStore.getById(tenantId, profileId);
+      if (!profile) return;
+      await profileStore.save({
+        ...redactProfile(profile),
+        id: profile.id,
+        tenantId: profile.tenantId,
+        createdAt: profile.createdAt,
+        updatedAt: new Date().toISOString(),
+      });
+    },
+    deleteEvents: async (tenantId, subject) => {
+      const profile = findSubjectProfile(await profileStore.listByTenant(tenantId), subject);
+      const anonymousId = subject.anonymousId ?? profile?.anonymousId;
+      if (!anonymousId) return 0;
+      return ingestStore.deleteByAnonymousId(tenantId, anonymousId);
     },
   };
 }

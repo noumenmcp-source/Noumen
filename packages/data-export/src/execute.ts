@@ -38,18 +38,20 @@ export async function executeDeletion(
   eraser: DsarEraser,
   plan: DeletionPlan,
 ): Promise<DeletionResult> {
-  let anonymizedProfiles = 0;
-  for (const target of plan.deletableTargets) {
-    if (target.type !== "profile") continue;
-    await eraser.anonymizeProfile(plan.tenantId, target.key);
-    anonymizedProfiles += 1;
-  }
-
+  // Delete events BEFORE anonymizing profiles: the eraser resolves a subject's
+  // events via its (still-intact) profile, which anonymization would scrub.
   const eventTargets = plan.targets.filter((target) => target.type === "event");
   const anyEventHeld = eventTargets.some((target) => target.legalHold);
   let deletedEvents = 0;
   if (eventTargets.length > 0 && !anyEventHeld) {
     deletedEvents = await eraser.deleteEvents(plan.tenantId, plan.subject);
+  }
+
+  let anonymizedProfiles = 0;
+  for (const target of plan.deletableTargets) {
+    if (target.type !== "profile") continue;
+    await eraser.anonymizeProfile(plan.tenantId, target.key);
+    anonymizedProfiles += 1;
   }
 
   return {
