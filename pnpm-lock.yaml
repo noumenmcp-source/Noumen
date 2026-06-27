@@ -53,6 +53,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@cdp-us/ab-testing':
+        specifier: workspace:*
+        version: link:../../packages/ab-testing
       '@cdp-us/analytics':
         specifier: workspace:*
         version: link:../../packages/analytics
@@ -62,12 +65,18 @@ importers:
       '@cdp-us/audiences':
         specifier: workspace:*
         version: link:../../packages/audiences
+      '@cdp-us/audit-log':
+        specifier: workspace:*
+        version: link:../../packages/audit-log
       '@cdp-us/automation':
         specifier: workspace:*
         version: link:../../modules/automation
       '@cdp-us/billing':
         specifier: workspace:*
         version: link:../../packages/billing
+      '@cdp-us/cohorts':
+        specifier: workspace:*
+        version: link:../../packages/cohorts
       '@cdp-us/consent':
         specifier: workspace:*
         version: link:../../modules/consent
@@ -86,21 +95,42 @@ importers:
       '@cdp-us/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@cdp-us/deliverability':
+        specifier: workspace:*
+        version: link:../../packages/deliverability
       '@cdp-us/destinations':
         specifier: workspace:*
         version: link:../../packages/destinations
       '@cdp-us/email':
         specifier: workspace:*
         version: link:../../modules/email
+      '@cdp-us/enrichment':
+        specifier: workspace:*
+        version: link:../../packages/enrichment
+      '@cdp-us/forms':
+        specifier: workspace:*
+        version: link:../../packages/forms
+      '@cdp-us/funnels':
+        specifier: workspace:*
+        version: link:../../packages/funnels
       '@cdp-us/journeys':
         specifier: workspace:*
         version: link:../../packages/journeys
+      '@cdp-us/lead-scoring':
+        specifier: workspace:*
+        version: link:../../packages/lead-scoring
+      '@cdp-us/notifications':
+        specifier: workspace:*
+        version: link:../../packages/notifications
       '@cdp-us/social-intel':
         specifier: workspace:*
         version: link:../../modules/social-intel
       '@cdp-us/warehouse-sync':
         specifier: workspace:*
         version: link:../../packages/warehouse-sync
+      '@cdp-us/webhooks-inbound':
+        specifier: workspace:*
+        version: link:../../packages/webhooks-inbound
       '@fastify/cors':
         specifier: ^10.0.2
         version: 10.1.0
