@@ -1,0 +1,15 @@
+{
+  "name": "rf-cdp-automation",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "RF segment: social + messenger automation. Ported from US modules/automation (step orchestrator + channel adapters, law-agnostic). The US TCPA messenger gate is rebuilt as a 152-FZ / 'О рекламе' marketing-messaging consent gate wired to the consent-ledger. Real Telegram/VK adapters are a follow-up; the in-memory dry-run path is verified.",
+  "main": "lib/index.js",
+  "scripts": {
+    "test": "node --test",
+    "start": "node worker.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -30,6 +30,7 @@
 const CONSENT_PURPOSES = [
   'pdn_processing',
   'marketing_email',
+  'marketing_messaging',
   'analytics',
   'third_party_transfer',
   'cross_border',

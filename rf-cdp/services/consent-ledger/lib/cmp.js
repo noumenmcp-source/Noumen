@@ -19,6 +19,7 @@ function resolveConsent(input = {}) {
   return {
     pdn_processing: c.pdn_processing === true,
     marketing_email: c.marketing_email === true,
+    marketing_messaging: c.marketing_messaging === true,
     analytics: c.analytics === true,
     third_party_transfer: c.third_party_transfer === true,
     cross_border: c.cross_border === true,

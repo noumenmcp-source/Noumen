@@ -11,7 +11,7 @@ const {
 test('default: every purpose denied (152-ФЗ is opt-in, not opt-out)', () => {
   const s = resolveConsent({});
   assert.deepEqual(s, {
-    pdn_processing: false, marketing_email: false, analytics: false, third_party_transfer: false, cross_border: false,
+    pdn_processing: false, marketing_email: false, marketing_messaging: false, analytics: false, third_party_transfer: false, cross_border: false,
   });
   assert.deepEqual(allowedPurposes(s), []);
 });

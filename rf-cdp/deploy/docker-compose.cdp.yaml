@@ -326,6 +326,28 @@ services:
       - "127.0.0.1:8160:8160"
     networks:
       - dittofeed-network-lite
+  # ---------------------------------------------------------------------------
+  # CDP automation — scenario orchestrator (social + messenger) with a 152-ФЗ
+  # marketing-messaging consent gate against the consent-ledger.
+  # ---------------------------------------------------------------------------
+  automation:
+    build:
+      context: ../services/automation
+      dockerfile: Dockerfile
+    image: cdp/automation:local
+    restart: always
+    logging:
+      driver: "local"
+    depends_on:
+      - consent-ledger
+    environment:
+      PORT: 8170
+      CONSENT_LEDGER_URL: ${CONSENT_LEDGER_URL:-http://consent-ledger:8140}
+      AUTOMATION_API_TOKEN: ${AUTOMATION_API_TOKEN:-}
+    ports:
+      - "127.0.0.1:8170:8170"
+    networks:
+      - dittofeed-network-lite
 volumes:
   postgres:
   clickhouse_lib:
