@@ -6,6 +6,7 @@ export {
   profileReportItem,
 } from "./categories.js";
 export { planDeletion } from "./deletion.js";
+export { executeDeletion, type DsarEraser, type DeletionResult } from "./execute.js";
 export { assembleAccessReport } from "./report.js";
 export { isPiiTraitKey, redactProfile, TOMBSTONE_MARKER } from "./redact.js";
 export { sortDeletionTargets, sortReportItems } from "./sort.js";
