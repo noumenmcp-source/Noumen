@@ -1,0 +1,13 @@
+{
+  "name": "@cdp-us/marketing",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "astro build" },
+  "dependencies": {
+    "@astrojs/tailwind": "^6.0.2",
+    "astro": "^5.14.8",
+    "tailwindcss": "^3.4.17"
+  },
+  "devDependencies": {}
+}

@@ -1,0 +1,131 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    margin: 0;
+  }
+
+  a {
+    text-decoration: none;
+  }
+
+  a:focus-visible,
+  button:focus-visible {
+    outline: 3px solid #0b7558;
+    outline-offset: 3px;
+  }
+}
+
+@layer components {
+  .product-shot {
+    min-height: 520px;
+    border: 1px solid #24312c;
+    border-radius: 8px;
+    background: #101816;
+    color: #f7f8f5;
+    box-shadow: 0 32px 80px rgb(18 25 23 / 18%);
+    overflow: hidden;
+  }
+
+  .shot-top {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px 20px;
+    border-bottom: 1px solid rgb(255 255 255 / 10%);
+    color: rgb(247 248 245 / 68%);
+    font: 700 12px/1.2 "SFMono-Regular", Consolas, monospace;
+  }
+
+  .shot-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    padding: 20px;
+  }
+
+  .shot-grid article {
+    min-height: 180px;
+    display: grid;
+    align-content: space-between;
+    padding: 18px;
+    border: 1px solid rgb(255 255 255 / 10%);
+    border-radius: 8px;
+    background: rgb(255 255 255 / 5%);
+  }
+
+  .shot-grid span,
+  .shot-grid small {
+    color: rgb(247 248 245 / 60%);
+  }
+
+  .shot-grid strong {
+    font-size: 32px;
+    line-height: 1;
+  }
+
+  #how article,
+  #modules article,
+  #pricing article {
+    transition: transform 160ms ease, border-color 160ms ease;
+  }
+
+  #how article:hover,
+  #modules article:hover,
+  #pricing article:hover {
+    transform: translateY(-2px);
+  }
+
+  #how b {
+    color: #0b7558;
+  }
+
+  #how h2,
+  #modules h3,
+  #pricing h3 {
+    margin: 10px 0;
+    font-size: 22px;
+    font-weight: 900;
+  }
+
+  #how p,
+  #modules p,
+  #pricing p {
+    color: rgb(18 25 23 / 68%);
+    line-height: 1.65;
+  }
+
+  #pricing p {
+    color: rgb(255 255 255 / 68%);
+  }
+
+  #pricing strong {
+    display: block;
+    margin: 16px 0;
+    font-size: 30px;
+  }
+
+  @media (max-width: 760px) {
+    .product-shot {
+      min-height: 440px;
+    }
+
+    .shot-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .shot-grid article {
+      min-height: 120px;
+    }
+  }
+}

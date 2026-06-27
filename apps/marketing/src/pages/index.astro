@@ -1,0 +1,132 @@
+---
+import "../styles/global.css";
+
+const modules = [
+  ["Email", "Personalized campaigns from profiles, consent, and intent."],
+  ["Social intel", "Audience intent from social and YouTube signals."],
+  ["Automation", "Social and messaging workflows fed by CDP segments."],
+  ["Consent", "US privacy controls for analytics, sale/share, email, and TCPA messaging."],
+] as const;
+
+const tiers = [
+  ["Free", "$0", "Connector, health checks, and consent basics."],
+  ["Starter", "Placeholder", "Profiles, events, browser SDK, and email module access."],
+  ["Growth", "Placeholder", "Server SDKs, social-intel, and automation workflows."],
+  ["Agency", "Placeholder", "Multi-client operations and expanded module entitlements."],
+] as const;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CDP-US | Know your customers, act on it</title>
+    <meta
+      name="description"
+      content="CDP-US helps US B2B teams collect customer data once, build profiles, and activate email, social intelligence, automation, and consent modules."
+    />
+    <meta property="og:title" content="CDP-US | Know your customers, act on it" />
+    <meta
+      property="og:description"
+      content="A US B2B customer data platform with modular email, social intelligence, automation, and consent workflows."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://cdp-us.example" />
+  </head>
+  <body class="bg-paper text-ink antialiased">
+    <header class="sticky top-0 z-20 border-b border-line bg-paper/90 backdrop-blur-xl">
+      <nav class="mx-auto flex max-w-7xl items-center justify-between px-5 py-4" aria-label="Main">
+        <a href="/" class="text-sm font-black uppercase tracking-normal">CDP-US</a>
+        <div class="hidden items-center gap-6 text-sm text-ink/70 md:flex">
+          <a href="#how">How it works</a>
+          <a href="#modules">Modules</a>
+          <a href="#pricing">Pricing</a>
+          <a href="/docs">Docs</a>
+        </div>
+        <a class="rounded-md bg-ink px-4 py-2 text-sm font-bold text-white" href="/signup">Start free</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="mx-auto grid min-h-[680px] max-w-7xl items-center gap-12 px-5 py-16 lg:grid-cols-[0.9fr_1.1fr]">
+        <div>
+          <p class="mb-5 text-xs font-black uppercase tracking-normal text-moss">US B2B customer data platform</p>
+          <h1 class="max-w-3xl text-6xl font-black leading-[0.92] md:text-8xl">CDP-US</h1>
+          <p class="mt-7 max-w-2xl text-xl leading-8 text-ink/70">
+            Know your customers, act on it. One account collects profiles and events;
+            modular email, social intelligence, automation, and consent use that shared CDP core.
+          </p>
+          <div class="mt-8 flex flex-wrap gap-3">
+            <a class="rounded-md bg-moss px-5 py-3 text-sm font-black text-white" href="/signup">Start free</a>
+            <a class="rounded-md border border-line px-5 py-3 text-sm font-black" href="#how">See how it works</a>
+          </div>
+        </div>
+        <div class="product-shot" aria-label="CDP-US console preview">
+          <div class="shot-top">
+            <span>tenant_acme_us</span>
+            <span>US region</span>
+          </div>
+          <div class="shot-grid">
+            <article><span>Profiles</span><strong>Unified</strong><small>Anonymous and known users</small></article>
+            <article><span>Timeline</span><strong>Events</strong><small>Track and identify activity</small></article>
+            <article><span>Consent</span><strong>GPC aware</strong><small>Do Not Sell or Share</small></article>
+            <article><span>Modules</span><strong>Enable</strong><small>Email, social-intel, automation</small></article>
+          </div>
+        </div>
+      </section>
+
+      <section id="how" class="border-y border-line bg-white">
+        <div class="mx-auto grid max-w-7xl gap-6 px-5 py-20 md:grid-cols-3">
+          <article><b>01</b><h2>Install connector</h2><p>Use the browser snippet or server SDKs to send customer events.</p></article>
+          <article><b>02</b><h2>Build profiles</h2><p>The CDP core turns events and traits into tenant-scoped customer profiles.</p></article>
+          <article><b>03</b><h2>Add modules</h2><p>Enable upsells when your data is ready: email, social-intel, automation, and consent.</p></article>
+        </div>
+      </section>
+
+      <section id="modules" class="mx-auto max-w-7xl px-5 py-24">
+        <div class="max-w-2xl">
+          <p class="text-xs font-black uppercase tracking-normal text-moss">Modules</p>
+          <h2 class="mt-3 text-5xl font-black leading-none">Activate from the same customer data.</h2>
+        </div>
+        <div class="mt-10 grid gap-4 md:grid-cols-4">
+          {modules.map(([title, copy]) => <article class="rounded-lg border border-line bg-white p-6"><h3>{title}</h3><p>{copy}</p></article>)}
+        </div>
+      </section>
+
+      <section id="pricing" class="bg-ink text-white">
+        <div class="mx-auto max-w-7xl px-5 py-24">
+          <p class="text-xs font-black uppercase tracking-normal text-leaf">Pricing placeholders</p>
+          <h2 class="mt-3 text-5xl font-black leading-none">Pick the module depth you need.</h2>
+          <div class="mt-10 grid gap-4 md:grid-cols-4">
+            {tiers.map(([name, price, copy]) => <article class="rounded-lg border border-white/15 bg-white/5 p-6"><h3>{name}</h3><strong>{price}</strong><p>{copy}</p></article>)}
+          </div>
+        </div>
+      </section>
+
+      <section class="mx-auto grid max-w-7xl gap-10 px-5 py-24 lg:grid-cols-2">
+        <div>
+          <p class="text-xs font-black uppercase tracking-normal text-moss">Trust and compliance</p>
+          <h2 class="mt-3 text-5xl font-black leading-none">Built for US-only operations.</h2>
+        </div>
+        <p class="text-lg leading-8 text-ink/70">
+          CDP-US helps teams meet CCPA/CPRA, CAN-SPAM, and TCPA workflow requirements
+          with consent-aware activation. It is not a legal compliance warranty; your team
+          should review notices, policies, and use cases with counsel.
+        </p>
+      </section>
+
+      <section class="border-t border-line bg-white">
+        <div class="mx-auto flex max-w-7xl flex-col gap-6 px-5 py-16 md:flex-row md:items-center md:justify-between">
+          <div><h2 class="text-4xl font-black">Start with the connector.</h2><p class="mt-2 text-ink/65">Then add modules when the data proves useful.</p></div>
+          <a class="rounded-md bg-moss px-5 py-3 text-sm font-black text-white" href="/signup">Open console signup</a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="mx-auto flex max-w-7xl justify-between px-5 py-8 text-sm text-ink/55">
+      <span>CDP-US</span>
+      <a href="/privacy">Privacy Policy</a>
+    </footer>
+  </body>
+</html>
