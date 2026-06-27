@@ -1,0 +1,15 @@
+{
+  "name": "rf-cdp-email-ai",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "RF segment: AI email-marketing engine. Ported from US modules/email (generators + lifecycle triggers, law-agnostic), with Russian copy, an LLM gateway pointed at Flot, a 152-FZ / 'О рекламе' compliance footer replacing CAN-SPAM, and a mandatory marketing-consent gate wired to the consent-ledger. Delivery is handed off to Dittofeed.",
+  "main": "lib/index.js",
+  "scripts": {
+    "test": "node --test",
+    "start": "node worker.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

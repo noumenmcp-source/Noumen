@@ -280,6 +280,34 @@ services:
       - "127.0.0.1:8140:8140"
     networks:
       - dittofeed-network-lite
+  # ---------------------------------------------------------------------------
+  # CDP email-ai (152-ФЗ) — AI marketing-email composer over profile-engine +
+  # consent-ledger; mandatory marketing-consent gate. Delivery -> Dittofeed.
+  # ---------------------------------------------------------------------------
+  email-ai:
+    build:
+      context: ../services/email-ai
+      dockerfile: Dockerfile
+    image: cdp/email-ai:local
+    restart: always
+    logging:
+      driver: "local"
+    depends_on:
+      - profile-engine
+      - consent-ledger
+    environment:
+      PORT: 8150
+      PROFILE_ENGINE_URL: ${PROFILE_ENGINE_URL:-http://profile-engine:8130}
+      CONSENT_LEDGER_URL: ${CONSENT_LEDGER_URL:-http://consent-ledger:8140}
+      # Optional OpenAI-compatible LLM gateway (Flot). Empty => deterministic RU template.
+      AI_GATEWAY_URL: ${AI_GATEWAY_URL:-}
+      AI_GATEWAY_API_KEY: ${AI_GATEWAY_API_KEY:-}
+      AI_GATEWAY_MODEL: ${AI_GATEWAY_MODEL:-gpt-5.5}
+      EMAIL_API_TOKEN: ${EMAIL_API_TOKEN:-}
+    ports:
+      - "127.0.0.1:8150:8150"
+    networks:
+      - dittofeed-network-lite
 volumes:
   postgres:
   clickhouse_lib:
