@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CDP — Слой владения клиентскими данными</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..600;1,6..72,300..500&family=Hanken+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --void:#0A0B0D;
+    --void-2:#0E1014;
+    --panel:#111419;
+    --panel-2:#14181E;
+    --ink:#ECE9E2;
+    --ink-dim:#9A9EA6;
+    --ink-faint:#5C616B;
+    --hair:rgba(236,233,226,0.09);
+    --hair-2:rgba(236,233,226,0.14);
+    --ember:#F4612E;
+    --ember-soft:rgba(244,97,46,0.12);
+    --amber:#E0A340;
+    --mint:#76E2CB;
+    --mint-soft:rgba(118,226,203,0.12);
+    --maxw:1240px;
+  }
+
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--void);
+    color:var(--ink);
+    font-family:"Hanken Grotesk",sans-serif;
+    font-weight:400;
+    line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+    position:relative;
+  }
+
+  /* ── atmosphere ───────────────────────────── */
+  body::before{ /* hairline blueprint grid */
+    content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+    background-image:
+      linear-gradient(90deg,var(--hair) 1px,transparent 1px);
+    background-size:calc(100% / 6) 100%;
+    opacity:.5;
+    -webkit-mask-image:linear-gradient(180deg,transparent,#000 8%,#000 92%,transparent);
+            mask-image:linear-gradient(180deg,transparent,#000 8%,#000 92%,transparent);
+  }
+  body::after{ /* grain */
+    content:"";position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.05;mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .glow{position:fixed;z-index:0;pointer-events:none;filter:blur(90px);opacity:.5}
+  .glow.a{top:-180px;left:8%;width:520px;height:420px;background:radial-gradient(circle,var(--ember-soft),transparent 70%)}
+  .glow.b{top:40%;right:-120px;width:480px;height:480px;background:radial-gradient(circle,var(--mint-soft),transparent 70%)}
+
+  .wrap{position:relative;z-index:1;max-width:var(--maxw);margin:0 auto;padding:0 32px}
+
+  /* ── mono / labels ───────────────────────── */
+  .mono{font-family:"JetBrains Mono",monospace;font-weight:500;letter-spacing:.22em;text-transform:uppercase;font-size:.66rem;color:var(--ink-dim)}
+  .idx{font-family:"JetBrains Mono",monospace;color:var(--ember);font-size:.66rem;letter-spacing:.18em}
+  .serif{font-family:"Newsreader",serif;font-weight:400;letter-spacing:-.015em;line-height:1.04}
+  em.sig{font-family:"Newsreader",serif;font-style:italic;color:var(--ember);font-weight:400}
+  em.ctl{font-family:"Newsreader",serif;font-style:italic;color:var(--mint);font-weight:400}
+
+  /* ── top status strip ────────────────────── */
+  .strip{position:relative;z-index:3;border-bottom:1px solid var(--hair);background:rgba(10,11,13,.6);backdrop-filter:blur(6px)}
+  .strip .wrap{display:flex;align-items:center;gap:14px;height:38px}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--ember);box-shadow:0 0 0 0 var(--ember);animation:pulse 2.4s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(244,97,46,.5)}70%{box-shadow:0 0 0 7px rgba(244,97,46,0)}100%{box-shadow:0 0 0 0 rgba(244,97,46,0)}}
+  .strip .sttxt{font-family:"JetBrains Mono",monospace;font-size:.66rem;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-dim)}
+  .strip .sttxt b{color:var(--ink)}
+  .strip .right{margin-left:auto;font-family:"JetBrains Mono",monospace;font-size:.62rem;letter-spacing:.16em;color:var(--ink-faint)}
+
+  /* ── nav ─────────────────────────────────── */
+  nav{position:sticky;top:0;z-index:20;border-bottom:1px solid var(--hair);background:rgba(10,11,13,.72);backdrop-filter:blur(10px)}
+  nav .wrap{display:flex;align-items:center;height:72px;gap:40px}
+  .brand{display:flex;align-items:center;gap:12px}
+  .brand .mk{width:26px;height:26px;border:1.5px solid var(--ink);position:relative;display:grid;place-items:center}
+  .brand .mk::before{content:"";width:8px;height:8px;background:var(--ember)}
+  .brand .nm{font-family:"JetBrains Mono",monospace;font-weight:600;letter-spacing:.28em;font-size:.82rem}
+  .brand .sub{font-family:"JetBrains Mono",monospace;font-size:.56rem;letter-spacing:.2em;color:var(--ink-faint);text-transform:uppercase}
+  nav .links{display:flex;gap:30px;margin-left:18px}
+  nav .links a{color:var(--ink-dim);text-decoration:none;font-size:.82rem;font-weight:500;transition:color .2s}
+  nav .links a:hover{color:var(--ink)}
+  nav .cta{margin-left:auto}
+  .btn{display:inline-flex;align-items:center;gap:10px;font-family:"JetBrains Mono",monospace;font-weight:500;font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;padding:13px 22px;border:1px solid var(--ink);color:var(--ink);background:transparent;text-decoration:none;cursor:pointer;transition:.22s}
+  .btn:hover{background:var(--ink);color:var(--void)}
+  .btn.fill{background:var(--ember);border-color:var(--ember);color:#120602}
+  .btn.fill:hover{background:#ff7445;border-color:#ff7445}
+  .btn .ar{font-size:.9rem;transform:translateY(-1px)}
+
+  /* ── hero ────────────────────────────────── */
+  header.hero{position:relative;z-index:1;padding:96px 0 84px;border-bottom:1px solid var(--hair)}
+  .hero-grid{display:grid;grid-template-columns:1.35fr .85fr;gap:64px;align-items:start}
+  .eyebrow{display:flex;align-items:center;gap:14px;margin-bottom:34px}
+  .eyebrow .ln{height:1px;width:46px;background:var(--ember)}
+  h1{font-size:clamp(2.7rem,5.6vw,5.4rem)}
+  h1 .l{display:block}
+  .hero p.lead{margin-top:30px;max-width:30ch;font-size:1.16rem;color:var(--ink-dim);line-height:1.55}
+  .hero .acts{margin-top:42px;display:flex;gap:16px;flex-wrap:wrap}
+
+  /* status console */
+  .console{border:1px solid var(--hair-2);background:linear-gradient(180deg,var(--panel),var(--void-2));position:relative;overflow:hidden}
+  .console::before{content:"";position:absolute;inset:0;background-image:linear-gradient(90deg,var(--hair) 1px,transparent 1px);background-size:22px 100%;opacity:.4;pointer-events:none}
+  .console .hd{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--hair);position:relative}
+  .console .hd .mono{font-size:.6rem}
+  .console .bd{padding:26px 22px 30px;position:relative}
+  .console .state-lbl{font-family:"JetBrains Mono",monospace;font-size:.62rem;letter-spacing:.2em;color:var(--ink-faint);text-transform:uppercase}
+  .console .state{font-family:"Newsreader",serif;font-size:2.5rem;line-height:1;margin:10px 0 4px;letter-spacing:-.01em;transition:color .5s}
+  .console .state.exposed{color:var(--ember)}
+  .console .state.sovereign{color:var(--mint)}
+  .console .state-desc{font-size:.86rem;color:var(--ink-dim);min-height:2.6em;transition:.4s}
+  .meter{display:flex;gap:5px;margin:22px 0 24px}
+  .meter span{height:30px;flex:1;background:rgba(236,233,226,.07);position:relative;overflow:hidden}
+  .meter span::after{content:"";position:absolute;inset:0;transform:scaleY(0);transform-origin:bottom;transition:transform .5s cubic-bezier(.2,.7,.2,1)}
+  .meter.exposed span:nth-child(-n+5)::after{transform:scaleY(1);background:var(--ember)}
+  .meter.sovereign span::after{transform:scaleY(1);background:var(--mint)}
+  .meter span:nth-child(2)::after{transition-delay:.04s}
+  .meter span:nth-child(3)::after{transition-delay:.08s}
+  .meter span:nth-child(4)::after{transition-delay:.12s}
+  .meter span:nth-child(5)::after{transition-delay:.16s}
+  .meter span:nth-child(6)::after{transition-delay:.2s}
+  .meter span:nth-child(7)::after{transition-delay:.24s}
+  .meter span:nth-child(8)::after{transition-delay:.28s}
+  .toggle{width:100%;display:flex;align-items:center;justify-content:space-between;gap:14px;border:1px solid var(--hair-2);background:transparent;color:var(--ink);padding:14px 16px;cursor:pointer;font-family:"JetBrains Mono",monospace;font-size:.66rem;letter-spacing:.16em;text-transform:uppercase;transition:.2s}
+  .toggle:hover{border-color:var(--ink);background:rgba(236,233,226,.03)}
+  .toggle .sw{width:42px;height:20px;border:1px solid var(--ink-faint);border-radius:20px;position:relative;flex:none;transition:.3s}
+  .toggle .sw::after{content:"";position:absolute;top:50%;left:3px;transform:translateY(-50%);width:12px;height:12px;border-radius:50%;background:var(--ember);transition:.3s}
+  .toggle.on .sw{border-color:var(--mint)}
+  .toggle.on .sw::after{left:25px;background:var(--mint)}
+
+  /* ── section frame ───────────────────────── */
+  section{padding:clamp(5rem,11vh,8.5rem) 0;border-bottom:1px solid var(--hair);position:relative;z-index:1}
+  .sec-head{display:flex;align-items:baseline;gap:22px;margin-bottom:54px}
+  .sec-head .num{font-family:"JetBrains Mono",monospace;color:var(--ember);font-size:.8rem;letter-spacing:.1em;padding-top:6px}
+  .sec-head h2{font-size:clamp(1.9rem,3.6vw,3.1rem);max-width:20ch}
+  .sec-head .meta{margin-left:auto;text-align:right;max-width:24ch}
+  .sec-head .meta p{font-size:.9rem;color:var(--ink-dim)}
+
+  /* risks */
+  .risks{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--hair);border:1px solid var(--hair)}
+  .risk{background:var(--void);padding:34px 30px 40px;position:relative;transition:background .3s}
+  .risk:hover{background:var(--void-2)}
+  .risk .rn{font-family:"JetBrains Mono",monospace;font-size:.66rem;letter-spacing:.18em;color:var(--ink-faint)}
+  .risk h3{font-family:"Newsreader",serif;font-size:1.5rem;margin:18px 0 14px;letter-spacing:-.01em;line-height:1.1}
+  .risk p{font-size:.95rem;color:var(--ink-dim)}
+  .risk .tag{margin-top:24px;display:inline-block;font-family:"JetBrains Mono",monospace;font-size:.58rem;letter-spacing:.16em;text-transform:uppercase;color:var(--ember);border:1px solid var(--ember-soft);padding:5px 9px}
+  .verdict{margin-top:40px;display:flex;gap:18px;align-items:flex-start;padding:28px 32px;border:1px solid var(--hair-2);background:linear-gradient(180deg,var(--panel),transparent)}
+  .verdict .b{width:3px;align-self:stretch;background:var(--ember);flex:none}
+  .verdict p{font-family:"Newsreader",serif;font-size:1.45rem;line-height:1.3;letter-spacing:-.01em}
+
+  /* degradation timeline */
+  .timeline{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:0}
+  .tnode{padding:30px 26px 36px;border-left:1px solid var(--hair);position:relative}
+  .tnode:first-child{border-left:1px solid var(--hair-2)}
+  .tnode::before{content:"";position:absolute;top:0;left:-4px;width:7px;height:7px;border-radius:50%;background:var(--ink-faint)}
+  .tnode.last::before{background:var(--ember);box-shadow:0 0 12px var(--ember)}
+  .tnode .t{font-family:"JetBrains Mono",monospace;font-size:.66rem;letter-spacing:.16em;color:var(--ember)}
+  .tnode h4{font-family:"Newsreader",serif;font-weight:500;font-size:1.16rem;margin:14px 0 10px;line-height:1.2}
+  .tnode p{font-size:.86rem;color:var(--ink-dim)}
+  .tnode.last h4{color:var(--ember)}
+
+  /* solution statement */
+  .solution{display:grid;grid-template-columns:.9fr 1.1fr;gap:60px;align-items:center}
+  .neg-list{display:flex;flex-direction:column;gap:2px}
+  .neg{display:flex;align-items:center;gap:16px;padding:18px 0;border-bottom:1px solid var(--hair)}
+  .neg .x{font-family:"JetBrains Mono",monospace;color:var(--ink-faint);font-size:1rem;width:22px}
+  .neg .nt{font-size:1.05rem;color:var(--ink-dim)}
+  .neg.is .x{color:var(--mint)}
+  .neg.is .nt{color:var(--ink);font-weight:500}
+  .sol-statement .serif{font-size:clamp(1.8rem,3vw,2.7rem)}
+  .sol-statement p.q{margin-top:26px;font-size:1.05rem;color:var(--ink-dim);max-width:38ch}
+  .vault{margin-top:30px;display:inline-flex;align-items:center;gap:14px;font-family:"JetBrains Mono",monospace;font-size:.66rem;letter-spacing:.16em;text-transform:uppercase;color:var(--mint);border:1px solid var(--mint-soft);padding:12px 16px;background:var(--mint-soft)}
+
+  /* steps */
+  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--hair);border:1px solid var(--hair)}
+  .step{background:var(--void);padding:38px 30px;position:relative;min-height:230px;display:flex;flex-direction:column}
+  .step .sn{font-family:"Newsreader",serif;font-size:3.4rem;color:var(--ink-faint);line-height:1;opacity:.5}
+  .step h3{font-family:"Newsreader",serif;font-size:1.6rem;margin:18px 0 12px}
+  .step p{font-size:.94rem;color:var(--ink-dim)}
+  .step .arrow{position:absolute;right:-13px;top:50%;transform:translateY(-50%);z-index:4;width:24px;height:24px;background:var(--void);border:1px solid var(--hair-2);border-radius:50%;display:grid;place-items:center;color:var(--ember);font-size:.7rem}
+  .step:last-child .arrow{display:none}
+
+  /* 152 fz */
+  .fz{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--hair-2)}
+  .fz .l{padding:48px 44px;border-right:1px solid var(--hair-2);background:linear-gradient(180deg,var(--panel),transparent)}
+  .fz .l .mono{color:var(--mint)}
+  .fz .l h3{font-family:"Newsreader",serif;font-size:2rem;margin:18px 0 16px;line-height:1.12}
+  .fz .l p{color:var(--ink-dim);font-size:.98rem}
+  .fz .r{padding:40px 44px;display:flex;flex-direction:column;gap:0}
+  .fzrow{display:flex;gap:18px;padding:18px 0;border-bottom:1px solid var(--hair);align-items:flex-start}
+  .fzrow:last-child{border-bottom:none}
+  .fzrow .k{font-family:"JetBrains Mono",monospace;font-size:.62rem;letter-spacing:.14em;color:var(--mint);text-transform:uppercase;width:120px;flex:none;padding-top:3px}
+  .fzrow .v{font-size:.95rem;color:var(--ink)}
+  .fz .note{padding:18px 44px;border-top:1px solid var(--hair-2);grid-column:1/-1;font-family:"JetBrains Mono",monospace;font-size:.62rem;letter-spacing:.08em;color:var(--ink-faint);text-transform:uppercase}
+
+  /* matrix */
+  .matrix{width:100%;border-collapse:collapse;border:1px solid var(--hair-2);font-size:.9rem}
+  .matrix th,.matrix td{border:1px solid var(--hair);padding:16px 14px;text-align:left}
+  .matrix thead th{font-family:"JetBrains Mono",monospace;font-size:.6rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-dim);font-weight:500;vertical-align:bottom}
+  .matrix thead th.us{color:var(--mint);border-bottom:2px solid var(--mint)}
+  .matrix tbody th{font-weight:500;color:var(--ink);font-size:.92rem}
+  .matrix td{text-align:center}
+  .matrix col.usc{background:var(--mint-soft)}
+  .pill{display:inline-block;font-family:"JetBrains Mono",monospace;font-size:.56rem;letter-spacing:.1em;text-transform:uppercase;padding:5px 8px;border:1px solid transparent}
+  .pill.ex{color:var(--ember);border-color:var(--ember-soft);background:var(--ember-soft)}
+  .pill.pa{color:var(--amber);border-color:rgba(224,163,64,.18);background:rgba(224,163,64,.08)}
+  .pill.ok{color:var(--mint);border-color:var(--mint-soft);background:var(--mint-soft)}
+
+  /* why now */
+  .whynow{display:grid;grid-template-columns:.8fr 1.2fr;gap:56px;align-items:start}
+  .whynow .big{font-family:"Newsreader",serif;font-size:clamp(2rem,3.4vw,3rem);line-height:1.1}
+  .whynow .body p{color:var(--ink-dim);font-size:1.05rem;margin-bottom:18px}
+  .whynow .body p:last-child{margin-bottom:0;color:var(--ink)}
+  .window{margin-top:26px;display:flex;align-items:center;gap:16px;font-family:"JetBrains Mono",monospace;font-size:.66rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ember)}
+  .window .bar{flex:1;height:1px;background:linear-gradient(90deg,var(--ember),transparent)}
+
+  /* final cta + form */
+  .final{border-bottom:none}
+  .cta-card{border:1px solid var(--hair-2);background:linear-gradient(180deg,var(--panel),var(--void-2));padding:clamp(40px,6vw,72px);display:grid;grid-template-columns:1.1fr .9fr;gap:60px;align-items:center;position:relative;overflow:hidden}
+  .cta-card::before{content:"";position:absolute;top:-140px;right:-80px;width:420px;height:420px;background:radial-gradient(circle,var(--mint-soft),transparent 70%);filter:blur(40px);pointer-events:none}
+  .cta-card h2{font-family:"Newsreader",serif;font-size:clamp(2.1rem,3.6vw,3.2rem);line-height:1.06;letter-spacing:-.015em}
+  .cta-card p.sb{margin-top:22px;color:var(--ink-dim);font-size:1.05rem;max-width:34ch}
+  form{position:relative;z-index:2;display:flex;flex-direction:column;gap:14px}
+  form .fld{display:flex;flex-direction:column;gap:7px}
+  form label{font-family:"JetBrains Mono",monospace;font-size:.6rem;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-faint)}
+  form input[type=text],form input[type=email]{background:var(--void);border:1px solid var(--hair-2);color:var(--ink);padding:14px 16px;font-family:"Hanken Grotesk",sans-serif;font-size:.95rem;outline:none;transition:border-color .2s}
+  form input::placeholder{color:var(--ink-faint)}
+  form input:focus{border-color:var(--mint)}
+  .consent{display:flex;gap:11px;align-items:flex-start;margin-top:4px}
+  .consent input{margin-top:3px;accent-color:var(--mint);width:15px;height:15px;flex:none}
+  .consent label{font-family:"Hanken Grotesk",sans-serif;text-transform:none;letter-spacing:0;font-size:.78rem;color:var(--ink-dim);line-height:1.5}
+  .consent a{color:var(--ink-dim);text-decoration:underline;text-underline-offset:2px}
+  form button{margin-top:8px;justify-content:center}
+
+  /* footer */
+  footer{padding:54px 0 70px;position:relative;z-index:1}
+  footer .wrap{display:flex;justify-content:space-between;align-items:center;gap:30px;flex-wrap:wrap}
+  footer .mono{color:var(--ink-faint)}
+  footer .disc{max-width:46ch;font-size:.74rem;color:var(--ink-faint);line-height:1.6}
+
+  /* reveal */
+  .rv{opacity:0;transform:translateY(22px);transition:opacity .8s cubic-bezier(.2,.7,.2,1),transform .8s cubic-bezier(.2,.7,.2,1)}
+  .rv.in{opacity:1;transform:none}
+  .hero .eyebrow{animation:fadeUp .9s .05s both}
+  .hero h1 .l{animation:fadeUp .95s both}
+  .hero h1 .l:nth-child(1){animation-delay:.12s}
+  .hero h1 .l:nth-child(2){animation-delay:.22s}
+  .hero h1 .l:nth-child(3){animation-delay:.32s}
+  .hero p.lead{animation:fadeUp .9s .44s both}
+  .hero .acts{animation:fadeUp .9s .56s both}
+  .hero .console{animation:fadeUp 1s .4s both}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(26px)}to{opacity:1;transform:none}}
+
+  @media(max-width:980px){
+    .hero-grid,.solution,.whynow,.cta-card{grid-template-columns:1fr;gap:44px}
+    .risks,.steps{grid-template-columns:1fr}
+    .timeline{grid-template-columns:1fr 1fr}
+    .fz{grid-template-columns:1fr}.fz .l{border-right:none;border-bottom:1px solid var(--hair-2)}
+    .step .arrow{display:none}
+    nav .links{display:none}
+    .sec-head{flex-direction:column;gap:14px}.sec-head .meta{margin-left:0;text-align:left}
+    .matrix{font-size:.78rem}.matrix th,.matrix td{padding:10px 8px}
+  }
+  @media(max-width:560px){
+    .wrap{padding:0 20px}
+    .timeline{grid-template-columns:1fr}
+    header.hero{padding:60px 0 56px}
+    .strip .right{display:none}
+  }
+</style>
+</head>
+<body>
+<div class="glow a"></div>
+<div class="glow b"></div>
+
+<!-- status strip -->
+<div class="strip">
+  <div class="wrap">
+    <span class="dot"></span>
+    <span class="sttxt">Системный статус: <b>внешние источники данных — нестабильны</b></span>
+    <span class="right">DATA-SOVEREIGNTY · RU · v1</span>
+  </div>
+</div>
+
+<!-- nav -->
+<nav>
+  <div class="wrap">
+    <div class="brand">
+      <div class="mk"></div>
+      <div>
+        <div class="nm">CDP</div>
+        <div class="sub">Data infrastructure layer</div>
+      </div>
+    </div>
+    <div class="links">
+      <a href="#risk">Риск</a>
+      <a href="#solution">Решение</a>
+      <a href="#how">Как работает</a>
+      <a href="#matrix">Сравнение</a>
+    </div>
+    <div class="cta"><a href="#audit" class="btn">Проверить уязвимость <span class="ar">→</span></a></div>
+  </div>
+</nav>
+
+<!-- hero -->
+<header class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <div class="eyebrow"><span class="ln"></span><span class="mono">Risk class · First-party data</span></div>
+      <h1 class="serif">
+        <span class="l">Ваши данные</span>
+        <span class="l">о клиентах могут</span>
+        <span class="l"><em class="sig">перестать быть доступны.</em></span>
+      </h1>
+      <p class="lead">Cookies исчезают. Платформы закрываются. Регуляторика ужесточается. CDP — слой владения клиентскими данными, который нельзя отобрать.</p>
+      <div class="acts">
+        <a href="#audit" class="btn fill">Проверить уязвимость данных <span class="ar">→</span></a>
+        <a href="#solution" class="btn">Что это даёт</a>
+      </div>
+    </div>
+
+    <!-- status console -->
+    <div class="console" id="console">
+      <div class="hd">
+        <span class="mono">Контроль над данными</span>
+        <span class="mono" style="color:var(--ink-faint)">МОНИТОР</span>
+      </div>
+      <div class="bd">
+        <div class="state-lbl">Текущий статус</div>
+        <div class="state exposed" id="stateTxt">ЭКСПОНИРОВАН</div>
+        <div class="state-desc" id="stateDesc">База клиентов распределена по внешним системам. При отказе любого источника часть данных теряется безвозвратно.</div>
+        <div class="meter exposed" id="meter">
+          <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+        </div>
+        <button class="toggle" id="toggle">
+          <span id="togLbl">Перевести под собственный контроль</span>
+          <span class="sw"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- 01 risk -->
+<section id="risk">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <span class="num">01</span>
+      <h2 class="serif">Что ломается в мире данных</h2>
+      <div class="meta"><p>Три независимых сдвига убирают почву из-под внешнего отслеживания одновременно.</p></div>
+    </div>
+    <div class="risks rv">
+      <div class="risk">
+        <div class="rn">VECTOR_01</div>
+        <h3>Cookies collapse</h3>
+        <p>Сторонние cookies отмирают. Поведение пользователей больше нельзя стабильно отслеживать через внешние инструменты — остаётся только то, что вы собрали сами.</p>
+        <span class="tag">Потеря сигнала</span>
+      </div>
+      <div class="risk">
+        <div class="rn">VECTOR_02</div>
+        <h3>Платформенный риск</h3>
+        <p>Данные в GA и зарубежных SaaS могут стать частично или полностью недоступны — блокировки, уход с рынка, изменение условий. Доступ к ним вам не принадлежит.</p>
+        <span class="tag">Потеря доступа</span>
+      </div>
+      <div class="risk">
+        <div class="rn">VECTOR_03</div>
+        <h3>Регуляторный риск</h3>
+        <p>152-ФЗ и требования РКН: персональные данные россиян должны храниться и контролироваться внутри РФ. Хранение у внешней стороны — это экспозиция.</p>
+        <span class="tag">Потеря контроля</span>
+      </div>
+    </div>
+    <div class="verdict rv">
+      <span class="b"></span>
+      <p>Итог: бизнес <em class="sig">теряет контроль</em> над собственной клиентской базой — постепенно и незаметно, пока не отказывает первый источник.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 02 degradation -->
+<section id="degrade">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <span class="num">02</span>
+      <h2 class="serif">Сценарий деградации без CDP</h2>
+      <div class="meta"><p>Потеря данных — не событие, а процесс. Он уже идёт.</p></div>
+    </div>
+    <div class="timeline rv">
+      <div class="tnode">
+        <div class="t">T — 0</div>
+        <h4>Сигнал сужается</h4>
+        <p>Сторонние cookies отключаются. Атрибуция и ретаргетинг по внешним данным теряют точность.</p>
+      </div>
+      <div class="tnode">
+        <div class="t">T + 1</div>
+        <h4>Платформа ограничивает</h4>
+        <p>Аналитика или внешний SaaS меняет условия или становится недоступен. История данных остаётся на той стороне.</p>
+      </div>
+      <div class="tnode">
+        <div class="t">T + 2</div>
+        <h4>Регулятор требует</h4>
+        <p>Возникает вопрос локализации и контроля ПД. Данные у внешней стороны превращаются в обязательство.</p>
+      </div>
+      <div class="tnode last">
+        <div class="t">T + 3</div>
+        <h4>База рассыпается</h4>
+        <p>Клиент снова становится анонимом. Накопленный актив — знание о покупателе — обнуляется.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 03 solution -->
+<section id="solution">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <span class="num">03</span>
+      <h2 class="serif">CDP — оборонительная инфраструктура данных</h2>
+      <div class="meta"><p>Не инструмент маркетинга. Слой, на котором держится всё остальное.</p></div>
+    </div>
+    <div class="solution">
+      <div class="neg-list rv">
+        <div class="neg"><span class="x">—</span><span class="nt">Это не CRM</span></div>
+        <div class="neg"><span class="x">—</span><span class="nt">Это не аналитика</span></div>
+        <div class="neg"><span class="x">—</span><span class="nt">Это не зарубежный CDP-SaaS</span></div>
+        <div class="neg is"><span class="x">→</span><span class="nt">Это слой владения клиентскими данными</span></div>
+      </div>
+      <div class="sol-statement rv">
+        <div class="serif">Собственный <em class="ctl">банк данных</em> о клиентах, который нельзя отобрать.</div>
+        <p class="q">CRM — операционный инструмент. Аналитика — зеркало. CDP стоит под ними как фундамент: единое окно правды о покупателе, размещённое на вашей инфраструктуре.</p>
+        <span class="vault">◆ Self-hosted · First-party · Под вашим контролем</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 04 how -->
+<section id="how">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <span class="num">04</span>
+      <h2 class="serif">Как восстанавливается контроль</h2>
+      <div class="meta"><p>Три шага: от разрозненных событий к собственному активу данных.</p></div>
+    </div>
+    <div class="steps rv">
+      <div class="step">
+        <span class="sn">01</span>
+        <h3>Сбор</h3>
+        <p>Один код на сайт собирает поведение со всех точек контакта — визиты, просмотры, корзины, заказы — в вашу инфраструктуру.</p>
+        <div class="arrow">→</div>
+      </div>
+      <div class="step">
+        <span class="sn">02</span>
+        <h3>Склейка</h3>
+        <p>Система связывает устройства и сессии одного человека в единый профиль — по входу, заказу, контакту.</p>
+        <div class="arrow">→</div>
+      </div>
+      <div class="step">
+        <span class="sn">03</span>
+        <h3>Владение</h3>
+        <p>На выходе — единый, живой профиль клиента, который принадлежит бизнесу и хранится в РФ. Актив, а не подписка.</p>
+        <div class="arrow">→</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 05 152fz -->
+<section id="fz">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <span class="num">05</span>
+      <h2 class="serif">152-ФЗ как снижение риска</h2>
+      <div class="meta"><p>Резидентность — не маркетинговый штамп, а вектор экспозиции, который закрывается.</p></div>
+    </div>
+    <div class="fz rv">
+      <div class="l">
+        <div class="mono">◆ Risk reduction</div>
+        <h3>Данные клиентов остаются в России — у вас.</h3>
+        <p>Контроль над персональными данными перестаёт зависеть от юрисдикции и доступности внешней платформы. Регуляторный вектор риска снимается на уровне архитектуры, а не обещаний.</p>
+      </div>
+      <div class="r">
+        <div class="fzrow"><span class="k">Self-hosted</span><span class="v">Данные на вашей инфраструктуре, а не у третьей стороны</span></div>
+        <div class="fzrow"><span class="k">Резидентность</span><span class="v">Хранение в РФ — позиционирование под требования локализации</span></div>
+        <div class="fzrow"><span class="k">Изоляция</span><span class="v">Данные проектов и клиентов строго разделены</span></div>
+        <div class="fzrow"><span class="k">Удаление</span><span class="v">Право на удаление реализуется штатно, по запросу</span></div>
+      </div>
+      <div class="note">Формулировка: помогает выполнять требования 152-ФЗ. Соответствие не гарантируется как факт — оно обеспечивается архитектурой и процессами на стороне бизнеса.</div>
+    </div>
+  </div>
+</section>
+
+<!-- 06 matrix -->
+<section id="matrix">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <span class="num">06</span>
+      <h2 class="serif">Экспозиция данных по альтернативам</h2>
+      <div class="meta"><p>Сравнение через риск, а не через список функций.</p></div>
+    </div>
+    <div class="rv" style="overflow-x:auto">
+    <table class="matrix">
+      <colgroup><col><col><col><col><col><col class="usc"></colgroup>
+      <thead>
+        <tr>
+          <th>Вектор риска</th>
+          <th>Метрика / GA</th>
+          <th>CRM</th>
+          <th>Зарубежный CDP</th>
+          <th>Самосбор вручную</th>
+          <th class="us">CDP (наш)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><th>Владение данными</th>
+          <td><span class="pill ex">Экспонирован</span></td>
+          <td><span class="pill pa">Частично</span></td>
+          <td><span class="pill ex">Экспонирован</span></td>
+          <td><span class="pill ok">Защищено</span></td>
+          <td><span class="pill ok">Защищено</span></td></tr>
+        <tr><th>Устойчивость к cookies collapse</th>
+          <td><span class="pill ex">Экспонирован</span></td>
+          <td><span class="pill pa">Частично</span></td>
+          <td><span class="pill ok">Защищено</span></td>
+          <td><span class="pill pa">Частично</span></td>
+          <td><span class="pill ok">Защищено</span></td></tr>
+        <tr><th>Независимость от внешних платформ</th>
+          <td><span class="pill ex">Экспонирован</span></td>
+          <td><span class="pill pa">Частично</span></td>
+          <td><span class="pill ex">Экспонирован</span></td>
+          <td><span class="pill ok">Защищено</span></td>
+          <td><span class="pill ok">Защищено</span></td></tr>
+        <tr><th>Хранение в РФ / 152-ФЗ</th>
+          <td><span class="pill pa">Частично</span></td>
+          <td><span class="pill pa">Частично</span></td>
+          <td><span class="pill ex">Экспонирован</span></td>
+          <td><span class="pill ok">Защищено</span></td>
+          <td><span class="pill ok">Защищено</span></td></tr>
+        <tr><th>Единый профиль человека</th>
+          <td><span class="pill ex">Экспонирован</span></td>
+          <td><span class="pill pa">Частично</span></td>
+          <td><span class="pill ok">Защищено</span></td>
+          <td><span class="pill pa">Частично</span></td>
+          <td><span class="pill ok">Защищено</span></td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+</section>
+
+<!-- 07 why now -->
+<section id="whynow">
+  <div class="wrap whynow">
+    <div class="big serif rv">Почему это решается <em class="sig">сейчас</em>, а не потом</div>
+    <div class="body rv">
+      <p>Рынок данных в переходном периоде. Старые внешние источники ещё работают — но их сигнал уже сужается, а условия доступа меняются не в пользу бизнеса.</p>
+      <p>Окно — это время, пока у вас ещё есть полный поток данных, который можно перехватить в собственный контур. Чем позже начат сбор first-party данных, тем меньше истории удастся сохранить.</p>
+      <p>CDP, развёрнутый сегодня, фиксирует данные, которые завтра уже не вернуть.</p>
+      <div class="window"><span>Окно перехвата данных</span><span class="bar"></span><span>закрывается</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- final cta -->
+<section class="final" id="audit">
+  <div class="wrap">
+    <div class="cta-card rv">
+      <div>
+        <h2>Зафиксируйте контроль<br>над своими данными.</h2>
+        <p class="sb">Проверим, какие данные о клиентах вы уже теряете и где проходит граница экспозиции. Без обязательств.</p>
+      </div>
+      <form onsubmit="return false">
+        <div class="fld">
+          <label for="co">Компания</label>
+          <input type="text" id="co" placeholder="Название компании">
+        </div>
+        <div class="fld">
+          <label for="em">Рабочая почта</label>
+          <input type="email" id="em" placeholder="name@company.ru">
+        </div>
+        <div class="consent">
+          <input type="checkbox" id="cs" required>
+          <label for="cs">Я согласен на обработку персональных данных в соответствии с <a href="#">Политикой конфиденциальности</a> и <a href="#">условиями обработки ПД</a>.</label>
+        </div>
+        <button type="submit" class="btn fill">Проверить уязвимость данных <span class="ar">→</span></button>
+      </form>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="brand">
+      <div class="mk"></div>
+      <div><div class="nm">CDP</div><div class="sub">Data infrastructure layer</div></div>
+    </div>
+    <p class="disc">CDP — слой владения клиентскими данными. Не CRM, не аналитика, не рассылки. Размещение в РФ, self-hosted, изоляция данных. Помогает выполнять требования 152-ФЗ; соответствие обеспечивается архитектурой и процессами на стороне бизнеса.</p>
+    <span class="mono">© 2026 · DATA SOVEREIGNTY</span>
+  </div>
+</footer>
+
+<script>
+  // status console toggle
+  (function(){
+    var t=document.getElementById('toggle'),
+        st=document.getElementById('stateTxt'),
+        sd=document.getElementById('stateDesc'),
+        m=document.getElementById('meter'),
+        lbl=document.getElementById('togLbl'),
+        on=false;
+    var copy={
+      exposed:{txt:'ЭКСПОНИРОВАН',desc:'База клиентов распределена по внешним системам. При отказе любого источника часть данных теряется безвозвратно.',lbl:'Перевести под собственный контроль'},
+      sovereign:{txt:'СУВЕРЕННЫЙ',desc:'Данные собраны в единый профиль на вашей инфраструктуре. Отказ внешних источников не разрушает клиентскую базу.',lbl:'Вернуть к внешней зависимости'}
+    };
+    t.addEventListener('click',function(){
+      on=!on;
+      var c=on?copy.sovereign:copy.exposed;
+      st.textContent=c.txt; sd.textContent=c.desc; lbl.textContent=c.lbl;
+      st.className='state '+(on?'sovereign':'exposed');
+      m.className='meter '+(on?'sovereign':'exposed');
+      t.classList.toggle('on',on);
+    });
+  })();
+
+  // scroll reveal
+  var io=new IntersectionObserver(function(es){
+    es.forEach(function(e){ if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target);} });
+  },{threshold:.14});
+  document.querySelectorAll('.rv').forEach(function(el){io.observe(el);});
+</script>
+</body>
+</html>

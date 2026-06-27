@@ -1,0 +1,61 @@
+{
+  "_schema": {
+    "brand_name": "Brand wordmark shown in header/logo lockup",
+    "tagline": "Short positioning line under the brand name",
+    "font": "CSS font-family stack for all UI text",
+    "accent": "Primary accent color (hex) for buttons, links, highlights",
+    "accent_text": "Darker accent variant (hex) for accent-colored text needing contrast",
+    "ink": "Primary foreground/text color (hex)",
+    "paper": "Page background color (hex)",
+    "surface": "Elevated card/panel background color (hex)",
+    "border": "Hairline/divider border color (hex)",
+    "muted": "Secondary/muted text color (hex)",
+    "stat_num": "Headline statistic value displayed large",
+    "stat_label": "Caption describing the headline statistic",
+    "footer": "Footer attribution/description line",
+    "cta_url_default": "Default call-to-action destination URL",
+    "img1": "Hero/primary image URL (routed through images.weserv.nl as PNG so Apple Mail/Outlook render it; never serve raw .webp)",
+    "img2": "Secondary supporting image URL (routed through images.weserv.nl as PNG so Apple Mail/Outlook render it; never serve raw .webp)",
+    "img3": "Tertiary supporting image URL (routed through images.weserv.nl as PNG so Apple Mail/Outlook render it; never serve raw .webp)"
+  },
+  "themes": {
+    "zavod": {
+      "brand_name": "ZAVOD",
+      "tagline": "AI · ML · Робототехника",
+      "font": "Inter,Arial,Helvetica,sans-serif",
+      "accent": "#d4513a",
+      "accent_text": "#b3402c",
+      "ink": "#1a1410",
+      "paper": "#f5f1e8",
+      "surface": "#fffdf7",
+      "border": "#e5e0d4",
+      "muted": "#6b6258",
+      "stat_num": "56 000+",
+      "stat_label": "Позиций в каталоге · 10 разделов",
+      "footer": "zavod.dev · промышленные AI/ML-компоненты",
+      "cta_url_default": "https://zavod.dev/catalog",
+      "img1": "https://images.weserv.nl/?url=cdn.jsdelivr.net%2Fgh%2Fpm99lvl%2Fcommerce-images%402e238f413d9c54548216cdbd3ffe6cc70d75caff%2F1931.webp&w=480&output=png",
+      "img2": "https://images.weserv.nl/?url=cdn.jsdelivr.net%2Fgh%2Fpm99lvl%2Fcommerce-images%402e238f413d9c54548216cdbd3ffe6cc70d75caff%2F1927.webp&w=480&output=png",
+      "img3": "https://images.weserv.nl/?url=cdn.jsdelivr.net%2Fgh%2Fpm99lvl%2Fcommerce-images%402e238f413d9c54548216cdbd3ffe6cc70d75caff%2F1961.webp&w=480&output=png"
+    },
+    "retail": {
+      "brand_name": "Verdé",
+      "tagline": "Houseplants & living goods, delivered",
+      "font": "\"Fraunces\",Georgia,\"Times New Roman\",serif",
+      "accent": "#2f7d5b",
+      "accent_text": "#246349",
+      "ink": "#16201b",
+      "paper": "#f4f7f2",
+      "surface": "#ffffff",
+      "border": "#dde6dd",
+      "muted": "#5f6e63",
+      "stat_num": "4.9★",
+      "stat_label": "Average rating · 38,000 happy homes",
+      "footer": "verde.shop · plants, pots & care delivered to your door",
+      "cta_url_default": "https://verde.shop/shop",
+      "img1": "https://images.weserv.nl/?url=https%3A%2F%2Fimages.unsplash.com%2Fphoto-1485955900006-10f4d324d411%3Ffit%3Dcrop%26w%3D1200%26q%3D80&w=1200&output=png",
+      "img2": "https://images.weserv.nl/?url=https%3A%2F%2Fimages.unsplash.com%2Fphoto-1416879595882-3373a0480b5b%3Ffit%3Dcrop%26w%3D1200%26q%3D80&w=1200&output=png",
+      "img3": "https://images.weserv.nl/?url=https%3A%2F%2Fimages.unsplash.com%2Fphoto-1463320726281-696a485928c7%3Ffit%3Dcrop%26w%3D1200%26q%3D80&w=1200&output=png"
+    }
+  }
+}

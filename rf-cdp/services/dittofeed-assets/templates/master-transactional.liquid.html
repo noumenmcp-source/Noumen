@@ -1,0 +1,238 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="ru" xml:lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+<meta name="color-scheme" content="light only" />
+<meta name="supported-color-schemes" content="light only" />
+<title>{{ user.gen_subject }}</title>
+<!--[if mso]>
+<noscript>
+<xml>
+<o:OfficeDocumentSettings>
+<o:PixelsPerInch>96</o:PixelsPerInch>
+<o:AllowPNG/>
+</o:OfficeDocumentSettings>
+</xml>
+</noscript>
+<![endif]-->
+<style type="text/css">
+  html, body { margin:0 !important; padding:0 !important; height:100% !important; width:100% !important; }
+  * { -ms-text-size-adjust:100%; -webkit-text-size-adjust:100%; }
+  table, td { mso-table-lspace:0pt !important; mso-table-rspace:0pt !important; }
+  table { border-spacing:0 !important; border-collapse:collapse !important; table-layout:fixed !important; }
+  img { -ms-interpolation-mode:bicubic; border:0; height:auto; line-height:100%; outline:none; text-decoration:none; }
+  a { text-decoration:none; }
+  .txn-pill a { color:__ACCENT_TEXT__ !important; }
+  @media only screen and (max-width:600px) {
+    .txn-wrap { width:100% !important; }
+    .txn-card { width:100% !important; border-radius:0 !important; }
+    .txn-pad { padding-left:24px !important; padding-right:24px !important; }
+    .txn-pad-lg { padding-left:24px !important; padding-right:24px !important; }
+    .txn-h1 { font-size:26px !important; line-height:32px !important; }
+    .txn-stack { display:block !important; width:100% !important; text-align:left !important; }
+    .txn-stack-r { text-align:left !important; padding-top:6px !important; }
+    .txn-btn { display:block !important; width:100% !important; }
+    .txn-cell { padding-left:20px !important; padding-right:20px !important; }
+  }
+  u + .txn-body a { color:inherit; }
+</style>
+</head>
+<body style="margin:0; padding:0; width:100%; background-color:__PAPER__; -webkit-font-smoothing:antialiased; mso-line-height-rule:exactly;">
+<div class="txn-body" style="background-color:__PAPER__;">
+
+<div style="display:none; font-size:1px; line-height:1px; max-height:0; max-width:0; opacity:0; overflow:hidden; mso-hide:all; font-family:__FONT__;">
+{{ txn_headline | default: "Ваш заказ принят" }} — {{ user.gen_subject }}
+&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;
+</div>
+
+<!--[if mso | IE]>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:__PAPER__;"><tr><td align="center">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0"><tr><td>
+<![endif]-->
+
+<table role="presentation" align="center" class="txn-wrap" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px; max-width:600px; margin:0 auto;">
+  <tr>
+    <td style="height:24px; line-height:24px; font-size:24px;">&nbsp;</td>
+  </tr>
+
+  <!-- CARD -->
+  <tr>
+    <td class="txn-card" style="background-color:__SURFACE__; border:1px solid __BORDER__; border-radius:14px; overflow:hidden;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+
+        <!-- HEADER (dark) -->
+        <tr>
+          <td class="txn-cell" style="background-color:__INK__; padding:24px 36px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td class="txn-stack" align="left" valign="middle" style="font-family:__FONT__; font-size:19px; line-height:24px; font-weight:bold; letter-spacing:0.04em; color:#ffffff; text-transform:uppercase;">
+                  __BRAND_NAME__
+                </td>
+                <td class="txn-stack txn-stack-r" align="right" valign="middle" style="font-family:__FONT__; font-size:12px; line-height:18px; font-weight:normal; letter-spacing:0.06em; color:__MUTED__; text-transform:uppercase;">
+                  __TAGLINE__
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- STATUS BAND -->
+        <tr>
+          <td class="txn-pad-lg" style="padding:40px 40px 8px 40px;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td valign="middle" style="padding-right:10px;">
+                  <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+                    <td width="9" height="9" style="width:9px; height:9px; background-color:__ACCENT__; border-radius:50%; font-size:0; line-height:0;">&nbsp;</td>
+                  </tr></table>
+                </td>
+                <td valign="middle" style="font-family:__FONT__; font-size:12px; line-height:16px; font-weight:bold; letter-spacing:0.12em; color:__ACCENT_TEXT__; text-transform:uppercase;">
+                  {{ campaign_eyebrow }}
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- HEADLINE -->
+        <tr>
+          <td class="txn-pad-lg" style="padding:14px 40px 0 40px;">
+            <h1 class="txn-h1" style="margin:0; font-family:__FONT__; font-size:32px; line-height:38px; font-weight:bold; letter-spacing:-0.02em; color:__INK__;">
+              {{ txn_headline | default: "Ваш заказ принят" }}
+            </h1>
+          </td>
+        </tr>
+
+        <!-- INTRO / CAMPAIGN HEADING -->
+        <tr>
+          <td class="txn-pad-lg" style="padding:14px 40px 0 40px;">
+            <p style="margin:0; font-family:__FONT__; font-size:16px; line-height:26px; font-weight:normal; color:__MUTED__;">
+              {{ campaign_heading }}
+            </p>
+          </td>
+        </tr>
+
+        <!-- DIVIDER -->
+        <tr>
+          <td class="txn-pad-lg" style="padding:28px 40px 0 40px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+              <td style="border-top:1px solid __BORDER__; font-size:0; line-height:0;">&nbsp;</td>
+            </tr></table>
+          </td>
+        </tr>
+
+        <!-- DETAILS BLOCK (order / RFQ summary) -->
+        <tr>
+          <td class="txn-pad-lg" style="padding:28px 40px 0 40px;">
+            <p style="margin:0 0 16px 0; font-family:__FONT__; font-size:12px; line-height:16px; font-weight:bold; letter-spacing:0.1em; color:__MUTED__; text-transform:uppercase;">
+              Состав заявки
+            </p>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:__PAPER__; border:1px solid __BORDER__; border-radius:10px;">
+              <tr>
+                <td style="padding:8px 20px;">
+                  <!-- RAW SLOT: line items + totals injected by CDP -->
+                  {{ txn_details_html }}
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- STATUS / NEXT-STEPS BODY -->
+        <tr>
+          <td class="txn-pad-lg txn-body" style="padding:28px 40px 0 40px; font-family:__FONT__; font-size:16px; line-height:26px; font-weight:normal; color:__INK__;">
+            {{ user.gen_body_html }}
+          </td>
+        </tr>
+
+        <!-- STAT (optional reassurance metric) -->
+        <tr>
+          <td class="txn-pad-lg" style="padding:28px 40px 0 40px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:__PAPER__; border:1px solid __BORDER__; border-radius:10px;">
+              <tr>
+                <td style="padding:20px 24px;" valign="middle">
+                  <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+                    <td valign="middle" style="font-family:__FONT__; font-size:30px; line-height:34px; font-weight:bold; letter-spacing:-0.02em; color:__INK__; padding-right:14px;">
+                      __STAT_NUM__
+                    </td>
+                    <td valign="middle" style="font-family:__FONT__; font-size:13px; line-height:18px; font-weight:normal; color:__MUTED__;">
+                      __STAT_LABEL__
+                    </td>
+                  </tr></table>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- CTA (secondary) -->
+        <tr>
+          <td class="txn-pad-lg" align="left" style="padding:32px 40px 0 40px;">
+            <!--[if mso]>
+            <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{{ catalog_url | default: '__CTA_URL_DEFAULT__' }}" style="height:50px;v-text-anchor:middle;width:260px;" arcsize="14%" strokecolor="__ACCENT__" fillcolor="__ACCENT__">
+              <w:anchorlock/>
+              <center style="color:__ACCENT_TEXT__;font-family:__FONT__;font-size:15px;font-weight:bold;letter-spacing:0.02em;">{{ txn_cta | default: "Отследить заказ" }}</center>
+            </v:roundrect>
+            <![endif]-->
+            <!--[if !mso]><!-- -->
+            <table role="presentation" class="txn-pill" cellpadding="0" cellspacing="0" border="0" style="margin:0;">
+              <tr>
+                <td class="txn-btn" align="center" bgcolor="__ACCENT__" style="background-color:__ACCENT__; border-radius:8px;">
+                  <a href="{{ catalog_url | default: '__CTA_URL_DEFAULT__' }}" target="_blank" style="display:inline-block; padding:15px 38px; font-family:__FONT__; font-size:15px; line-height:20px; font-weight:bold; letter-spacing:0.02em; color:__ACCENT_TEXT__; text-decoration:none; border-radius:8px;">
+                    {{ txn_cta | default: "Отследить заказ" }}
+                  </a>
+                </td>
+              </tr>
+            </table>
+            <!--<![endif]-->
+          </td>
+        </tr>
+
+        <!-- GHOST / SECONDARY LINK -->
+        <tr>
+          <td class="txn-pad-lg" align="left" style="padding:16px 40px 4px 40px;">
+            <a href="{{ catalog_url | default: '__CTA_URL_DEFAULT__' }}" target="_blank" style="font-family:__FONT__; font-size:14px; line-height:20px; font-weight:bold; color:__ACCENT_TEXT__; text-decoration:none;">
+              {{ campaign_cta }} &rarr;
+            </a>
+          </td>
+        </tr>
+
+        <!-- BOTTOM SPACER INSIDE CARD -->
+        <tr>
+          <td style="height:40px; line-height:40px; font-size:40px;">&nbsp;</td>
+        </tr>
+
+      </table>
+    </td>
+  </tr>
+
+  <!-- FOOTER -->
+  <tr>
+    <td class="txn-pad" style="padding:28px 36px 8px 36px;">
+      <p style="margin:0 0 10px 0; font-family:__FONT__; font-size:12px; line-height:19px; font-weight:normal; color:__MUTED__;">
+        __FOOTER__
+      </p>
+      <p style="margin:0 0 16px 0; font-family:__FONT__; font-size:12px; line-height:19px; font-weight:normal; color:__MUTED__;">
+        Это служебное письмо по вашей заявке в __BRAND_NAME__. Если вы не совершали это действие, свяжитесь со службой поддержки.
+      </p>
+      <p style="margin:0; font-family:__FONT__; font-size:12px; line-height:19px; font-weight:normal; color:__MUTED__;">
+        <a href="{{ unsubscribe_url }}" target="_blank" style="color:__MUTED__; text-decoration:underline;">Отписаться от уведомлений</a>
+      </p>
+    </td>
+  </tr>
+
+  <tr>
+    <td style="height:28px; line-height:28px; font-size:28px;">&nbsp;</td>
+  </tr>
+</table>
+
+<!--[if mso | IE]>
+</td></tr></table>
+</td></tr></table>
+<![endif]-->
+
+</div>
+</body>
+</html>

@@ -1,0 +1,5 @@
+Project `cdp` is a composable customer platform initiative, not a monolith. Core product thesis: first-party event collection -> identity graph -> unified profiles -> segments/scoring -> email journeys/transactional sending -> support inbox/omnichannel messaging -> analytics/attribution -> multi-tenant governance (RBAC, consent, audit, suppression).
+
+Strong OSS references for future work: PostHog, RudderStack, Tracardi, listmonk, Mautic, Chatwoot, Novu, n8n, Temporal, Twenty, Krayin, Plausible, Umami, Unleash, GrowthBook, Formbricks, MJML, Postal.
+
+Architecture guidance: start with a modular monolith + async workers, not microservices-first. Build deliverability, tenant isolation, and identity resolution as first-class concerns. The long-term goal is a sellable OSS customer platform for SMB and enterprise clients.

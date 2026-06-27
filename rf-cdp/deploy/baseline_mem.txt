@@ -1,0 +1,38 @@
+### RAM-0 baseline (2026-06-19T18:22:14Z) ###
+== free -m ==
+               total        used        free      shared  buff/cache   available
+Mem:            3927        3058         154          44        1201         868
+Swap:           4095         295        3800
+== swap ==
+NAME      TYPE SIZE   USED PRIO
+/swapfile file   4G 295.4M   -2
+== docker stats ==
+cdp-ingest-gateway-1	86.65MiB / 3.836GiB	0.83%
+cdp-lite-1	542.3MiB / 640MiB	0.01%
+temporal	129.7MiB / 3.836GiB	1.77%
+cdp-postgres-1	129.9MiB / 3.836GiB	0.47%
+cdp-clickhouse-server-1	682.5MiB / 1GiB	2.76%
+cdp-elasticsearch-1	766.1MiB / 768MiB	0.46%
+== ES heap/health ==
+heap.percent heap.current heap.max ram.percent cpu load_1m
+          60      230.7mb    384mb         100  10    0.79
+== OOM history ==
+[  535.819740] elasticsearch[c invoked oom-killer: gfp_mask=0xcc0(GFP_KERNEL), order=0, oom_score_adj=0
+[  535.858641] oom-kill:constraint=CONSTRAINT_MEMCG,nodemask=(null),cpuset=docker-c7898c1c16ba9bda1cee1f8f61bdceda0546caa43acb403109be0267157dd9fb.scope,mems_allowed=0,oom_memcg=/system.slice/docker-c7898c1c16ba9bda1cee1f8f61bdceda0546caa43acb403109be0267157dd9fb.scope,task_memcg=/system.slice/docker-c7898c1c16ba9bda1cee1f8f61bdceda0546caa43acb403109be0267157dd9fb.scope,task=java,pid=4212,uid=1000
+[  535.861666] Memory cgroup out of memory: Killed process 4212 (java) total-vm:3179740kB, anon-rss:610284kB, file-rss:164840kB, shmem-rss:0kB, UID:1000 pgtables:2016kB oom_score_adj:0
+== uptime ==
+ 18:22:16 up  4:21,  0 user,  load average: 0.79, 0.37, 0.28
+
+### DUR-0 baseline ###
+== cdp_events count ==
+{"count":58,"_shards":{"total":1,"successful":1,"skipped":0,"failed":0}}
+== ES indices ==
+index            docs.count store.size
+cdp_events_zavod         58     40.4kb
+cdp_suppressions          1     10.2kb
+== disk ==
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/vda1        40G   15G   25G  38% /
+/dev/vda1        40G   15G   25G  38% /
+== gateway health ==
+{"status":"ok","tenants":1,"received":{"zavod":2},"raw":{"stored":2,"failed":0,"inflight":0,"pending":0},"forward":{"forwarded":2,"failed":0,"inflight":0,"pending":0},"queued":0,"dropped":0,"resend":{"suppressed":0,"failed":0}}

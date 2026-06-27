@@ -1,0 +1,14 @@
+{
+  "name": "cdp-ingest-gateway",
+  "version": "1.0.0",
+  "private": true,
+  "description": "CDP ingest-gateway: storefront events -> raw ES + forward to Dittofeed (async, retry, DLQ).",
+  "main": "server.js",
+  "scripts": { "start": "node server.js", "start:cluster": "node cluster.js" },
+  "engines": { "node": ">=18.17" },
+  "dependencies": {
+    "fastify": "^4.28.1",
+    "undici": "^6.19.8",
+    "pino": "^9.4.0"
+  }
+}

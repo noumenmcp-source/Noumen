@@ -1,0 +1,27 @@
+{
+  "_comment": "Tenant registry for the multi-tenant CDP gateway. ONE entry per site. The gateway resolves the inbound x-write-key to exactly one tenant and routes that event ONLY to that tenant's esIndex + Dittofeed workspace. Copy to tenants.json and edit. Add a site = append an object + call reload() (or restart). Each writeKey MUST be unique across all tenants.",
+  "tenants": [
+    {
+      "siteId": "zavod",
+      "writeKey": "wk_zavod",
+      "workspaceId": "00000000-0000-0000-0000-00000000z4v0",
+      "dittofeedWriteKey": "secret-zavod-id:replace-with-real-zavod-secret-value",
+      "esIndex": "cdp_events_zavod",
+      "allowedOrigins": [
+        "https://zavod.dev",
+        "https://*.vercel.app"
+      ]
+    },
+    {
+      "siteId": "retail-demo",
+      "writeKey": "wk_retail_demo",
+      "workspaceId": "00000000-0000-0000-0000-0000000reta1l",
+      "dittofeedWriteKey": "secret-retail-id:replace-with-real-retail-secret-value",
+      "esIndex": "cdp_events_retail-demo",
+      "allowedOrigins": [
+        "https://shop.retail-demo.example",
+        "https://www.retail-demo.example"
+      ]
+    }
+  ]
+}

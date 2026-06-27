@@ -1,0 +1,34 @@
+# OIDC overlay (NOT YET DEPLOYED) — adds Dex to the existing CDP stack.
+# Use ON TOP of the base compose so the data plane is untouched:
+#   docker compose -p cdp -f deploy/docker-compose.cdp.yaml -f deploy/oidc/docker-compose.oidc-overlay.yaml up -d dex
+#
+# This overlay only ADDS the dex service. The lite->ee swap for AUTH_MODE=multi-tenant is a SEPARATE
+# edit to the base compose's dittofeed service (image dittofeed/dittofeed-ee + OIDC env from
+# .env.oidc.example) — kept separate so Dex can be stood up and verified first, in isolation.
+
+services:
+  dex:
+    image: ghcr.io/dexidp/dex:v2.41.1
+    restart: always
+    logging:
+      driver: "local"
+    command: ["dex", "serve", "/etc/dex/config.yaml"]
+    deploy:
+      resources:
+        limits:
+          memory: 96m            # measured headroom is ~967MB; Dex needs ~30-50MB — hard cap well above
+    volumes:
+      - ./oidc/dex-config.yaml:/etc/dex/config.yaml:ro
+      - dex_data:/var/dex        # sqlite storage (refresh tokens) survives restarts
+    ports:
+      - "127.0.0.1:5556:5556"    # localhost only; public access is via Caddy TLS at auth.<host>
+    networks:
+      - dittofeed-network-lite   # same network as the Dittofeed app so names resolve if ever needed
+
+volumes:
+  dex_data:
+
+networks:
+  dittofeed-network-lite:
+    external: true
+    name: dittofeed-network-lite

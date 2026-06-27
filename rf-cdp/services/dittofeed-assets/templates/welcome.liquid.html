@@ -1,0 +1,88 @@
+<html>
+<head>
+    <meta content="text/html; charset=UTF-8" http-equiv="Content-Type">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ user.gen_subject | default: "Добро пожаловать!" }}</title>
+    <style>
+        body {
+            background-color: #f5f1e8;
+            margin: 0;
+            padding: 0;
+            font-family: Inter, Arial, sans-serif;
+            color: #2a221c;
+        }
+        .container {
+            width: 100%;
+            max-width: 600px;
+            margin: auto;
+            padding: 20px;
+        }
+        .card {
+            background-color: #fffdf7;
+            border: 1px solid #e5e0d4;
+            border-radius: 18px;
+            padding: 20px;
+        }
+        .header {
+            font-family: Inter, Arial, sans-serif;
+            font-weight: 900;
+            font-size: 24px;
+            color: white;
+            background-color: #1a1410;
+            padding: 10px;
+            text-align: center;
+        }
+        .eyebrow {
+            font-family: Inter, Arial, sans-serif;
+            font-weight: 700;
+            font-size: 11px;
+            text-transform: uppercase;
+            color: #b3402c;
+            margin: 10px 0;
+        }
+        .accent {
+            color: #b3402c;
+        }
+        .cta {
+            display: inline-block;
+            background-color: #d4513a;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 999px;
+            text-transform: uppercase;
+            font-weight: 700;
+            text-decoration: none;
+            text-align: center;
+            margin-top: 20px;
+        }
+        .footer {
+            font-size: 12px;
+            color: #6b6258;
+            text-align: center;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            ZAVOD <span style="background-color: #d4513a; width: 9px; height: 9px; display: inline-block;"></span>
+        </div>
+        <div class="card">
+            <div class="eyebrow">
+                ── Добро пожаловать
+            </div>
+            <h1 style="font-family: Inter, Arial, sans-serif; font-weight: 800; font-size: 20px; letter-spacing: -0.6px; line-height: 1.0; margin: 0;">
+                <span class="accent">С нами</span> к успеху!
+            </h1>
+            <div>
+                {{ user.gen_body_html | default: "<p>Мы рады видеть вас в нашем сообществе. Откройте для себя мир новых возможностей и технологий в области B2B AI/ML и робототехники.</p>" }}
+            </div>
+            <a href="{{ catalog_url | default: 'https://zavod.dev/catalog' }}" class="cta">Открыть каталог</a>
+        </div>
+        <div class="footer">
+            <p>Если вы больше не хотите получать письма, вы можете <a href="{{ unsubscribe_url | default: '#' }}" style="color: #6b6258; text-decoration: underline;">отказаться от подписки</a>.</p>
+        </div>
+    </div>
+</body>
+</html>

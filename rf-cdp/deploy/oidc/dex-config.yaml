@@ -1,0 +1,44 @@
+# Dex OIDC IdP — config template for the CDP control plane (NOT YET DEPLOYED).
+# Tiny self-hosted OpenID Connect issuer (~30-50MB) that Dittofeed (multi-tenant) points at.
+# Mount at /etc/dex/config.yaml. Fill the <PLACEHOLDERS> before use.
+
+# Public issuer — must match exactly what Dittofeed sends as OPEN_ID_ISSUER, and be HTTPS via Caddy.
+issuer: https://auth.90-156-170-63.sslip.io
+
+# Persistent storage so refresh tokens / auth codes survive restarts. SQLite = a few MB, no extra service.
+storage:
+  type: sqlite3
+  config:
+    file: /var/dex/dex.db
+
+# Dex listens plaintext on the container port; Caddy terminates TLS in front (see Caddy-auth.snippet).
+web:
+  http: 0.0.0.0:5556
+
+# Relying party = Dittofeed dashboard. redirectURIs MUST be Dittofeed's OIDC callback path.
+staticClients:
+  - id: dittofeed-cdp
+    name: Dittofeed CDP
+    secret: <DEX_CLIENT_SECRET>            # also goes into OPEN_ID_CLIENT_SECRET (openssl rand -hex 24)
+    redirectURIs:
+      - https://cdp.90-156-170-63.sslip.io/dashboard/oauth2/callback
+
+# Self-contained admin store — no external IdP. Replace later with a `connectors:` block
+# (google/github/ldap) if you want corporate SSO; Dittofeed wiring stays identical.
+enablePasswordDB: true
+staticPasswords:
+  - email: "admin@cdp.local"
+    # bcrypt of the admin password. Generate:
+    #   htpasswd -bnBC 12 "" 'YOUR_PASSWORD' | tr -d ':\n' | sed 's/$2y/$2a/'
+    hash: "<BCRYPT_HASH>"
+    username: "cdp-admin"
+    userID: "00000000-0000-0000-0000-000000000001"
+
+# Issue refresh tokens so the dashboard session can be renewed without re-login every hour.
+oauth2:
+  skipApprovalScreen: true
+
+expiry:
+  idTokens: "1h"
+  refreshTokens:
+    validIfNotUsedFor: "168h"

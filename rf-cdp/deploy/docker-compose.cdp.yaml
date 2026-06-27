@@ -1,0 +1,241 @@
+# Whole-CDP stack for the permanent host: Dittofeed lite (4 services) + ingest-gateway, wired.
+# Storefront -> ingest-gateway (:8110) -> raw ES audit + forward to Dittofeed lite (:3000).
+#
+# The four dittofeed services (lite, temporal, postgres, clickhouse-server) are reused verbatim
+# from vendor/dittofeed/docker-compose.lite.yaml (same images, env anchors, ports, named volumes,
+# network). Only the ingest-gateway service is added on the same network so the loop closes.
+#
+# Usage:
+#   cp deploy/.env.example deploy/.env   # then fill secrets
+#   docker compose -f deploy/docker-compose.cdp.yaml --env-file deploy/.env up -d
+#
+# Optional profiles inherited from lite: admin-cli, temporal-ui (start with --profile <name>).
+x-database-credentials: &database-credentials
+  DATABASE_USER: ${DATABASE_USER:-postgres}
+  DATABASE_PASSWORD: ${DATABASE_PASSWORD:-password}
+x-clickhouse-credentials: &clickhouse-credentials
+  CLICKHOUSE_USER: ${CLICKHOUSE_USER:-dittofeed}
+  CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-password}
+x-backend-app-env: &backend-app-env
+  <<: [*clickhouse-credentials, *database-credentials]
+  NODE_ENV: production
+  DATABASE_HOST: ${DATABASE_HOST:-postgres}
+  DATABASE_PORT: ${DATABASE_PORT:-5432}
+  CLICKHOUSE_HOST: ${CLICKHOUSE_HOST:-http://clickhouse-server:8123}
+  TEMPORAL_ADDRESS: ${TEMPORAL_ADDRESS:-temporal:7233}
+  WORKSPACE_NAME: ${WORKSPACE_NAME:-Default}
+  AUTH_MODE: ${AUTH_MODE:-single-tenant}
+  SECRET_KEY: ${SECRET_KEY:-GEGL1RHjFVOxIO80Dp8+ODlZPOjm2IDBJB/UunHlf3c=}
+  PASSWORD: ${PASSWORD:-password}
+  DASHBOARD_API_BASE: ${DASHBOARD_API_BASE:-http://localhost:3000}
+services:
+  # ---------------------------------------------------------------------------
+  # Dittofeed lite (reused verbatim from vendor/dittofeed/docker-compose.lite.yaml)
+  # ---------------------------------------------------------------------------
+  lite:
+    image: ${IMAGE_REPOSITORY:-dittofeed/dittofeed-lite}:${IMAGE_TAG:-v0.23.0}
+    restart: always
+    command: node --max-old-space-size=${LITE_MEM_LIMIT:-824} ./packages/lite/dist/scripts/startLite.js --workspace-name=${WORKSPACE_NAME:-Default}
+    logging:
+      driver: "local"
+    deploy:
+      resources:
+        limits:
+          memory: ${LITE_CONTAINER_MEM_LIMIT:-1024}m
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - postgres
+      - temporal
+      - clickhouse-server
+    environment:
+      <<: *backend-app-env
+      # comment out after initial setup
+      BOOTSTRAP: ${BOOTSTRAP:-true}
+    networks:
+      - dittofeed-network-lite
+  # useful for upgrading dittofeed
+  admin-cli:
+    image: dittofeed/dittofeed-admin-cli:${IMAGE_TAG:-v0.23.0}
+    entrypoint: []
+    profiles: ["admin-cli"]
+    command: tail -f /dev/null
+    tty: true
+    logging:
+      driver: "local"
+    depends_on:
+      - postgres
+      - temporal
+      - clickhouse-server
+    environment:
+      <<: *backend-app-env
+    networks:
+      - dittofeed-network-lite
+  temporal:
+    container_name: temporal
+    restart: always
+    logging:
+      driver: "local"
+    depends_on:
+      - postgres
+    environment:
+      - DB=postgresql
+      - DB_PORT=${DATABASE_PORT:-5432}
+      - POSTGRES_USER=${DATABASE_USER:-postgres}
+      - POSTGRES_PWD=${DATABASE_PASSWORD:-password}
+      - POSTGRES_SEEDS=${DATABASE_HOST:-postgres}
+      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/prod.yaml
+    image: temporalio/auto-setup:${TEMPORAL_VERSION:-1.22.4}
+    labels:
+      kompose.volume.type: configMap
+    networks:
+      - dittofeed-network-lite
+    ports:
+      - 7233:7233
+    volumes:
+      # Path is relative to this compose file (deploy/) -> vendor checkout.
+      - ../vendor/dittofeed/packages/backend-lib/temporal-dynamicconfig:/etc/temporal/config/dynamicconfig
+  temporal-ui:
+    profiles: ["temporal-ui"]
+    container_name: temporal-ui
+    restart: always
+    logging:
+      driver: "local"
+    depends_on:
+      - temporal
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:3000
+    image: temporalio/ui:${TEMPORAL_UI_VERSION:-2.22.1}
+    networks:
+      - dittofeed-network-lite
+    ports:
+      - 8080:8080
+  postgres:
+    image: postgres:${POSTGRES_VERSION:-15}
+    restart: always
+    logging:
+      driver: "local"
+    environment:
+      - POSTGRES_PASSWORD=${DATABASE_PASSWORD:-password}
+      - POSTGRES_USER=${DATABASE_USER:-postgres}
+      - POSTGRES_DB=dittofeed
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    networks:
+      - dittofeed-network-lite
+  clickhouse-server:
+    image: clickhouse/clickhouse-server:24.12.6.70-alpine
+    restart: always
+    logging:
+      driver: "local"
+    deploy:
+      resources:
+        limits:
+          memory: ${CLICKHOUSE_CONTAINER_MEM_LIMIT:-2048}m
+    environment:
+      <<: *clickhouse-credentials
+    ports:
+      - "127.0.0.1:8123:8123"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9009:9009"
+    volumes:
+      - clickhouse_lib:/var/lib/clickhouse
+      - clickhouse_log:/var/log/clickhouse-server
+    networks:
+      - dittofeed-network-lite
+  # ---------------------------------------------------------------------------
+  # Elasticsearch — raw event audit store (per-tenant index cdp_events_<siteId>).
+  # Self-contained in the stack so the whole CDP travels as one compose.
+  # ---------------------------------------------------------------------------
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+    restart: always
+    logging:
+      driver: "local"
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=true
+      - xpack.security.http.ssl.enabled=false
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - ES_JAVA_OPTS=${ES_JAVA_OPTS:--Xms512m -Xmx512m}
+      - bootstrap.memory_lock=true
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+    deploy:
+      resources:
+        limits:
+          memory: ${ES_CONTAINER_MEM_LIMIT:-1280}m
+    ports:
+      - "127.0.0.1:9200:9200"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    networks:
+      - dittofeed-network-lite
+  # ---------------------------------------------------------------------------
+  # CDP ingest-gateway v3 (multi-tenant) — closes the loop, isolates per site.
+  # x-write-key -> tenant (tenants.json) -> own ES index + own Dittofeed workspace.
+  # ---------------------------------------------------------------------------
+  ingest-gateway:
+    build:
+      context: ../services/ingest-gateway-prod
+      dockerfile: Dockerfile
+    image: cdp/ingest-gateway:${INGEST_GATEWAY_TAG:-local}
+    stop_grace_period: 15s
+    restart: always
+    logging:
+      driver: "local"
+    depends_on:
+      - lite
+      - elasticsearch
+    environment:
+      PORT: ${GATEWAY_PORT:-8110}
+      # Multi-tenant: keys/indices/origins come from the mounted tenants.json, NOT env.
+      TENANTS_FILE: /app/tenants.json
+      ES_URL: ${ES_URL:-http://elasticsearch:9200}
+      ES_USER: ${ES_USER:-elastic}
+      ES_PASSWORD: ${ES_PASSWORD:-}
+      # Base Dittofeed URL; per-tenant workspace + write-key live in tenants.json.
+      DITTOFEED_URL: ${DITTOFEED_URL:-http://lite:3000}
+      QUEUE_MAX: ${QUEUE_MAX:-100000}
+      BULK_FLUSH_SIZE: ${BULK_FLUSH_SIZE:-1000}
+      BULK_FLUSH_MS: ${BULK_FLUSH_MS:-200}
+      FORWARD_CONCURRENCY: ${FORWARD_CONCURRENCY:-32}
+    volumes:
+      # Tenant registry — populated by scripts/provision_site.py. Read-only mount.
+      - ../services/ingest-gateway-prod/tenants.json:/app/tenants.json:ro
+    ports:
+      - "${GATEWAY_PORT:-8110}:${GATEWAY_PORT:-8110}"
+    networks:
+      - dittofeed-network-lite
+  cdp-admin:
+    build:
+      context: ../services/cdp-admin
+      dockerfile: Dockerfile
+    image: cdp/admin:local
+    restart: always
+    logging:
+      driver: "local"
+    depends_on:
+      - elasticsearch
+    environment:
+      PORT: 8120
+      ES_URL: ${ES_URL:-http://elasticsearch:9200}
+      ES_USER: ${ES_USER:-elastic}
+      ES_PASSWORD: ${ES_PASSWORD:-}
+    ports:
+      - "127.0.0.1:8120:8120"
+    networks:
+      - dittofeed-network-lite
+volumes:
+  postgres:
+  clickhouse_lib:
+  clickhouse_log:
+  es_data:
+
+networks:
+  dittofeed-network-lite:
+    driver: bridge
+    name: dittofeed-network-lite

@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CDP · Presentation — Defensive Data Infrastructure</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..600;1,6..72,300..500&family=Hanken+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --void:#0A0B0D;--void-2:#0E1014;--panel:#111419;
+    --ink:#ECE9E2;--ink-dim:#9A9EA6;--ink-faint:#5C616B;
+    --hair:rgba(236,233,226,0.09);--hair-2:rgba(236,233,226,0.14);
+    --ember:#F4612E;--ember-soft:rgba(244,97,46,0.12);--amber:#E0A340;
+    --mint:#76E2CB;--mint-soft:rgba(118,226,203,0.12);
+    --accent:var(--ember);--accent-soft:var(--ember-soft);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%;overflow:hidden}
+  body{background:var(--void);color:var(--ink);font-family:"Hanken Grotesk",sans-serif;-webkit-font-smoothing:antialiased}
+  .serif{font-family:"Newsreader",serif;font-weight:400;letter-spacing:-.015em;line-height:1.05}
+  em.sig{font-family:"Newsreader",serif;font-style:italic;color:var(--ember)}
+  em.ctl{font-family:"Newsreader",serif;font-style:italic;color:var(--mint)}
+  .mono{font-family:"JetBrains Mono",monospace;font-weight:500;letter-spacing:.22em;text-transform:uppercase;font-size:.66rem;color:var(--ink-dim)}
+
+  /* atmosphere */
+  .grain{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.05;mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+  .gridbg{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.4;
+    background-image:linear-gradient(90deg,var(--hair) 1px,transparent 1px);background-size:calc(100%/6) 100%;
+    -webkit-mask-image:linear-gradient(180deg,transparent,#000 12%,#000 88%,transparent);mask-image:linear-gradient(180deg,transparent,#000 12%,#000 88%,transparent)}
+  .glow{position:fixed;z-index:0;pointer-events:none;filter:blur(100px);opacity:.5;transition:background .8s}
+  .glow.a{top:-160px;left:6%;width:540px;height:440px;background:radial-gradient(circle,var(--accent-soft),transparent 70%)}
+  .glow.b{bottom:-180px;right:-100px;width:520px;height:520px;background:radial-gradient(circle,var(--mint-soft),transparent 70%)}
+
+  .stage{position:relative;z-index:2;height:100vh;width:100vw}
+  .slide{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;
+    padding:clamp(48px,7vw,118px) clamp(48px,8vw,150px);opacity:0;visibility:hidden;
+    transform:translateY(22px) scale(.992);transition:opacity .55s cubic-bezier(.2,.7,.2,1),transform .55s cubic-bezier(.2,.7,.2,1),visibility .55s}
+  .slide.active{opacity:1;visibility:visible;transform:none}
+  .slide.past{transform:translateY(-22px) scale(.992)}
+
+  /* entrance stagger */
+  .up{opacity:0;transform:translateY(18px);transition:opacity .6s cubic-bezier(.2,.7,.2,1),transform .6s cubic-bezier(.2,.7,.2,1)}
+  .slide.active .up{opacity:1;transform:none}
+
+  .eyebrow{display:flex;align-items:center;gap:14px;margin-bottom:28px}
+  .eyebrow .ln{height:1px;width:46px;background:var(--accent)}
+  .kick{font-family:"JetBrains Mono",monospace;color:var(--accent);font-size:.72rem;letter-spacing:.12em;display:block;margin-bottom:20px}
+  h1{font-size:clamp(2.6rem,5.4vw,5rem);max-width:18ch}
+  h2{font-size:clamp(2rem,3.7vw,3.3rem);max-width:21ch}
+  .lead{margin-top:24px;font-size:clamp(1.05rem,1.5vw,1.32rem);color:var(--ink-dim);max-width:48ch;line-height:1.5}
+
+  /* COVER */
+  .cover{justify-content:center}
+  .cover h1{font-size:clamp(2.8rem,6vw,5.4rem);max-width:17ch}
+  .cover .sub{margin-top:26px;font-family:"Newsreader",serif;font-style:italic;font-size:clamp(1.3rem,2.3vw,1.95rem);color:var(--ink-dim);max-width:34ch;line-height:1.35}
+  .cover .footline{position:absolute;left:clamp(48px,8vw,150px);bottom:clamp(54px,8vh,110px);display:flex;gap:30px;align-items:center;font-family:"JetBrains Mono",monospace;font-size:.62rem;letter-spacing:.14em;color:var(--ink-faint);text-transform:uppercase}
+  .cover .footline .u{color:var(--mint)}
+
+  /* AGENDA */
+  .agenda{counter-reset:ag}
+  .agenda .list{margin-top:42px;border-top:1px solid var(--hair)}
+  .agenda .ai{display:grid;grid-template-columns:80px 1fr auto;gap:26px;align-items:center;padding:22px 0;border-bottom:1px solid var(--hair)}
+  .agenda .ai .nn{font-family:"JetBrains Mono",monospace;color:var(--accent);font-size:.76rem;letter-spacing:.1em}
+  .agenda .ai .tt{font-family:"Newsreader",serif;font-size:clamp(1.3rem,2vw,1.8rem)}
+  .agenda .ai .meta{font-family:"JetBrains Mono",monospace;font-size:.58rem;letter-spacing:.14em;color:var(--ink-faint);text-transform:uppercase}
+
+  /* DIVIDER */
+  .divider{justify-content:center;align-items:flex-start}
+  .divider .actnum{font-family:"Newsreader",serif;font-size:clamp(7rem,20vw,17rem);line-height:.8;color:transparent;-webkit-text-stroke:1px var(--accent);letter-spacing:-.02em}
+  .divider .actname{margin-top:6px;font-family:"Newsreader",serif;font-size:clamp(2rem,4.4vw,3.8rem);letter-spacing:-.015em}
+  .divider .actsub{margin-top:18px;font-size:1.1rem;color:var(--ink-dim);max-width:42ch}
+  .divider .actkick{font-family:"JetBrains Mono",monospace;font-size:.66rem;letter-spacing:.2em;color:var(--accent);text-transform:uppercase;margin-bottom:14px}
+
+  /* 3 col */
+  .cols{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--hair);border:1px solid var(--hair);margin-top:44px}
+  .col{background:var(--void);padding:30px 26px 34px}
+  .col .k{font-family:"JetBrains Mono",monospace;font-size:.6rem;letter-spacing:.16em;color:var(--ink-faint)}
+  .col h3{font-family:"Newsreader",serif;font-size:1.5rem;margin:16px 0 12px;line-height:1.1}
+  .col p{font-size:.94rem;color:var(--ink-dim)}
+  .col .tag{margin-top:18px;display:inline-block;font-family:"JetBrains Mono",monospace;font-size:.56rem;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);border:1px solid var(--accent-soft);padding:5px 9px}
+
+  /* rows */
+  .rows{margin-top:40px;border-top:1px solid var(--hair)}
+  .row{display:grid;grid-template-columns:210px 1fr;gap:30px;padding:22px 0;border-bottom:1px solid var(--hair);align-items:baseline}
+  .row .rk{font-family:"Newsreader",serif;font-size:1.45rem}
+  .row .rv{font-size:1.04rem;color:var(--ink-dim);max-width:52ch}
+  .row .rv b{color:var(--ink);font-weight:500}
+
+  /* statement */
+  .s-statement{justify-content:center}
+  .statement{font-family:"Newsreader",serif;font-size:clamp(2.1rem,4.2vw,3.8rem);line-height:1.14;letter-spacing:-.015em;max-width:24ch}
+
+  /* definition */
+  .neg{display:flex;flex-direction:column;margin-top:36px;max-width:660px}
+  .neg .ln2{display:flex;align-items:center;gap:16px;padding:15px 0;border-bottom:1px solid var(--hair)}
+  .neg .x{font-family:"JetBrains Mono",monospace;color:var(--ink-faint);width:22px}
+  .neg .t{font-size:1.12rem;color:var(--ink-dim)}
+  .neg .ln2.is .x{color:var(--mint)}
+  .neg .ln2.is .t{color:var(--ink);font-weight:600}
+  .vault{margin-top:28px;display:inline-flex;align-items:center;gap:12px;font-family:"JetBrains Mono",monospace;font-size:.64rem;letter-spacing:.16em;text-transform:uppercase;color:var(--mint);border:1px solid var(--mint-soft);background:var(--mint-soft);padding:11px 15px}
+
+  /* steps */
+  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--hair);border:1px solid var(--hair);margin-top:44px}
+  .step{background:var(--void);padding:34px 28px;position:relative;min-height:198px}
+  .step .sn{font-family:"Newsreader",serif;font-size:3rem;color:var(--ink-faint);opacity:.5;line-height:1}
+  .step h3{font-family:"Newsreader",serif;font-size:1.5rem;margin:14px 0 10px}
+  .step p{font-size:.92rem;color:var(--ink-dim)}
+  .step .ar{position:absolute;right:-12px;top:50%;transform:translateY(-50%);z-index:4;width:22px;height:22px;background:var(--void);border:1px solid var(--hair-2);border-radius:50%;display:grid;place-items:center;color:var(--accent);font-size:.66rem}
+  .step:last-child .ar{display:none}
+
+  /* value grid */
+  .vals{margin-top:40px;display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--hair);border:1px solid var(--hair);max-width:940px}
+  .val{background:var(--void);padding:24px 28px;display:flex;gap:16px;align-items:flex-start}
+  .val .m{color:var(--mint);font-family:"JetBrains Mono",monospace;font-size:.9rem;padding-top:2px}
+  .val .vt b{color:var(--ink);font-weight:600;display:block;margin-bottom:3px;font-size:1.05rem}
+  .val .vt span{color:var(--ink-dim);font-size:.92rem}
+
+  /* fz */
+  .fzwrap{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--hair);border:1px solid var(--hair);margin-top:42px}
+  .fzc{background:var(--void);padding:26px 22px}
+  .fzc .k{font-family:"JetBrains Mono",monospace;font-size:.58rem;letter-spacing:.14em;color:var(--mint);text-transform:uppercase}
+  .fzc .v{margin-top:12px;font-size:.96rem;color:var(--ink)}
+  .note{margin-top:22px;font-family:"JetBrains Mono",monospace;font-size:.6rem;letter-spacing:.06em;color:var(--ink-faint);text-transform:uppercase;max-width:84ch}
+
+  /* matrix */
+  .mtx{width:100%;border-collapse:collapse;border:1px solid var(--hair-2);font-size:.86rem;margin-top:36px}
+  .mtx th,.mtx td{border:1px solid var(--hair);padding:13px 12px;text-align:left}
+  .mtx thead th{font-family:"JetBrains Mono",monospace;font-size:.56rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-dim);font-weight:500}
+  .mtx thead th.us{color:var(--mint);border-bottom:2px solid var(--mint)}
+  .mtx tbody th{font-weight:500;color:var(--ink);font-size:.9rem}
+  .mtx td{text-align:center}
+  .pill{display:inline-block;font-family:"JetBrains Mono",monospace;font-size:.54rem;letter-spacing:.08em;text-transform:uppercase;padding:4px 7px}
+  .pill.ex{color:var(--ember);background:var(--ember-soft)}
+  .pill.pa{color:var(--amber);background:rgba(224,163,64,.08)}
+  .pill.ok{color:var(--mint);background:var(--mint-soft)}
+
+  /* timeline */
+  .tl{display:grid;grid-template-columns:repeat(4,1fr);margin-top:44px}
+  .tn{padding:26px 24px 30px;border-left:1px solid var(--hair);position:relative}
+  .tn::before{content:"";position:absolute;top:0;left:-4px;width:7px;height:7px;border-radius:50%;background:var(--ink-faint)}
+  .tn.last::before{background:var(--ember);box-shadow:0 0 12px var(--ember)}
+  .tn .t{font-family:"JetBrains Mono",monospace;font-size:.62rem;letter-spacing:.14em;color:var(--ember)}
+  .tn h4{font-family:"Newsreader",serif;font-weight:500;font-size:1.1rem;margin:12px 0 8px}
+  .tn.last h4{color:var(--ember)}
+  .tn p{font-size:.84rem;color:var(--ink-dim)}
+
+  .window{margin-top:36px;display:flex;align-items:center;gap:16px;font-family:"JetBrains Mono",monospace;font-size:.66rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ember);max-width:700px}
+  .window .bar{flex:1;height:1px;background:linear-gradient(90deg,var(--ember),transparent)}
+
+  /* CLOSE */
+  .s-close{justify-content:center}
+  .s-close h1{font-size:clamp(2.6rem,5.2vw,4.6rem);max-width:16ch}
+  .s-close .sb{margin-top:22px;font-size:1.2rem;color:var(--ink-dim);max-width:40ch}
+  .ctaline{margin-top:38px;display:flex;align-items:center;gap:22px;flex-wrap:wrap}
+  .pill-cta{font-family:"JetBrains Mono",monospace;font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;padding:15px 24px;background:var(--ember);color:#120602;display:inline-flex;align-items:center;gap:10px}
+  .liveurl{font-family:"JetBrains Mono",monospace;font-size:.66rem;letter-spacing:.1em;color:var(--mint);text-decoration:none;border-bottom:1px solid var(--mint-soft);padding-bottom:2px}
+
+  /* chrome */
+  .brand{position:fixed;top:30px;left:clamp(32px,4vw,56px);z-index:10;display:flex;align-items:center;gap:11px}
+  .brand .mk{width:22px;height:22px;border:1.4px solid var(--ink);display:grid;place-items:center}
+  .brand .mk::before{content:"";width:7px;height:7px;background:var(--accent);transition:background .5s}
+  .brand .nm{font-family:"JetBrains Mono",monospace;font-weight:600;letter-spacing:.26em;font-size:.74rem}
+  .actind{position:fixed;top:34px;right:clamp(32px,4vw,56px);z-index:10;font-family:"JetBrains Mono",monospace;font-size:.62rem;letter-spacing:.16em;color:var(--ink-faint);text-transform:uppercase}
+  .actind b{color:var(--accent);transition:color .5s}
+  .counter{position:fixed;bottom:30px;left:clamp(32px,4vw,56px);z-index:10;font-family:"JetBrains Mono",monospace;font-size:.66rem;letter-spacing:.14em;color:var(--ink-dim)}
+  .counter b{color:var(--accent);transition:color .5s}
+  .dots{position:fixed;bottom:30px;left:50%;transform:translateX(-50%);z-index:10;display:flex;gap:8px}
+  .dots button{width:7px;height:7px;border-radius:50%;border:none;background:var(--hair-2);cursor:pointer;padding:0;transition:.25s}
+  .dots button.on{background:var(--accent);transform:scale(1.3)}
+  .dots button.div{border-radius:1px;width:5px;height:5px;transform:rotate(45deg)}
+  .dots button.div.on{transform:rotate(45deg) scale(1.3)}
+  .hint{position:fixed;bottom:30px;right:clamp(32px,4vw,56px);z-index:10;font-family:"JetBrains Mono",monospace;font-size:.6rem;letter-spacing:.14em;color:var(--ink-faint);text-transform:uppercase}
+  .prog{position:fixed;top:0;left:0;height:2px;background:var(--accent);z-index:11;transition:width .5s cubic-bezier(.2,.7,.2,1),background .5s}
+  .nz{position:fixed;top:0;bottom:0;width:16%;z-index:9;cursor:pointer}
+  .nz.l{left:0}.nz.r{right:0}
+
+  @media(max-width:860px){
+    .cols,.steps,.tl,.fzwrap{grid-template-columns:1fr 1fr}
+    .vals{grid-template-columns:1fr}
+    .row,.agenda .ai{grid-template-columns:1fr;gap:8px}
+    .agenda .ai .meta{display:none}
+    .dots,.hint{display:none}
+    .slide{padding:72px 32px}
+  }
+</style>
+</head>
+<body>
+<div class="grain"></div><div class="gridbg"></div>
+<div class="glow a"></div><div class="glow b"></div>
+
+<div class="brand"><div class="mk"></div><div class="nm">CDP</div></div>
+<div class="actind" id="actind">RISK BRIEF</div>
+<div class="prog" id="prog"></div>
+
+<div class="stage" id="stage">
+
+  <!-- 0 COVER -->
+  <section class="slide cover active" data-act="RISK BRIEF" data-accent="ember">
+    <div class="eyebrow up"><span class="ln"></span><span class="mono">Risk brief · Конфиденциально · 2026</span></div>
+    <h1 class="serif up">Данные клиентов — актив, который можно <em class="sig">потерять</em>.</h1>
+    <div class="sub up">И инфраструктура, которая возвращает над ним контроль.</div>
+    <div class="footline up"><span>CDP · Data Sovereignty</span><span class="u">cdp-risk.vercel.app</span><span>→ / ПРОБЕЛ — начать</span></div>
+  </section>
+
+  <!-- 1 AGENDA -->
+  <section class="slide agenda" data-act="СОДЕРЖАНИЕ" data-accent="ember">
+    <span class="kick up">Содержание</span>
+    <h2 class="serif up">О чём этот разговор</h2>
+    <div class="list">
+      <div class="ai up"><span class="nn">01</span><span class="tt">Что ломается в мире данных</span><span class="meta">Риск</span></div>
+      <div class="ai up"><span class="nn">02</span><span class="tt">Что такое CDP и как он работает</span><span class="meta">Решение</span></div>
+      <div class="ai up"><span class="nn">03</span><span class="tt">Резидентность и доверие</span><span class="meta">152-ФЗ</span></div>
+      <div class="ai up"><span class="nn">04</span><span class="tt">Почему именно сейчас</span><span class="meta">Срочность</span></div>
+      <div class="ai up"><span class="nn">05</span><span class="tt">Почему мы</span><span class="meta">Архитектура</span></div>
+    </div>
+  </section>
+
+  <!-- DIVIDER 01 -->
+  <section class="slide divider" data-act="01 · РИСК" data-accent="ember" data-divider="1">
+    <div class="actkick up">Акт 01</div>
+    <div class="actnum up">01</div>
+    <div class="actname serif up">Риск</div>
+    <div class="actsub up">Мир данных меняется структурно — и не в пользу тех, кто полагается на чужие источники.</div>
+  </section>
+
+  <!-- 2 -->
+  <section class="slide" data-act="01 · РИСК" data-accent="ember">
+    <span class="kick up">01 — Рынок</span>
+    <h2 class="serif up">Три сдвига убирают почву из-под внешних данных</h2>
+    <div class="cols">
+      <div class="col up"><div class="k">VECTOR_01</div><h3>Cookies collapse</h3><p>Сторонние cookies отмирают. Внешнее отслеживание поведения перестаёт быть надёжным.</p><span class="tag">Потеря сигнала</span></div>
+      <div class="col up"><div class="k">VECTOR_02</div><h3>Платформенный риск</h3><p>GA и зарубежные SaaS могут стать недоступны — блокировки, уход, смена условий.</p><span class="tag">Потеря доступа</span></div>
+      <div class="col up"><div class="k">VECTOR_03</div><h3>Регуляторный риск</h3><p>152-ФЗ и РКН: ПД россиян должны храниться и контролироваться внутри РФ.</p><span class="tag">Потеря контроля</span></div>
+    </div>
+  </section>
+
+  <!-- 3 -->
+  <section class="slide" data-act="01 · РИСК" data-accent="ember">
+    <span class="kick up">01 — Стек</span>
+    <h2 class="serif up">Стек, на который вы опираетесь, не рассчитан на это</h2>
+    <div class="rows">
+      <div class="row up"><div class="rk">Метрика / GA</div><div class="rv">Видит <b>визиты, а не людей</b>. Данные принадлежат платформе, а не вам.</div></div>
+      <div class="row up"><div class="rk">CRM</div><div class="rv">Знает только тех, кто <b>уже оставил контакт</b>. Анонимный трафик — мимо.</div></div>
+      <div class="row up"><div class="rk">Внешний CDP</div><div class="rv">Профиль есть, но <b>в чужом облаке и вне РФ</b> — двойная экспозиция.</div></div>
+    </div>
+  </section>
+
+  <!-- 4 statement -->
+  <section class="slide s-statement" data-act="01 · РИСК" data-accent="ember">
+    <span class="kick up">01 — Главный риск</span>
+    <div class="statement serif up">Главный риск — не плохой маркетинг. Это <em class="sig">потеря первичных данных</em>, которые нельзя восстановить задним числом.</div>
+  </section>
+
+  <!-- DIVIDER 02 -->
+  <section class="slide divider" data-act="02 · РЕШЕНИЕ" data-accent="mint" data-divider="1">
+    <div class="actkick up">Акт 02</div>
+    <div class="actnum up">02</div>
+    <div class="actname serif up">Решение</div>
+    <div class="actsub up">CDP — не инструмент маркетинга, а слой, на котором держится всё остальное.</div>
+  </section>
+
+  <!-- 5 definition -->
+  <section class="slide" data-act="02 · РЕШЕНИЕ" data-accent="mint">
+    <span class="kick up">02 — Что это</span>
+    <h2 class="serif up">CDP — это слой владения клиентскими данными</h2>
+    <div class="neg">
+      <div class="ln2 up"><span class="x">—</span><span class="t">Не CRM</span></div>
+      <div class="ln2 up"><span class="x">—</span><span class="t">Не аналитика</span></div>
+      <div class="ln2 up"><span class="x">—</span><span class="t">Не зарубежный CDP-SaaS</span></div>
+      <div class="ln2 is up"><span class="x">→</span><span class="t">Собственный банк данных о клиентах, который нельзя отобрать</span></div>
+    </div>
+    <span class="vault up">◆ Self-hosted · First-party · В РФ · Под вашим контролем</span>
+  </section>
+
+  <!-- 6 steps -->
+  <section class="slide" data-act="02 · РЕШЕНИЕ" data-accent="mint">
+    <span class="kick up">02 — Как работает</span>
+    <h2 class="serif up">Три шага к собственному активу данных</h2>
+    <div class="steps">
+      <div class="step up"><div class="sn">01</div><h3>Сбор</h3><p>Один код на сайт собирает поведение со всех точек контакта в вашу инфраструктуру.</p><div class="ar">→</div></div>
+      <div class="step up"><div class="sn">02</div><h3>Склейка</h3><p>Устройства и сессии одного человека связываются в единый профиль.</p><div class="ar">→</div></div>
+      <div class="step up"><div class="sn">03</div><h3>Владение</h3><p>На выходе — живой профиль клиента, который принадлежит бизнесу. Актив, а не подписка.</p><div class="ar">→</div></div>
+    </div>
+  </section>
+
+  <!-- 7 value -->
+  <section class="slide" data-act="02 · РЕШЕНИЕ" data-accent="mint">
+    <span class="kick up">02 — Ценность</span>
+    <h2 class="serif up">Данные перестают утекать и становятся активом</h2>
+    <div class="vals">
+      <div class="val up"><span class="m">◆</span><span class="vt"><b>Единое окно правды</b><span>Один профиль вместо пяти разрозненных систем.</span></span></div>
+      <div class="val up"><span class="m">◆</span><span class="vt"><b>First-party актив</b><span>Данные на балансе бизнеса, а не у платформы.</span></span></div>
+      <div class="val up"><span class="m">◆</span><span class="vt"><b>Независимость</b><span>Устойчивость к cookies и отказу внешних платформ.</span></span></div>
+      <div class="val up"><span class="m">◆</span><span class="vt"><b>Основа активации</b><span>Почва для рекламы, ретаргета, персонализации, рассылок.</span></span></div>
+    </div>
+  </section>
+
+  <!-- DIVIDER 03 -->
+  <section class="slide divider" data-act="03 · ДОВЕРИЕ" data-accent="mint" data-divider="1">
+    <div class="actkick up">Акт 03</div>
+    <div class="actnum up">03</div>
+    <div class="actname serif up">Доверие</div>
+    <div class="actsub up">Резидентность в РФ — не штамп на сайте, а вектор риска, который закрывается архитектурой.</div>
+  </section>
+
+  <!-- 8 fz -->
+  <section class="slide" data-act="03 · ДОВЕРИЕ" data-accent="mint">
+    <span class="kick up">03 — Регуляторика</span>
+    <h2 class="serif up">Резидентность в РФ — снятие регуляторного риска</h2>
+    <div class="fzwrap">
+      <div class="fzc up"><div class="k">Self-hosted</div><div class="v">Данные на вашей инфраструктуре, не у третьей стороны.</div></div>
+      <div class="fzc up"><div class="k">Резидентность</div><div class="v">Хранение в РФ под требования локализации.</div></div>
+      <div class="fzc up"><div class="k">Изоляция</div><div class="v">Данные проектов и клиентов строго разделены.</div></div>
+      <div class="fzc up"><div class="k">Удаление</div><div class="v">Право на удаление реализуется штатно, по запросу.</div></div>
+    </div>
+    <div class="note up">Формулировка: помогает выполнять требования 152-ФЗ. Соответствие обеспечивается архитектурой и процессами на стороне бизнеса.</div>
+  </section>
+
+  <!-- 9 matrix -->
+  <section class="slide" data-act="03 · ДОВЕРИЕ" data-accent="mint">
+    <span class="kick up">03 — Сравнение</span>
+    <h2 class="serif up">Экспозиция данных по альтернативам</h2>
+    <div class="up">
+    <table class="mtx">
+      <thead><tr><th>Вектор риска</th><th>Метрика / GA</th><th>CRM</th><th>Внешний CDP</th><th class="us">CDP (наш)</th></tr></thead>
+      <tbody>
+        <tr><th>Владение данными</th><td><span class="pill ex">Экспон.</span></td><td><span class="pill pa">Частично</span></td><td><span class="pill ex">Экспон.</span></td><td><span class="pill ok">Защищ.</span></td></tr>
+        <tr><th>Независимость от платформ</th><td><span class="pill ex">Экспон.</span></td><td><span class="pill pa">Частично</span></td><td><span class="pill ex">Экспон.</span></td><td><span class="pill ok">Защищ.</span></td></tr>
+        <tr><th>Резидентность в РФ</th><td><span class="pill pa">Частично</span></td><td><span class="pill pa">Частично</span></td><td><span class="pill ex">Экспон.</span></td><td><span class="pill ok">Защищ.</span></td></tr>
+        <tr><th>Единый профиль человека</th><td><span class="pill ex">Экспон.</span></td><td><span class="pill pa">Частично</span></td><td><span class="pill ok">Защищ.</span></td><td><span class="pill ok">Защищ.</span></td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <!-- DIVIDER 04 -->
+  <section class="slide divider" data-act="04 · СРОЧНОСТЬ" data-accent="ember" data-divider="1">
+    <div class="actkick up">Акт 04</div>
+    <div class="actnum up">04</div>
+    <div class="actname serif up">Срочность</div>
+    <div class="actsub up">Потеря данных — не событие, а процесс. Он уже идёт.</div>
+  </section>
+
+  <!-- 10 degradation -->
+  <section class="slide" data-act="04 · СРОЧНОСТЬ" data-accent="ember">
+    <span class="kick up">04 — Без CDP</span>
+    <h2 class="serif up">Что происходит, если ничего не менять</h2>
+    <div class="tl">
+      <div class="tn up"><div class="t">T — 0</div><h4>Сигнал сужается</h4><p>Сторонние cookies отключаются, атрибуция теряет точность.</p></div>
+      <div class="tn up"><div class="t">T + 1</div><h4>Платформа ограничивает</h4><p>Внешний SaaS меняет условия. История остаётся на той стороне.</p></div>
+      <div class="tn up"><div class="t">T + 2</div><h4>Регулятор требует</h4><p>Данные у внешней стороны превращаются в обязательство.</p></div>
+      <div class="tn last up"><div class="t">T + 3</div><h4>База рассыпается</h4><p>Клиент снова аноним. Накопленный актив обнуляется.</p></div>
+    </div>
+  </section>
+
+  <!-- 11 why now -->
+  <section class="slide s-statement" data-act="04 · СРОЧНОСТЬ" data-accent="ember">
+    <span class="kick up">04 — Почему сейчас</span>
+    <div class="statement serif up">Окно открыто, пока поток данных ещё полный. Чем позже начат сбор — тем <em class="sig">меньше истории</em> удастся сохранить.</div>
+    <div class="window up"><span>Окно перехвата данных</span><span class="bar"></span><span>закрывается</span></div>
+  </section>
+
+  <!-- DIVIDER 05 -->
+  <section class="slide divider" data-act="05 · ПОЧЕМУ МЫ" data-accent="mint" data-divider="1">
+    <div class="actkick up">Акт 05</div>
+    <div class="actnum up">05</div>
+    <div class="actname serif up">Почему мы</div>
+    <div class="actsub up">Архитектура, которая по умолчанию отдаёт контроль бизнесу.</div>
+  </section>
+
+  <!-- 12 why us -->
+  <section class="slide" data-act="05 · ПОЧЕМУ МЫ" data-accent="mint">
+    <span class="kick up">05 — Архитектура</span>
+    <h2 class="serif up">Контроль зашит в основу, а не добавлен сверху</h2>
+    <div class="vals">
+      <div class="val up"><span class="m">◆</span><span class="vt"><b>Self-hosted by design</b><span>Данные физически у вас, не арендуются у вендора.</span></span></div>
+      <div class="val up"><span class="m">◆</span><span class="vt"><b>Размещение в РФ</b><span>Регуляторный вектор закрыт на уровне архитектуры.</span></span></div>
+      <div class="val up"><span class="m">◆</span><span class="vt"><b>Изоляция тенантов</b><span>Данные проектов не смешиваются — для холдинга и агентства.</span></span></div>
+      <div class="val up"><span class="m">◆</span><span class="vt"><b>First-party в основе</b><span>Сбор не зависит от сторонних cookies и трекеров.</span></span></div>
+    </div>
+  </section>
+
+  <!-- 13 CLOSE -->
+  <section class="slide s-close" data-act="ФИНАЛ" data-accent="mint">
+    <div class="eyebrow up"><span class="ln"></span><span class="mono">Следующий шаг</span></div>
+    <h1 class="serif up">Зафиксируйте <em class="ctl">контроль</em> над своими данными.</h1>
+    <p class="sb up">Проверим, какие данные о клиентах вы уже теряете и где проходит граница экспозиции.</p>
+    <div class="ctaline up">
+      <span class="pill-cta">Запросить аудит уязвимости данных <span>→</span></span>
+      <a class="liveurl" href="https://cdp-risk.vercel.app">cdp-risk.vercel.app</a>
+    </div>
+  </section>
+
+</div>
+
+<div class="counter"><b id="cur">01</b> / <span id="tot">14</span></div>
+<div class="dots" id="dots"></div>
+<div class="hint">← / → · ПРОБЕЛ</div>
+<div class="nz l" id="navL"></div>
+<div class="nz r" id="navR"></div>
+
+<script>
+(function(){
+  var slides=Array.prototype.slice.call(document.querySelectorAll('.slide'));
+  var total=slides.length, i=0;
+  var prog=document.getElementById('prog'), cur=document.getElementById('cur'),
+      tot=document.getElementById('tot'), actind=document.getElementById('actind'),
+      dotsWrap=document.getElementById('dots'), root=document.documentElement;
+  tot.textContent=total;
+  slides.forEach(function(s,n){
+    var b=document.createElement('button');
+    if(s.dataset.divider) b.className='div';
+    b.addEventListener('click',function(){go(n)});
+    dotsWrap.appendChild(b);
+  });
+  var dots=Array.prototype.slice.call(dotsWrap.children);
+
+  function applyAccent(s){
+    var a=s.dataset.accent==='mint'
+      ? {c:'#76E2CB',soft:'rgba(118,226,203,0.12)'}
+      : {c:'#F4612E',soft:'rgba(244,97,46,0.12)'};
+    root.style.setProperty('--accent',a.c);
+    root.style.setProperty('--accent-soft',a.soft);
+  }
+  function stagger(s){
+    var ups=s.querySelectorAll('.up');
+    ups.forEach(function(u,n){ u.style.transitionDelay=(0.08+n*0.07)+'s'; });
+  }
+  function render(){
+    slides.forEach(function(s,n){
+      var was=s.classList.contains('active');
+      s.classList.toggle('active',n===i);
+      s.classList.toggle('past',n<i);
+      if(n===i){ applyAccent(s); stagger(s); actind.innerHTML = s.dataset.act||'RISK BRIEF'; }
+    });
+    dots.forEach(function(d,n){d.classList.toggle('on',n===i)});
+    prog.style.width=(i/(total-1)*100)+'%';
+    cur.textContent=String(i+1).padStart(2,'0');
+  }
+  function go(n){ i=Math.max(0,Math.min(total-1,n)); render(); }
+  function next(){go(i+1)} function prev(){go(i-1)}
+  document.addEventListener('keydown',function(e){
+    if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){e.preventDefault();next()}
+    else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();prev()}
+    else if(e.key==='Home'){go(0)} else if(e.key==='End'){go(total-1)}
+  });
+  document.getElementById('navR').addEventListener('click',next);
+  document.getElementById('navL').addEventListener('click',prev);
+  render();
+  window.__deck={go:go,total:total,get index(){return i}};
+})();
+</script>
+</body>
+</html>

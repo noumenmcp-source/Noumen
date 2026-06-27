@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CDP · Investment Memorandum — Defensive Data Infrastructure</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..600;1,6..72,300..500&family=Hanken+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --void:#0A0B0D;--void-2:#0E1014;--panel:#111419;--panel-2:#14181E;
+    --ink:#ECE9E2;--ink-dim:#9A9EA6;--ink-faint:#5C616B;
+    --hair:rgba(236,233,226,0.09);--hair-2:rgba(236,233,226,0.14);
+    --ember:#F4612E;--ember-soft:rgba(244,97,46,0.12);--amber:#E0A340;
+    --mint:#76E2CB;--mint-soft:rgba(118,226,203,0.12);
+    --col:880px;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{background:var(--void);color:var(--ink);font-family:"Hanken Grotesk",sans-serif;line-height:1.62;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+  .serif{font-family:"Newsreader",serif;font-weight:400;letter-spacing:-.012em;line-height:1.12}
+  em.sig{font-family:"Newsreader",serif;font-style:italic;color:var(--ember)}
+  em.ctl{font-family:"Newsreader",serif;font-style:italic;color:var(--mint)}
+  .mono{font-family:"JetBrains Mono",monospace;font-weight:500;letter-spacing:.2em;text-transform:uppercase;font-size:.64rem;color:var(--ink-dim)}
+
+  body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.4;
+    background-image:linear-gradient(90deg,var(--hair) 1px,transparent 1px);background-size:calc(100%/12) 100%;
+    -webkit-mask-image:linear-gradient(180deg,transparent,#000 6%,#000 94%,transparent);mask-image:linear-gradient(180deg,transparent,#000 6%,#000 94%,transparent)}
+  body::after{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.045;mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+  .glow{position:fixed;z-index:0;pointer-events:none;filter:blur(110px);opacity:.45}
+  .glow.a{top:-160px;left:0;width:560px;height:440px;background:radial-gradient(circle,var(--ember-soft),transparent 70%)}
+  .glow.b{top:55%;right:-140px;width:520px;height:520px;background:radial-gradient(circle,var(--mint-soft),transparent 70%)}
+
+  .doc{position:relative;z-index:1;max-width:var(--col);margin:0 auto;padding:0 32px}
+
+  /* classification bar */
+  .classbar{position:sticky;top:0;z-index:20;background:rgba(10,11,13,.82);backdrop-filter:blur(10px);border-bottom:1px solid var(--hair)}
+  .classbar .in{max-width:var(--col);margin:0 auto;padding:13px 32px;display:flex;align-items:center;gap:14px}
+  .classbar .dot{width:6px;height:6px;border-radius:50%;background:var(--ember)}
+  .classbar .l{font-family:"JetBrains Mono",monospace;font-size:.6rem;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-dim)}
+  .classbar .r{margin-left:auto;font-family:"JetBrains Mono",monospace;font-size:.58rem;letter-spacing:.16em;color:var(--ink-faint)}
+
+  /* masthead */
+  .mast{padding:88px 0 0}
+  .mast .kicker{display:flex;align-items:center;gap:14px;margin-bottom:30px}
+  .mast .kicker .ln{height:1px;width:44px;background:var(--ember)}
+  .mast h1{font-size:clamp(2.4rem,5vw,4.2rem);max-width:18ch}
+  .mast .standfirst{margin-top:26px;font-family:"Newsreader",serif;font-style:italic;font-size:clamp(1.2rem,2vw,1.65rem);color:var(--ink-dim);max-width:40ch;line-height:1.4}
+  .factsheet{margin:48px 0 0;border-top:1px solid var(--hair-2);border-bottom:1px solid var(--hair-2)}
+  .frow{display:grid;grid-template-columns:200px 1fr;gap:24px;padding:16px 0;border-bottom:1px solid var(--hair)}
+  .frow:last-child{border-bottom:none}
+  .frow .fk{font-family:"JetBrains Mono",monospace;font-size:.6rem;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-faint);padding-top:3px}
+  .frow .fv{font-size:1rem;color:var(--ink)}
+
+  /* sections */
+  section{padding:64px 0;border-bottom:1px solid var(--hair)}
+  .shead{display:flex;align-items:baseline;gap:18px;margin-bottom:26px}
+  .shead .n{font-family:"JetBrains Mono",monospace;color:var(--ember);font-size:.74rem;letter-spacing:.08em}
+  .shead h2{font-size:clamp(1.6rem,2.8vw,2.4rem);max-width:24ch}
+  p.body{font-size:1.08rem;color:var(--ink-dim);max-width:64ch;margin-bottom:18px}
+  p.body b{color:var(--ink);font-weight:600}
+  p.body:last-child{margin-bottom:0}
+
+  /* thesis callout */
+  .callout{margin:8px 0 4px;display:flex;gap:22px;padding:32px 34px;border:1px solid var(--hair-2);background:linear-gradient(180deg,var(--panel),transparent);position:relative}
+  .callout .b{width:3px;align-self:stretch;background:var(--ember);flex:none}
+  .callout .ct{font-family:"Newsreader",serif;font-size:1.5rem;line-height:1.32;letter-spacing:-.01em;color:var(--ink)}
+  .callout.ctl-c .b{background:var(--mint)}
+
+  /* enumerated risk vectors */
+  .vectors{margin-top:10px;border-top:1px solid var(--hair)}
+  .vec{display:grid;grid-template-columns:60px 220px 1fr;gap:24px;padding:22px 0;border-bottom:1px solid var(--hair);align-items:baseline}
+  .vec .vn{font-family:"JetBrains Mono",monospace;color:var(--ember);font-size:.7rem;letter-spacing:.1em}
+  .vec .vt{font-family:"Newsreader",serif;font-size:1.3rem}
+  .vec .vd{font-size:.98rem;color:var(--ink-dim)}
+
+  /* mini matrix */
+  .mtx{width:100%;border-collapse:collapse;border:1px solid var(--hair-2);font-size:.86rem;margin-top:8px}
+  .mtx th,.mtx td{border:1px solid var(--hair);padding:13px 12px;text-align:left}
+  .mtx thead th{font-family:"JetBrains Mono",monospace;font-size:.56rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-dim);font-weight:500}
+  .mtx thead th.us{color:var(--mint);border-bottom:2px solid var(--mint)}
+  .mtx tbody th{font-weight:500;color:var(--ink);font-size:.9rem}
+  .mtx td{text-align:center}
+  .pill{display:inline-block;font-family:"JetBrains Mono",monospace;font-size:.54rem;letter-spacing:.08em;text-transform:uppercase;padding:4px 7px}
+  .pill.ex{color:var(--ember);background:var(--ember-soft)}
+  .pill.pa{color:var(--amber);background:rgba(224,163,64,.08)}
+  .pill.ok{color:var(--mint);background:var(--mint-soft)}
+
+  /* moat list */
+  .moat{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--hair);border:1px solid var(--hair);margin-top:8px}
+  .moat .m{background:var(--void);padding:24px 26px}
+  .moat .m .mk{font-family:"JetBrains Mono",monospace;font-size:.58rem;letter-spacing:.14em;color:var(--mint);text-transform:uppercase}
+  .moat .m h3{font-family:"Newsreader",serif;font-size:1.3rem;margin:12px 0 8px}
+  .moat .m p{font-size:.93rem;color:var(--ink-dim)}
+
+  /* statement */
+  .bigstate{font-family:"Newsreader",serif;font-size:clamp(1.9rem,3.4vw,3rem);line-height:1.16;letter-spacing:-.012em;max-width:22ch}
+
+  /* the ask */
+  .ask{padding:72px 0 64px;border-bottom:none}
+  .ask-card{border:1px solid var(--hair-2);background:linear-gradient(180deg,var(--panel),var(--void-2));padding:clamp(36px,5vw,56px);position:relative;overflow:hidden}
+  .ask-card::before{content:"";position:absolute;top:-130px;right:-90px;width:380px;height:380px;background:radial-gradient(circle,var(--mint-soft),transparent 70%);filter:blur(40px)}
+  .ask-card h2{font-family:"Newsreader",serif;font-size:clamp(1.9rem,3.2vw,2.8rem);line-height:1.1;letter-spacing:-.01em;position:relative;z-index:1}
+  .ask-card p{position:relative;z-index:1;margin-top:20px;color:var(--ink-dim);font-size:1.06rem;max-width:52ch}
+  .ask-card .line{position:relative;z-index:1;margin-top:34px;display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+  .pill-cta{font-family:"JetBrains Mono",monospace;font-size:.7rem;letter-spacing:.14em;text-transform:uppercase;padding:14px 22px;background:var(--ember);color:#120602;display:inline-flex;gap:10px}
+  .ask-card .c{font-family:"JetBrains Mono",monospace;font-size:.62rem;letter-spacing:.12em;color:var(--ink-dim)}
+
+  footer{padding:44px 0 64px}
+  footer .disc{font-size:.72rem;color:var(--ink-faint);line-height:1.6;max-width:70ch}
+  footer .mono{margin-top:14px;display:block;color:var(--ink-faint)}
+
+  @media(max-width:760px){
+    .frow,.vec{grid-template-columns:1fr;gap:6px}
+    .vec{grid-template-columns:1fr}
+    .moat{grid-template-columns:1fr}
+    .mtx{font-size:.74rem}.mtx th,.mtx td{padding:9px 7px}
+  }
+</style>
+</head>
+<body>
+<div class="glow a"></div><div class="glow b"></div>
+
+<div class="classbar">
+  <div class="in">
+    <span class="dot"></span>
+    <span class="l">Investment Memorandum · Конфиденциально</span>
+    <span class="r">DEFENSIVE DATA INFRASTRUCTURE · 2026</span>
+  </div>
+</div>
+
+<div class="doc">
+
+  <!-- masthead -->
+  <div class="mast">
+    <div class="kicker"><span class="ln"></span><span class="mono">Тезис · Риск-инфраструктура</span></div>
+    <h1 class="serif">Рынок, на котором бизнес <em class="sig">теряет</em> собственных клиентов.</h1>
+    <div class="standfirst">CDP как оборонительная инфраструктура: захват и владение первичными данными, пока они ещё восстановимы.</div>
+
+    <div class="factsheet">
+      <div class="frow"><div class="fk">Категория</div><div class="fv">Data infrastructure layer — не маркетинг-инструмент</div></div>
+      <div class="frow"><div class="fk">Тезис</div><div class="fv">Потеря first-party данных = необратимый core-risk бизнеса</div></div>
+      <div class="frow"><div class="fk">Позиция</div><div class="fv">Defensive infrastructure: владение, резидентность, изоляция</div></div>
+      <div class="frow"><div class="fk">Драйвер рынка</div><div class="fv">Cookies collapse · платформенный риск · регуляторика (РФ)</div></div>
+    </div>
+  </div>
+
+  <!-- 00 thesis -->
+  <section>
+    <div class="shead"><span class="n">00</span><h2 class="serif">Тезис</h2></div>
+    <p class="body">Рынок клиентских данных переходит из режима роста в <b>риск-режим</b>. Три независимых сдвига — отмирание сторонних cookies, падение доступности внешних платформ и ужесточение регуляторики — одновременно убирают почву из-под внешнего сбора данных.</p>
+    <p class="body">Бизнес, который собирает данные через чужие инструменты, <b>не владеет ими</b> и не контролирует их доступность. При отказе любого источника часть клиентской базы теряется безвозвратно. CDP закрывает эту экспозицию: переносит сбор и хранение first-party данных в собственный контур заказчика.</p>
+    <div class="callout"><span class="b"></span><div class="ct">Это не ставка на рост маркетинга. Это <em class="sig">страховка на актив</em>, который иначе обнуляется — клиентскую базу бизнеса.</div></div>
+  </section>
+
+  <!-- 01 risk market -->
+  <section>
+    <div class="shead"><span class="n">01</span><h2 class="serif">Рынок — это риск-рынок</h2></div>
+    <p class="body">Сдвиги носят <b>структурный, а не циклический</b> характер: они не откатятся назад. Каждый из них самостоятельно повышает стоимость зависимости от внешних данных.</p>
+    <div class="vectors">
+      <div class="vec"><span class="vn">R-01</span><span class="vt">Cookies collapse</span><span class="vd">Поведение пользователей нельзя стабильно отслеживать через сторонние инструменты. Сигнал внешних данных деградирует.</span></div>
+      <div class="vec"><span class="vn">R-02</span><span class="vt">Платформенный риск</span><span class="vd">Данные в GA и зарубежных SaaS могут стать частично или полностью недоступны. Доступ не принадлежит бизнесу.</span></div>
+      <div class="vec"><span class="vn">R-03</span><span class="vt">Регуляторный риск</span><span class="vd">152-ФЗ и РКН требуют контроля и локализации ПД в РФ. Внешнее хранение — это экспозиция, а не удобство.</span></div>
+    </div>
+  </section>
+
+  <!-- 02 core risk statement -->
+  <section>
+    <div class="shead"><span class="n">02</span><h2 class="serif">Core-risk</h2></div>
+    <div class="bigstate serif">Потеря первичных данных <em class="sig">необратима</em>. Их нельзя докупить и нельзя восстановить задним числом.</div>
+    <p class="body" style="margin-top:28px">В отличие от операционных провалов, потеря исторических данных о клиентах не лечится бюджетом. Это делает экспозицию first-party данных <b>core-риском</b>, а не операционным неудобством.</p>
+  </section>
+
+  <!-- 03 incumbents -->
+  <section>
+    <div class="shead"><span class="n">03</span><h2 class="serif">Почему текущий стек не закрывает риск</h2></div>
+    <p class="body">Существующие категории решают смежные задачи, но оставляют экспозицию данных открытой.</p>
+    <table class="mtx">
+      <colgroup><col><col><col><col><col class="usc"></colgroup>
+      <thead><tr><th>Вектор риска</th><th>Метрика / GA</th><th>CRM</th><th>Внешний CDP</th><th class="us">CDP (наш)</th></tr></thead>
+      <tbody>
+        <tr><th>Владение данными</th><td><span class="pill ex">Экспон.</span></td><td><span class="pill pa">Частично</span></td><td><span class="pill ex">Экспон.</span></td><td><span class="pill ok">Защищ.</span></td></tr>
+        <tr><th>Независимость от платформ</th><td><span class="pill ex">Экспон.</span></td><td><span class="pill pa">Частично</span></td><td><span class="pill ex">Экспон.</span></td><td><span class="pill ok">Защищ.</span></td></tr>
+        <tr><th>Резидентность в РФ</th><td><span class="pill pa">Частично</span></td><td><span class="pill pa">Частично</span></td><td><span class="pill ex">Экспон.</span></td><td><span class="pill ok">Защищ.</span></td></tr>
+        <tr><th>Единый профиль человека</th><td><span class="pill ex">Экспон.</span></td><td><span class="pill pa">Частично</span></td><td><span class="pill ok">Защищ.</span></td><td><span class="pill ok">Защищ.</span></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- 04 product -->
+  <section>
+    <div class="shead"><span class="n">04</span><h2 class="serif">Продукт — оборонительная инфраструктура данных</h2></div>
+    <p class="body">CDP — это <b>слой владения клиентскими данными</b>, размещённый в контуре заказчика. Не CRM, не аналитика, не зарубежный CDP-SaaS. Он собирает поведение, склеивает человека между устройствами в единый профиль и оставляет данные у бизнеса, в РФ.</p>
+    <div class="callout ctl-c"><span class="b"></span><div class="ct">Категория — не «ещё один маркетинг-софт», а <em class="ctl">инфраструктура</em>: фундамент, под которым стоят CRM, аналитика и активация.</div></div>
+  </section>
+
+  <!-- 05 why now -->
+  <section>
+    <div class="shead"><span class="n">05</span><h2 class="serif">Почему сейчас</h2></div>
+    <p class="body">Рынок в переходном периоде. Внешние источники ещё отдают полный поток данных — но их сигнал уже сужается, а условия доступа меняются не в пользу бизнеса.</p>
+    <p class="body">Окно — это время, пока поток ещё можно перехватить в собственный контур. <b>Чем позже начат сбор first-party данных, тем меньше истории удастся сохранить.</b> Стоимость промедления растёт необратимо.</p>
+  </section>
+
+  <!-- 06 moat -->
+  <section>
+    <div class="shead"><span class="n">06</span><h2 class="serif">Защитимость позиции</h2></div>
+    <div class="moat">
+      <div class="m"><div class="mk">Self-hosted</div><h3>Контроль у заказчика</h3><p>Данные физически в контуре бизнеса, а не арендуются у вендора. Switching-риск на стороне клиента низкий, экспозиция — тоже.</p></div>
+      <div class="m"><div class="mk">RU residency</div><h3>Регуляторный ров</h3><p>Размещение в РФ закрывает регуляторный вектор на уровне архитектуры — там, где зарубежные SaaS структурно проигрывают.</p></div>
+      <div class="m"><div class="mk">Multi-tenant</div><h3>Изоляция данных</h3><p>Один контур обслуживает много проектов с жёстким разделением данных — применимо к холдингам и агентской перепродаже.</p></div>
+      <div class="m"><div class="mk">First-party</div><h3>Независимость в основе</h3><p>Сбор не зависит от сторонних cookies и внешних трекеров — устойчивость к именно тем сдвигам, что формируют рынок.</p></div>
+    </div>
+  </section>
+
+  <!-- the ask -->
+  <section class="ask">
+    <div class="ask-card">
+      <h2>Зафиксировать контроль над данными — пока окно открыто.</h2>
+      <p>Следующий шаг — аудит уязвимости данных: где проходит граница экспозиции и какой объём первичных данных уже теряется. Без обязательств.</p>
+      <div class="line">
+        <span class="pill-cta">Запросить аудит уязвимости данных <span>→</span></span>
+        <span class="c">CDP · DEFENSIVE DATA INFRASTRUCTURE · RU</span>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <p class="disc">Документ носит стратегический характер и описывает позиционирование продукта в терминах риска. Не содержит финансовых прогнозов, гарантий доходности и оценок рынка в числовом выражении. CDP помогает выполнять требования 152-ФЗ; соответствие обеспечивается архитектурой и процессами на стороне бизнеса.</p>
+    <span class="mono">© 2026 · CONFIDENTIAL · DATA SOVEREIGNTY</span>
+  </footer>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,21 @@
+field,store,contains_pii,classification,residency_required_rf,encryption_required,notes
+email,ES cdp_events / Dittofeed PG,yes,direct_identifier,yes,yes,primary identity; AES-256-GCM at rest
+name,Dittofeed PG / event properties,yes,direct_identifier,yes,yes,
+phone,Dittofeed PG / event properties,yes,direct_identifier,yes,yes,if collected
+user_id,ES cdp_events / Dittofeed PG,yes,pseudonymous_id,yes,no,login/account id; ties to email
+anonymous_id,ES cdp_events,yes,pseudonymous_id,yes,no,device/session id; reidentifiable via stitching
+ip,ES cdp_events,yes,direct_identifier,yes,yes,precise IP = PII; coarsen to /24 for any non-PII use
+ua,ES cdp_events,partial,quasi_identifier,yes,no,fingerprinting risk in combination
+properties,ES cdp_events,maybe,context_dependent,yes,maybe,may carry PII (name in product/merge ctx) — scan
+traits (Dittofeed),Dittofeed PG,yes,profile_attributes,yes,yes,computed traits tied to identity
+consent record,consent ledger (PG),yes,consent_evidence,yes,yes,who/when/version; legally critical
+ip_at_consent,consent ledger (PG),yes,direct_identifier,yes,yes,encrypted
+suppression (email/hash),cdp_suppressions,yes,direct_identifier,yes,yes,store hashed where possible
+site_id,ES cdp_events,no,tenant_metadata,n/a,no,not personal
+workspace_id,ES cdp_events / PG,no,tenant_metadata,n/a,no,not personal
+write_key,gateway/tenant config,no,secret,n/a,yes,credential not PII
+ts,ES cdp_events,no,event_metadata,n/a,no,
+event/type,ES cdp_events,no,event_metadata,n/a,no,behavioral; personal only when joined to identity
+catalog product data,R2 / Cloudflare Worker,no,non_personal,no,no,OK in foreign cloud (zavod.dev model)
+template body (placeholders),R2 / cloud,no,non_personal,no,no,OK in foreign cloud; PII merged only in RF at send
+aggregate metrics,observability,no,non_personal,no,no,must carry no PII labels

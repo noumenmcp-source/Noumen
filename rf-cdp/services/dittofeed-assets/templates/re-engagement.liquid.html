@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="ru" style="background-color:#f5f1e8;margin:0;padding:0;">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ user.gen_subject | default: "..." }}</title>
+    <style>
+        body {font-family: Inter, Arial, sans-serif;margin:0;padding:0;}
+        table {border-collapse:collapse;width:100%;}
+        img {border:0;line-height:0;outline:none;text-decoration:none;}
+        .container {background-color:#f5f1e8;padding:20px;}
+        .card {background-color:#fffdf7;border:1px solid #e5e0d4;border-radius:18px;padding:20px;text-align:left;}
+        .header {background-color:#1a1410;color:white;padding:10px 0;text-align:center;}
+        .header h1 {font-family: Inter, Arial, sans-serif;font-weight:900;text-transform:uppercase;margin:0;letter-spacing:0.1em;}
+        .eyebrow {font-family: Inter, Arial, sans-serif;font-weight:700;font-size:11px;color:#b3402c;text-transform:uppercase;letter-spacing:0.1em;margin:0;padding:0;display:inline-block;line-height:20px;}
+        .eyebrow-bar {background-color:#d4513a;height:2px;width:30px;display:inline-block;margin-right:5px;vertical-align:middle;}
+        .content {color:#2a221c;font-size:16px;line-height:1.5;margin-top:10px;}
+        .cta {background-color:#d4513a;border-radius:999px;color:white;font-family: Inter, Arial, sans-serif;font-weight:700;text-transform:uppercase;padding:10px 20px;text-align:center;display:inline-block;margin-top:20px;}
+        .footer {color:#6b6258;font-size:14px;text-align:center;margin-top:20px;}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <table role="presentation">
+            <tr>
+                <td>
+                    <div class="header">
+                        <h1>ZAVOD<span style="background-color:#d4513a;height:9px;width:9px;display:inline-block;"></span></h1>
+                    </div>
+                    <div class="card">
+                        <p class="eyebrow"><span class="eyebrow-bar"></span>Давно не виделись</p>
+                        <div class="content">
+                            {{ user.gen_body_html | default: "<p>...</p>" }}
+                        </div>
+                        <a href="{{ catalog_url | default: 'https://zavod.dev/catalog' }}" class="cta">Посмотреть новинки</a>
+                    </div>
+                    <div class="footer">
+                        <p>Если вы больше не хотите получать письма, <a href="{{ unsubscribe_url | default: '#' }}" style="color:#6b6258;text-decoration:none;">отпишитесь здесь</a>.</p>
+                    </div>
+                </td>
+            </tr>
+        </table>
+    </div>
+</body>
+</html>

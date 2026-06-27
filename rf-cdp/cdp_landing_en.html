@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CDP — The Eyes of Marketing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..600;1,6..72,300..500&family=Hanken+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --void:#0A0B0D;--void-2:#0E1014;--panel:#111419;--panel-2:#14181E;
+    --ink:#ECE9E2;--ink-dim:#9A9EA6;--ink-faint:#5C616B;
+    --hair:rgba(236,233,226,0.09);--hair-2:rgba(236,233,226,0.14);
+    --mint:#76E2CB;--mint-soft:rgba(118,226,203,0.12);--mint-2:#9CEAD8;
+    --ember:#F4612E;--ember-soft:rgba(244,97,46,0.10);--amber:#E0A340;
+    --maxw:1240px;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{background:var(--void);color:var(--ink);font-family:"Hanken Grotesk",sans-serif;line-height:1.6;-webkit-font-smoothing:antialiased;overflow-x:hidden;position:relative}
+
+  body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.45;
+    background-image:linear-gradient(90deg,var(--hair) 1px,transparent 1px);background-size:calc(100%/6) 100%;
+    -webkit-mask-image:linear-gradient(180deg,transparent,#000 8%,#000 92%,transparent);mask-image:linear-gradient(180deg,transparent,#000 8%,#000 92%,transparent)}
+  body::after{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.05;mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+  .glow{position:fixed;z-index:0;pointer-events:none;filter:blur(95px);opacity:.55}
+  .glow.a{top:-160px;right:4%;width:560px;height:440px;background:radial-gradient(circle,var(--mint-soft),transparent 70%)}
+  .glow.b{top:48%;left:-140px;width:480px;height:480px;background:radial-gradient(circle,rgba(118,226,203,0.06),transparent 70%)}
+
+  .wrap{position:relative;z-index:1;max-width:var(--maxw);margin:0 auto;padding:0 32px}
+  .mono{font-family:"JetBrains Mono",monospace;font-weight:500;letter-spacing:.22em;text-transform:uppercase;font-size:.66rem;color:var(--ink-dim)}
+  .serif{font-family:"Newsreader",serif;font-weight:400;letter-spacing:-.015em;line-height:1.05}
+  em.ctl{font-family:"Newsreader",serif;font-style:italic;color:var(--mint);font-weight:400}
+  em.warn{font-family:"Newsreader",serif;font-style:italic;color:var(--ink-dim);font-weight:400}
+
+  .strip{position:relative;z-index:3;border-bottom:1px solid var(--hair);background:rgba(10,11,13,.6);backdrop-filter:blur(6px)}
+  .strip .wrap{display:flex;align-items:center;gap:14px;height:38px}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--mint);box-shadow:0 0 8px var(--mint)}
+  .strip .t{font-family:"JetBrains Mono",monospace;font-size:.64rem;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-dim)}
+  .strip .t b{color:var(--ink)}
+  .strip .r{margin-left:auto;font-family:"JetBrains Mono",monospace;font-size:.6rem;letter-spacing:.16em;color:var(--ink-faint)}
+
+  nav{position:sticky;top:0;z-index:20;border-bottom:1px solid var(--hair);background:rgba(10,11,13,.72);backdrop-filter:blur(10px)}
+  nav .wrap{display:flex;align-items:center;height:72px;gap:38px}
+  .brand{display:flex;align-items:center;gap:12px}
+  .brand .mk{width:26px;height:26px;border:1.5px solid var(--ink);position:relative;display:grid;place-items:center}
+  .brand .mk::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--mint)}
+  .brand .nm{font-family:"JetBrains Mono",monospace;font-weight:600;letter-spacing:.28em;font-size:.82rem}
+  .brand .sub{font-family:"JetBrains Mono",monospace;font-size:.54rem;letter-spacing:.2em;color:var(--ink-faint);text-transform:uppercase}
+  nav .links{display:flex;gap:28px;margin-left:16px}
+  nav .links a{color:var(--ink-dim);text-decoration:none;font-size:.82rem;font-weight:500;transition:.2s}
+  nav .links a:hover{color:var(--ink)}
+  nav .cta{margin-left:auto}
+  .btn{display:inline-flex;align-items:center;gap:10px;font-family:"JetBrains Mono",monospace;font-weight:500;font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;padding:13px 22px;border:1px solid var(--ink);color:var(--ink);background:transparent;text-decoration:none;cursor:pointer;transition:.22s}
+  .btn:hover{background:var(--ink);color:var(--void)}
+  .btn.fill{background:var(--mint);border-color:var(--mint);color:#06120E}
+  .btn.fill:hover{background:var(--mint-2);border-color:var(--mint-2)}
+  .btn .ar{font-size:.9rem;transform:translateY(-1px)}
+
+  header.hero{position:relative;z-index:1;padding:92px 0 84px;border-bottom:1px solid var(--hair)}
+  .hero-grid{display:grid;grid-template-columns:1.08fr 1fr;gap:54px;align-items:center}
+  .eyebrow{display:flex;align-items:center;gap:14px;margin-bottom:30px}
+  .eyebrow .ln{height:1px;width:46px;background:var(--mint)}
+  h1{font-size:clamp(2.7rem,5.8vw,5.4rem);max-width:15ch}
+  .hero p.lead{margin-top:28px;max-width:38ch;font-size:1.16rem;color:var(--ink-dim);line-height:1.5}
+  .hero .acts{margin-top:40px;display:flex;gap:16px;flex-wrap:wrap}
+
+  .focus{border:1px solid var(--hair-2);background:linear-gradient(180deg,var(--panel),var(--void-2));position:relative;overflow:hidden}
+  .focus .ring{position:absolute;top:-60px;right:-60px;width:220px;height:220px;border:1px solid var(--mint-soft);border-radius:50%;pointer-events:none}
+  .focus .ring::after{content:"";position:absolute;inset:34px;border:1px solid var(--mint-soft);border-radius:50%}
+  .focus .hd{display:flex;justify-content:space-between;align-items:center;padding:18px 26px;border-bottom:1px solid var(--hair)}
+  .focus .hd .mono{font-size:.64rem}
+  .focus .bd{padding:32px 30px 34px;transition:filter .6s cubic-bezier(.2,.7,.2,1)}
+  .focus.anon .bd{filter:blur(6px) grayscale(1) brightness(.8)}
+  .pf-id{display:flex;align-items:center;gap:18px;margin-bottom:26px}
+  .pf-av{width:60px;height:60px;border-radius:50%;border:1px solid var(--hair-2);display:grid;place-items:center;font-family:"Newsreader",serif;font-size:1.7rem;color:var(--mint);transition:.5s;flex:none}
+  .focus.anon .pf-av{color:var(--ink-faint)}
+  .pf-name{font-family:"Newsreader",serif;font-size:2.05rem;line-height:1.04}
+  .pf-sub{font-family:"JetBrains Mono",monospace;font-size:.66rem;letter-spacing:.1em;color:var(--ink-faint);text-transform:uppercase;margin-top:6px}
+  .pf-rows{display:flex;flex-direction:column}
+  .pf-row{display:flex;justify-content:space-between;gap:18px;padding:16px 0;border-bottom:1px solid var(--hair);font-size:1.12rem;align-items:baseline}
+  .pf-row:last-child{border-bottom:none}
+  .pf-row .k{color:var(--ink-faint);font-family:"JetBrains Mono",monospace;font-size:.68rem;letter-spacing:.1em;text-transform:uppercase;padding-top:2px;flex:none}
+  .pf-row .v{color:var(--ink);text-align:right;max-width:64%;font-weight:500}
+  .pf-row .v.hot{color:var(--mint)}
+  .focus .foot{padding:17px 26px;border-top:1px solid var(--hair);display:flex;align-items:center;justify-content:space-between;gap:14px}
+  .focus-btn{display:flex;align-items:center;gap:12px;border:1px solid var(--hair-2);background:transparent;color:var(--ink);padding:14px 18px;cursor:pointer;font-family:"JetBrains Mono",monospace;font-size:.66rem;letter-spacing:.13em;text-transform:uppercase;transition:.2s}
+  .focus-btn:hover{border-color:var(--mint);background:var(--mint-soft)}
+  .focus-btn .ic{width:14px;height:14px;border:1.4px solid var(--mint);border-radius:50%;position:relative}
+  .focus-btn .ic::after{content:"";position:absolute;inset:3px;border-radius:50%;background:var(--mint);transform:scale(0);transition:.3s}
+  .focus:not(.anon) .focus-btn .ic::after{transform:scale(1)}
+  .focus .tag{font-family:"JetBrains Mono",monospace;font-size:.62rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-faint);white-space:nowrap}
+  .focus:not(.anon) .tag{color:var(--mint)}
+
+  section{padding:clamp(5rem,11vh,8.5rem) 0;border-bottom:1px solid var(--hair);position:relative;z-index:1}
+  .sec-head{display:flex;align-items:baseline;gap:22px;margin-bottom:52px}
+  .sec-head .num{font-family:"JetBrains Mono",monospace;color:var(--mint);font-size:.8rem;letter-spacing:.1em;padding-top:6px}
+  .sec-head h2{font-size:clamp(1.9rem,3.6vw,3.1rem);max-width:22ch}
+  .sec-head .meta{margin-left:auto;text-align:right;max-width:28ch}
+  .sec-head .meta p{font-size:.92rem;color:var(--ink-dim)}
+
+  .vs{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--hair);border:1px solid var(--hair)}
+  .vs .side{background:var(--void);padding:36px 32px 40px}
+  .vs .side.b{background:var(--void-2)}
+  .vs .side .lbl{font-family:"JetBrains Mono",monospace;font-size:.6rem;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-faint)}
+  .vs .side.b .lbl{color:var(--mint)}
+  .vs .side h3{font-family:"Newsreader",serif;font-size:1.6rem;margin:14px 0 22px}
+  .vs li{list-style:none;display:flex;gap:13px;padding:11px 0;font-size:1rem;color:var(--ink-dim);border-bottom:1px solid var(--hair)}
+  .vs li:last-child{border-bottom:none}
+  .vs li .m{font-family:"JetBrains Mono",monospace;font-size:.85rem;flex:none;width:16px}
+  .vs .side.a li .m{color:var(--ink-faint)}
+  .vs .side.b li .m{color:var(--mint)}
+  .vs .side.b li{color:var(--ink)}
+  .vs-verdict{margin-top:38px;display:flex;gap:18px;align-items:flex-start;padding:28px 32px;border:1px solid var(--hair-2);background:linear-gradient(180deg,var(--panel),transparent)}
+  .vs-verdict .b{width:3px;align-self:stretch;background:var(--mint);flex:none}
+  .vs-verdict p{font-family:"Newsreader",serif;font-size:1.45rem;line-height:1.3}
+
+  .anat{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--hair);border:1px solid var(--hair)}
+  .layer{background:var(--void);padding:30px 26px 34px;transition:background .3s}
+  .layer:hover{background:var(--void-2)}
+  .layer .n{font-family:"JetBrains Mono",monospace;font-size:.58rem;letter-spacing:.14em;color:var(--mint);text-transform:uppercase}
+  .layer h3{font-family:"Newsreader",serif;font-size:1.4rem;margin:16px 0 12px}
+  .layer p{font-size:.92rem;color:var(--ink-dim)}
+
+  .cards{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--hair);border:1px solid var(--hair)}
+  .card{background:var(--void);padding:30px 30px;display:flex;gap:18px;align-items:flex-start}
+  .card .q{font-family:"Newsreader",serif;font-size:2rem;color:var(--mint);line-height:.9;flex:none}
+  .card h3{font-family:"Newsreader",serif;font-size:1.35rem;margin-bottom:8px}
+  .card p{font-size:.95rem;color:var(--ink-dim)}
+
+  .retain{display:grid;grid-template-columns:1.05fr .95fr;gap:56px;align-items:center}
+  .retain .big{font-family:"Newsreader",serif;font-size:clamp(1.9rem,3.3vw,2.9rem);line-height:1.16}
+  .retain .body p{color:var(--ink-dim);font-size:1.05rem;margin-bottom:16px}
+  .retain .body p:last-child{margin-bottom:0;color:var(--ink)}
+
+  .flow{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--hair);border:1px solid var(--hair)}
+  .fstep{background:var(--void);padding:34px 28px;position:relative;min-height:170px}
+  .fstep .k{font-family:"JetBrains Mono",monospace;font-size:.58rem;letter-spacing:.14em;color:var(--mint);text-transform:uppercase}
+  .fstep h3{font-family:"Newsreader",serif;font-size:1.45rem;margin:14px 0 10px}
+  .fstep p{font-size:.92rem;color:var(--ink-dim)}
+  .fstep .ar{position:absolute;right:-12px;top:50%;transform:translateY(-50%);z-index:4;width:22px;height:22px;background:var(--void);border:1px solid var(--hair-2);border-radius:50%;display:grid;place-items:center;color:var(--mint);font-size:.66rem}
+  .fstep:last-child .ar{display:none}
+
+  .speed{border:1px solid var(--hair-2);background:linear-gradient(180deg,var(--panel),var(--void-2));padding:48px 44px;display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:center;position:relative;overflow:hidden}
+  .speed::before{content:"";position:absolute;top:-130px;right:-90px;width:380px;height:380px;background:radial-gradient(circle,var(--mint-soft),transparent 70%);filter:blur(40px)}
+  .speed .l{position:relative;z-index:1}
+  .speed .l .mono{color:var(--mint)}
+  .speed .l h3{font-family:"Newsreader",serif;font-size:2rem;margin:16px 0 14px;line-height:1.12}
+  .speed .l p{color:var(--ink-dim);font-size:1rem;max-width:42ch}
+  .chips{position:relative;z-index:1;display:flex;flex-direction:column;gap:1px;background:var(--hair);border:1px solid var(--hair)}
+  .chip{background:var(--void);padding:22px 26px;display:flex;align-items:center;gap:18px}
+  .chip .big{font-family:"Newsreader",serif;font-size:1.7rem;color:var(--mint);min-width:1.4em}
+  .chip .ct b{display:block;color:var(--ink);font-weight:600}
+  .chip .ct span{color:var(--ink-dim);font-size:.9rem}
+
+  .final{border-bottom:none}
+  .cta-card{border:1px solid var(--hair-2);background:linear-gradient(180deg,var(--panel),var(--void-2));padding:clamp(40px,6vw,72px);display:grid;grid-template-columns:1.1fr .9fr;gap:60px;align-items:center;position:relative;overflow:hidden}
+  .cta-card::before{content:"";position:absolute;top:-140px;left:-80px;width:420px;height:420px;background:radial-gradient(circle,var(--mint-soft),transparent 70%);filter:blur(40px)}
+  .cta-card h2{font-family:"Newsreader",serif;font-size:clamp(2.1rem,3.6vw,3.2rem);line-height:1.06;position:relative;z-index:1}
+  .cta-card p.sb{margin-top:20px;color:var(--ink-dim);font-size:1.05rem;max-width:36ch;position:relative;z-index:1}
+  form{position:relative;z-index:2;display:flex;flex-direction:column;gap:14px}
+  form .fld{display:flex;flex-direction:column;gap:7px}
+  form label{font-family:"JetBrains Mono",monospace;font-size:.6rem;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-faint)}
+  form input[type=text],form input[type=email]{background:var(--void);border:1px solid var(--hair-2);color:var(--ink);padding:14px 16px;font-family:"Hanken Grotesk",sans-serif;font-size:.95rem;outline:none;transition:border-color .2s}
+  form input::placeholder{color:var(--ink-faint)}
+  form input:focus{border-color:var(--mint)}
+  .consent{display:flex;gap:11px;align-items:flex-start;margin-top:4px}
+  .consent input{margin-top:3px;accent-color:var(--mint);width:15px;height:15px;flex:none}
+  .consent label{font-family:"Hanken Grotesk",sans-serif;text-transform:none;letter-spacing:0;font-size:.78rem;color:var(--ink-dim);line-height:1.5}
+  .consent a{color:var(--ink-dim);text-decoration:underline;text-underline-offset:2px}
+  form button{margin-top:8px;justify-content:center}
+
+  footer{padding:54px 0 70px;position:relative;z-index:1}
+  footer .wrap{display:flex;justify-content:space-between;align-items:center;gap:30px;flex-wrap:wrap}
+  footer .disc{max-width:52ch;font-size:.74rem;color:var(--ink-faint);line-height:1.6}
+  footer .mono{color:var(--ink-faint)}
+
+  .rv{opacity:0;transform:translateY(22px);transition:opacity .8s cubic-bezier(.2,.7,.2,1),transform .8s cubic-bezier(.2,.7,.2,1)}
+  .rv.in{opacity:1;transform:none}
+  .hero .eyebrow{animation:fu .9s .05s both}
+  .hero h1{animation:fu .95s .15s both}
+  .hero p.lead{animation:fu .9s .4s both}
+  .hero .acts{animation:fu .9s .52s both}
+  .hero .focus{animation:fu 1s .36s both}
+  @keyframes fu{from{opacity:0;transform:translateY(26px)}to{opacity:1;transform:none}}
+
+  @media(max-width:980px){
+    .hero-grid,.retain,.speed,.cta-card{grid-template-columns:1fr;gap:44px}
+    .vs,.cards{grid-template-columns:1fr}
+    .anat,.flow{grid-template-columns:1fr 1fr}
+    nav .links{display:none}
+    .sec-head{flex-direction:column;gap:14px}.sec-head .meta{margin-left:0;text-align:left}
+  }
+  @media(max-width:560px){.wrap{padding:0 20px}.anat,.flow{grid-template-columns:1fr}.strip .r{display:none}}
+</style>
+</head>
+<body>
+<div class="glow a"></div><div class="glow b"></div>
+
+<div class="strip"><div class="wrap">
+  <span class="dot"></span>
+  <span class="t">Customer visibility: <b>on</b></span>
+  <span class="r">CUSTOMER CLARITY · CDP</span>
+</div></div>
+
+<nav><div class="wrap">
+  <div class="brand"><div class="mk"></div><div><div class="nm">CDP</div><div class="sub">Customer clarity layer</div></div></div>
+  <div class="links"><a href="#vs">Metrics vs CDP</a><a href="#base">The profile</a><a href="#understand">Understanding</a><a href="#speed">Speed</a></div>
+  <div class="cta"><a href="#demo" class="btn">Bring into focus <span class="ar">→</span></a></div>
+</div></nav>
+
+<!-- hero -->
+<header class="hero"><div class="wrap hero-grid">
+  <div>
+    <div class="eyebrow"><span class="ln"></span><span class="mono">Customer clarity · First-party</span></div>
+    <h1 class="serif">CDP is the <em class="ctl">eyes</em> of marketing.</h1>
+    <p class="lead">Metrics show you numbers. CDP shows you people — who they are, what they want, and how they talk to your site.</p>
+    <div class="acts">
+      <a href="#demo" class="btn fill">Bring your customers into focus <span class="ar">→</span></a>
+      <a href="#vs" class="btn">Why it beats metrics</a>
+    </div>
+  </div>
+
+  <!-- focus device -->
+  <div class="focus" id="focus">
+    <div class="ring"></div>
+    <div class="hd"><span class="mono">Customer profile</span><span class="mono" style="color:var(--ink-faint)">CDP</span></div>
+    <div class="bd">
+      <div class="pf-id">
+        <div class="pf-av" id="pfAv">S</div>
+        <div><div class="pf-name" id="pfName">Sarah Mitchell</div><div class="pf-sub" id="pfSub">3 devices · 1 profile</div></div>
+      </div>
+      <div class="pf-rows">
+        <div class="pf-row"><span class="k">Who</span><span class="v" id="r1">Returning buyer</span></div>
+        <div class="pf-row"><span class="k">Wants</span><span class="v" id="r2">Industrial pumps</span></div>
+        <div class="pf-row"><span class="k">Channel</span><span class="v" id="r3">Email + site</span></div>
+        <div class="pf-row"><span class="k">Readiness</span><span class="v hot" id="r4">High — ready to buy</span></div>
+      </div>
+    </div>
+    <div class="foot">
+      <button class="focus-btn" id="focusBtn"><span class="ic"></span><span id="btnLbl">Show without CDP</span></button>
+      <span class="tag" id="focusTag">IN FOCUS · WITH CDP</span>
+    </div>
+  </div>
+</div></header>
+
+<!-- 01 metric vs cdp -->
+<section id="vs"><div class="wrap">
+  <div class="sec-head rv">
+    <span class="num">01</span>
+    <h2 class="serif">No metric will give you this data</h2>
+    <div class="meta"><p>Analytics counts events. CDP sees the person behind them.</p></div>
+  </div>
+  <div class="vs rv">
+    <div class="side a">
+      <div class="lbl">What analytics sees</div>
+      <h3 class="serif">Numbers about traffic</h3>
+      <ul>
+        <li><span class="m">—</span> Visits, sessions, bounce rate</li>
+        <li><span class="m">—</span> Sources and channels in percentages</li>
+        <li><span class="m">—</span> Conversion for the segment as a whole</li>
+        <li><span class="m">—</span> Faceless, anonymized events</li>
+      </ul>
+    </div>
+    <div class="side b">
+      <div class="lbl">What CDP sees</div>
+      <h3 class="serif">The people behind the numbers</h3>
+      <ul>
+        <li><span class="m">◆</span> A specific person, stitched across devices</li>
+        <li><span class="m">◆</span> What they viewed, searched, added, bought</li>
+        <li><span class="m">◆</span> What they want and what stage they're at</li>
+        <li><span class="m">◆</span> How and through which channel they talk to you</li>
+      </ul>
+    </div>
+  </div>
+  <div class="vs-verdict rv"><span class="b"></span><p>Metrics answer “<em class="warn">how many</em>”. CDP answers “<em class="ctl">who and why</em>” — and sales live exactly there.</p></div>
+</div></section>
+
+<!-- 02 structured base -->
+<section id="base"><div class="wrap">
+  <div class="sec-head rv">
+    <span class="num">02</span>
+    <h2 class="serif">A clear, structured customer base</h2>
+    <div class="meta"><p>Not a table with thousands of rows, but a clear portrait of each person — in four layers.</p></div>
+  </div>
+  <div class="anat rv">
+    <div class="layer"><div class="n">LAYER_01</div><h3>Identity</h3><p>One person instead of scattered anonymals: devices, sessions and contacts stitched into a single profile.</p></div>
+    <div class="layer"><div class="n">LAYER_02</div><h3>Behavior</h3><p>What they viewed, searched, added to cart, opened and bought — the whole history in one place.</p></div>
+    <div class="layer"><div class="n">LAYER_03</div><h3>Intent</h3><p>What stage they're at, what they want, how ready they are to buy right now.</p></div>
+    <div class="layer"><div class="n">LAYER_04</div><h3>Channel</h3><p>How they arrived and how to best reach them — email, messenger, site, ads.</p></div>
+  </div>
+</div></section>
+
+<!-- 03 understand -->
+<section id="understand"><div class="wrap">
+  <div class="sec-head rv">
+    <span class="num">03</span>
+    <h2 class="serif">Understand what the customer wants — and how they talk to you</h2>
+    <div class="meta"><p>Understanding instead of guesses. Every question gets an answer from data.</p></div>
+  </div>
+  <div class="cards rv">
+    <div class="card"><span class="q">?</span><div><h3 class="serif">What they want</h3><p>Interests and intent are read from real behavior, not from a form.</p></div></div>
+    <div class="card"><span class="q">?</span><div><h3 class="serif">What stage they're at</h3><p>First visit, choosing, abandoned cart, or ready to return — visible at a glance.</p></div></div>
+    <div class="card"><span class="q">?</span><div><h3 class="serif">How to talk to them</h3><p>Which channel and tone work for this specific person.</p></div></div>
+    <div class="card"><span class="q">?</span><div><h3 class="serif">When they'll return</h3><p>Their visit pattern hints at the moment to reach out.</p></div></div>
+  </div>
+</div></section>
+
+<!-- 04 retention -->
+<section id="retain"><div class="wrap retain">
+  <div class="big serif rv">The best way <em class="ctl">not to lose</em> a customer — is to understand them.</div>
+  <div class="body rv">
+    <p>Customers aren't lost over price. They're lost when you don't notice them, don't remember them, and talk to everyone the same way.</p>
+    <p>CDP remembers everyone: history, interest, moment. The person gets relevance instead of noise — and stays.</p>
+    <p>Understanding is retention. CDP turns a one-time visit into a recognizable, returning customer.</p>
+  </div>
+</div></section>
+
+<!-- 05 best friend / sales -->
+<section id="friend"><div class="wrap">
+  <div class="sec-head rv">
+    <span class="num">04</span>
+    <h2 class="serif">A marketer's best friend — when it comes to sales</h2>
+    <div class="meta"><p>CDP doesn't just show — it turns understanding into action and revenue.</p></div>
+  </div>
+  <div class="flow rv">
+    <div class="fstep"><div class="k">Sees</div><h3 class="serif">Understanding</h3><p>Who's ready to buy, who's hesitating, who's leaving — by real behavior.</p><div class="ar">→</div></div>
+    <div class="fstep"><div class="k">Segments</div><h3 class="serif">Precise targeting</h3><p>The right offer to the right person at the right moment — not “everyone at once”.</p><div class="ar">→</div></div>
+    <div class="fstep"><div class="k">Sells</div><h3 class="serif">Revenue</h3><p>Relevance lifts response and repeat orders — marketing starts selling.</p><div class="ar">→</div></div>
+  </div>
+</div></section>
+
+<!-- 06 fleet speed -->
+<section id="speed"><div class="wrap">
+  <div class="sec-head rv">
+    <span class="num">05</span>
+    <h2 class="serif">From a clear base to campaigns in hours</h2>
+    <div class="meta"><p>CDP gives you the base. AI turns it into campaigns.</p></div>
+  </div>
+  <div class="speed rv">
+    <div class="l">
+      <div class="mono">◆ Base → activation</div>
+      <h3 class="serif">Build your email base fast, easy and cheap.</h3>
+      <p>A clear, structured base plus our AI network — and personal emails for each person assemble in hours, not weeks, with almost no manual work.</p>
+    </div>
+    <div class="chips">
+      <div class="chip"><span class="big">⚡</span><span class="ct"><b>Fast</b><span>Segment → ready campaign in hours, not weeks.</span></span></div>
+      <div class="chip"><span class="big">◇</span><span class="ct"><b>Easy</b><span>AI assembles the content — the marketer sets the meaning, not the markup.</span></span></div>
+      <div class="chip"><span class="big">↓</span><span class="ct"><b>Cheap</b><span>Personalization for each person at near-zero marginal cost.</span></span></div>
+    </div>
+  </div>
+</div></section>
+
+<!-- cta -->
+<section class="final" id="demo"><div class="wrap">
+  <div class="cta-card rv">
+    <div>
+      <h2>Bring your customers<br>into focus.</h2>
+      <p class="sb">We'll show you on your own data what a clear customer profile looks like — and what you stop missing.</p>
+    </div>
+    <form onsubmit="return false">
+      <div class="fld"><label for="co">Company</label><input type="text" id="co" placeholder="Company name"></div>
+      <div class="fld"><label for="em">Work email</label><input type="email" id="em" placeholder="name@company.com"></div>
+      <div class="consent">
+        <input type="checkbox" id="cs" required>
+        <label for="cs">I agree to the processing of my personal data in accordance with the <a href="#">Privacy Policy</a> and <a href="#">data processing terms</a>.</label>
+      </div>
+      <button type="submit" class="btn fill">Get a demo on your data <span class="ar">→</span></button>
+    </form>
+  </div>
+</div></section>
+
+<footer><div class="wrap">
+  <div class="brand"><div class="mk"></div><div><div class="nm">CDP</div><div class="sub">Customer clarity layer</div></div></div>
+  <p class="disc">CDP — the customer clarity layer: a single profile, intent understanding, a foundation for sales and email. First-party data, self-hosted, under your control.</p>
+  <span class="mono">© 2026 · CUSTOMER CLARITY</span>
+</div></footer>
+
+<script>
+(function(){
+  var f=document.getElementById('focus'),btn=document.getElementById('focusBtn'),
+      lbl=document.getElementById('btnLbl'),tag=document.getElementById('focusTag'),
+      av=document.getElementById('pfAv'),nm=document.getElementById('pfName'),sub=document.getElementById('pfSub'),
+      r1=document.getElementById('r1'),r2=document.getElementById('r2'),r3=document.getElementById('r3'),r4=document.getElementById('r4');
+  var anon=false;
+  function apply(){
+    if(anon){
+      f.classList.add('anon');
+      av.textContent='?'; nm.textContent='Visitor #4821'; sub.textContent='Anonymous · out of focus';
+      r1.textContent='— unknown —'; r1.className='v';
+      r2.textContent='— unknown —'; r2.className='v';
+      r3.textContent='— not visible —'; r3.className='v';
+      r4.textContent='— ? —'; r4.className='v';
+      lbl.textContent='Bring into focus'; tag.textContent='BLURRED · WITHOUT CDP';
+    } else {
+      f.classList.remove('anon');
+      av.textContent='S'; nm.textContent='Sarah Mitchell'; sub.textContent='3 devices · 1 profile';
+      r1.textContent='Returning buyer'; r1.className='v';
+      r2.textContent='Industrial pumps'; r2.className='v';
+      r3.textContent='Email + site'; r3.className='v';
+      r4.textContent='High — ready to buy'; r4.className='v hot';
+      lbl.textContent='Show without CDP'; tag.textContent='IN FOCUS · WITH CDP';
+    }
+  }
+  btn.addEventListener('click',function(){anon=!anon;apply();});
+
+  var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target);}})},{threshold:.14});
+  document.querySelectorAll('.rv').forEach(function(el){io.observe(el);});
+})();
+</script>
+</body>
+</html>

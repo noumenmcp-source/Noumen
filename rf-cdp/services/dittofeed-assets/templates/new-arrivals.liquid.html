@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ user.gen_subject | default: "..." }}</title>
+    <style>
+        body { margin: 0; padding: 0; background-color: #f5f1e8; font-family: Arial, sans-serif; }
+        .container { width: 100%; max-width: 600px; margin: auto; }
+        .header { background-color: #1a1410; padding: 20px; text-align: center; }
+        .header h1 { color: white; font-family: 'Inter', Arial, sans-serif; font-weight: 900; text-transform: uppercase; margin: 0; }
+        .header .square { display: inline-block; width: 9px; height: 9px; background-color: #d4513a; margin-left: 5px; vertical-align: middle; }
+        .eyebrow { color: #b3402c; font-family: 'Inter', Arial, sans-serif; font-weight: 700; font-size: 11px; text-transform: uppercase; }
+        .card { background-color: #fffdf7; border: 1px solid #e5e0d4; border-radius: 18px; padding: 20px; margin: 20px 0; }
+        .card h2 { font-family: 'Inter', Arial, sans-serif; font-weight: 800; text-transform: uppercase; letter-spacing: -0.6px; line-height: 1.0; color: #2a221c; margin: 0; }
+        .card h2 span { color: #b3402c; }
+        .cta { background-color: #d4513a; color: white; font-family: 'Inter', Arial, sans-serif; font-weight: 700; text-transform: uppercase; border-radius: 999px; padding: 10px 20px; text-align: center; display: inline-block; text-decoration: none; }
+        .footer { color: #6b6258; font-size: 12px; text-align: center; padding: 20px; }
+        .footer a { color: #6b6258; text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>ZAVOD<span class="square"></span></h1>
+        </div>
+        <div class="content" style="padding: 20px;">
+            <div class="eyebrow">- Новинки каталога</div>
+            <div class="card">
+                <h2>Новое <span>в</span> <span>каталоге</span></h2>
+                {{ user.gen_body_html | default: "<p>...</p>" }}
+            </div>
+            <a href="{{ catalog_url | default: 'https://zavod.dev/catalog' }}" class="cta">Смотреть новинки</a>
+        </div>
+        <div class="footer">
+            <p>Вы получили это письмо, потому что подписаны на наш рассылку.</p>
+            <p><a href="{{ unsubscribe_url | default: '#' }}">Отписаться</a></p>
+        </div>
+    </div>
+</body>
+</html>

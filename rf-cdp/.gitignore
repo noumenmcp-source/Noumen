@@ -1,0 +1,34 @@
+# dependencies / build
+node_modules/
+dist/
+*.tsbuildinfo
+
+# upstream Dittofeed (MIT) is cloned locally, not vendored here — see README
+vendor/
+
+# fleet generation intermediates
+scripts/out/
+scripts/out_fix/
+
+# logs & local state
+*.log
+.DS_Store
+
+# serena cache (memories under .serena/memories are kept)
+.serena/cache/
+.serena/*.log
+
+# local secrets / env
+.env
+.env.local
+*_write_keys.json
+services/ingest-gateway-prod/node_modules/
+services/dittofeed-assets/copy/
+__pycache__/
+**/__pycache__/
+scripts/out_orch/
+scripts/out/
+scripts/out_*/
+*.bak
+*.tmp
+*.pyc

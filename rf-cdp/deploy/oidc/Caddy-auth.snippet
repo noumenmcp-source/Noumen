@@ -1,0 +1,7 @@
+# Append to the server Caddyfile (NOT YET DEPLOYED), then: caddy reload (or systemctl reload caddy).
+# Exposes Dex over auto-TLS at auth.90-156-170-63.sslip.io (sslip.io wildcard -> 90.156.170.63).
+# Mirrors the existing cdp.90-156-170-63.sslip.io reverse_proxy -> localhost:8110 block.
+
+auth.90-156-170-63.sslip.io {
+	reverse_proxy 127.0.0.1:5556
+}
