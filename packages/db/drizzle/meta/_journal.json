@@ -15,6 +15,13 @@
       "when": 1782533189362,
       "tag": "0001_funny_jimmy_woo",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1782565415932,
+      "tag": "0002_modern_typhoid_mary",
+      "breakpoints": true
     }
   ]
 }

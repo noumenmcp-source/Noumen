@@ -136,6 +136,8 @@ export class DbTenantStore implements TenantStore {
     const account = buildTenantAccount(input);
     await this.db.insert(tenants).values({
       ...account.tenant,
+      plan: account.plan,
+      status: account.status,
       createdAt: new Date(account.tenant.createdAt),
     });
     await this.db.insert(users).values({
@@ -164,15 +166,24 @@ export class DbTenantStore implements TenantStore {
   }
 
   async getTenantAccount(id: string): Promise<TenantAccount | undefined> {
-    const tenant = await this.getTenant(id);
-    if (!tenant) return undefined;
+    const [row] = await this.db
+      .select()
+      .from(tenants)
+      .where(eq(tenants.id, id))
+      .limit(1);
+    if (!row) return undefined;
     const [owner] = await this.db
       .select()
       .from(users)
       .where(eq(users.tenantId, id))
       .limit(1);
     if (!owner) return undefined;
-    return { tenant, owner: toUser(owner), plan: DEFAULT_PLAN, status: DEFAULT_STATUS };
+    return {
+      tenant: toTenant(row),
+      owner: toUser(owner),
+      plan: row.plan as PlanKey,
+      status: row.status as PlatformTenantAccount["status"],
+    };
   }
 
   async enableTenantModule(

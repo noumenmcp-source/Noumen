@@ -14,6 +14,8 @@ export const tenants = pgTable("tenants", {
   writeKey: text("write_key").notNull().unique(),
   region: text("region").notNull().default("us"),
   enabledModules: jsonb("enabled_modules").$type<string[]>().notNull().default([]),
+  plan: text("plan").notNull().default("agency"),
+  status: text("status").notNull().default("active"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

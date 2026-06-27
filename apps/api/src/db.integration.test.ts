@@ -49,6 +49,19 @@ run("db integration (real Postgres)", () => {
     expect(tenants.some((listedTenant) => listedTenant.id === tenant.id)).toBe(true);
   });
 
+  it("persists and reads plan/status on the tenant account", async () => {
+    const { tenant } = await tenantStore.createTenantAccount({
+      name: `Integration Test ${randomUUID()}`,
+      ownerEmail: `owner-${randomUUID()}@example.com`,
+      plan: "growth",
+      status: "suspended",
+    });
+
+    const account = await tenantStore.getTenantAccount(tenant.id);
+    expect(account?.plan).toBe("growth");
+    expect(account?.status).toBe("suspended");
+  });
+
   it("ingest persists an event", async () => {
     const { tenant } = await tenantStore.createTenantAccount({
       name: `Integration Test ${randomUUID()}`,

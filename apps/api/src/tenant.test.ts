@@ -50,6 +50,8 @@ describe("DbTenantStore", () => {
       writeKey: "wk_us_northwind",
       region: "us",
       enabledModules: ["consent"],
+      plan: "agency",
+      status: "active",
       createdAt: new Date("2026-06-01T00:00:00.000Z"),
     });
     expect(values).toHaveBeenNthCalledWith(2, {
@@ -84,5 +86,40 @@ describe("DbTenantStore", () => {
     expect(tenant?.enabledModules).toEqual(["consent", "email"]);
     expect(update).toHaveBeenCalledWith(tenants);
     expect(set).toHaveBeenCalledWith({ enabledModules: ["consent", "email"] });
+  });
+
+  it("reads persisted plan and status in getTenantAccount", async () => {
+    const tenantRow = {
+      id: "t_1",
+      name: "Tenant",
+      writeKey: "wk_us_1",
+      region: "us",
+      enabledModules: ["consent", "email"],
+      plan: "growth",
+      status: "suspended",
+      createdAt: new Date("2026-06-01T00:00:00.000Z"),
+    };
+    const ownerRow = {
+      id: "u_1",
+      tenantId: "t_1",
+      email: "owner@tenant.example",
+      role: "owner",
+      createdAt: new Date("2026-06-01T00:00:00.000Z"),
+    };
+    const limit = vi
+      .fn()
+      .mockResolvedValueOnce([tenantRow])
+      .mockResolvedValueOnce([ownerRow]);
+    const where = vi.fn(() => ({ limit }));
+    const from = vi.fn(() => ({ where }));
+    const select = vi.fn(() => ({ from }));
+    const store = new DbTenantStore({ select } as unknown as Db);
+
+    const account = await store.getTenantAccount("t_1");
+
+    expect(account?.plan).toBe("growth");
+    expect(account?.status).toBe("suspended");
+    expect(account?.tenant.enabledModules).toEqual(["consent", "email"]);
+    expect(account?.owner.email).toBe("owner@tenant.example");
   });
 });
