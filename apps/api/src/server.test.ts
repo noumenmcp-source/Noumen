@@ -14,7 +14,7 @@ describe("api server", () => {
 
   it("reports US health and counters", async () => {
     const store = new InMemoryIngestStore();
-    const app = buildServer({ logger: false, ingestStore: store });
+    const app = await buildServer({ logger: false, ingestStore: store });
     const res = await app.inject({ method: "GET", url: "/v1/health" });
     await app.close();
 
@@ -27,7 +27,7 @@ describe("api server", () => {
   });
 
   it("allows browser SDK preflight requests", async () => {
-    const app = buildServer({ logger: false });
+    const app = await buildServer({ logger: false });
     const res = await app.inject({
       method: "OPTIONS",
       url: "/v1/track",
@@ -49,7 +49,7 @@ describe("api server", () => {
   });
 
   it("rejects malformed ingest payloads", async () => {
-    const app = buildServer({ logger: false });
+    const app = await buildServer({ logger: false });
     const res = await app.inject({
       method: "POST",
       url: "/v1/track",
@@ -64,7 +64,7 @@ describe("api server", () => {
   });
 
   it("rejects unknown write keys", async () => {
-    const app = buildServer({ logger: false });
+    const app = await buildServer({ logger: false });
     const res = await app.inject({
       method: "POST",
       url: "/v1/track",
@@ -80,7 +80,7 @@ describe("api server", () => {
   });
 
   it("rejects malformed self-serve signups", async () => {
-    const app = buildServer({ logger: false });
+    const app = await buildServer({ logger: false });
     const res = await app.inject({
       method: "POST",
       url: "/v1/signup",
@@ -93,7 +93,7 @@ describe("api server", () => {
   });
 
   it("lists available upsell modules", async () => {
-    const app = buildServer({ logger: false });
+    const app = await buildServer({ logger: false });
     const res = await app.inject({ method: "GET", url: "/v1/modules" });
     await app.close();
 
@@ -109,7 +109,7 @@ describe("api server", () => {
 
   it("provisions a US tenant and accepts events through its write key", async () => {
     const store = new InMemoryIngestStore();
-    const app = buildServer({ logger: false, ingestStore: store });
+    const app = await buildServer({ logger: false, ingestStore: store });
     const signup = await app.inject({
       method: "POST",
       url: "/v1/signup",
@@ -169,7 +169,7 @@ describe("api server", () => {
   });
 
   it("enables tenant modules idempotently", async () => {
-    const app = buildServer({ logger: false });
+    const app = await buildServer({ logger: false });
     const signup = await app.inject({
       method: "POST",
       url: "/v1/signup",
@@ -199,7 +199,7 @@ describe("api server", () => {
   });
 
   it("rejects unknown modules before mutating tenants", async () => {
-    const app = buildServer({ logger: false });
+    const app = await buildServer({ logger: false });
     const res = await app.inject({
       method: "POST",
       url: "/v1/tenants/demo/modules/not-a-module",
@@ -212,7 +212,7 @@ describe("api server", () => {
 
   it("stores consent-allowed events for the resolved tenant", async () => {
     const store = new InMemoryIngestStore();
-    const app = buildServer({ logger: false, ingestStore: store });
+    const app = await buildServer({ logger: false, ingestStore: store });
     const res = await app.inject({
       method: "POST",
       url: "/v1/track",
@@ -254,7 +254,7 @@ describe("api server", () => {
   it("suppresses analytics when the tenant subject opted out", async () => {
     setConsent("demo", "anon_suppressed", "analytics", false);
     const store = new InMemoryIngestStore();
-    const app = buildServer({ logger: false, ingestStore: store });
+    const app = await buildServer({ logger: false, ingestStore: store });
     const res = await app.inject({
       method: "POST",
       url: "/v1/track",

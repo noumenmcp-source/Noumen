@@ -19,6 +19,7 @@
     "@cdp-us/social-intel": "workspace:*",
     "@cdp-us/youtube": "workspace:*",
     "@fastify/cors": "^10.0.2",
+    "@fastify/rate-limit": "^10.2.2",
     "drizzle-orm": "^0.36.4",
     "fastify": "^5.1.0",
     "zod": "^3.23.8"

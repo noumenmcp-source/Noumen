@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import rateLimit from "@fastify/rate-limit";
 import { createDb } from "@cdp-us/db";
 import {
   DbIngestStore,
@@ -17,21 +18,29 @@ import {
   type TenantStore,
 } from "./tenant.js";
 
-export function buildServer(
+export async function buildServer(
   opts: {
     logger?: boolean;
     ingestStore?: IngestStore;
     tenantStore?: TenantStore;
+    rateLimit?: { max: number; timeWindow: number | string } | false;
   } = {},
 ) {
   const app = Fastify({ logger: opts.logger ?? true });
   const tenantStore = opts.tenantStore ?? createDefaultTenantStore();
   const ingestStore = opts.ingestStore ?? createDefaultIngestStore();
-  void app.register(cors, {
+  await app.register(cors, {
     origin: true,
     methods: ["GET", "POST", "OPTIONS"],
     allowedHeaders: ["content-type"],
   });
+  const rateLimitConfig = opts.rateLimit ?? defaultRateLimit();
+  if (rateLimitConfig !== false) {
+    await app.register(rateLimit, {
+      max: rateLimitConfig.max,
+      timeWindow: rateLimitConfig.timeWindow,
+    });
+  }
   registerHealth(app);
   registerModules(app, tenantStore);
   registerSignup(app, tenantStore);
@@ -55,12 +64,19 @@ function createDefaultTenantStore(): TenantStore {
   return new InMemoryTenantStore();
 }
 
+function defaultRateLimit(): { max: number; timeWindow: number | string } {
+  const max = Number(process.env.RATE_LIMIT_MAX ?? 600);
+  const timeWindow = process.env.RATE_LIMIT_WINDOW ?? "1 minute";
+  return { max: Number.isFinite(max) && max > 0 ? max : 600, timeWindow };
+}
+
 const isEntry = process.argv[1] === fileURLToPath(import.meta.url);
 if (isEntry) {
   const port = Number(process.env.PORT ?? 8110);
-  const app = buildServer();
-  app.listen({ port, host: "0.0.0.0" }).catch((err) => {
-    app.log.error(err);
-    process.exit(1);
-  });
+  void buildServer().then((app) =>
+    app.listen({ port, host: "0.0.0.0" }).catch((err) => {
+      app.log.error(err);
+      process.exit(1);
+    }),
+  );
 }
