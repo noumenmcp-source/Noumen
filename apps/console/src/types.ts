@@ -71,3 +71,52 @@ export interface Session {
   readonly tenant: Tenant | null;
   readonly tenantId: string;
 }
+
+export interface SegmentPredicate {
+  readonly path: string;
+  readonly equals: unknown;
+}
+
+export interface AudienceEvaluateBody {
+  readonly name?: string;
+  readonly rule: readonly SegmentPredicate[];
+  readonly sampleSize?: number;
+  readonly against?: readonly SegmentPredicate[];
+}
+
+export interface AudienceResult {
+  readonly ok: boolean;
+  readonly tenantId: string;
+  readonly key: string;
+  readonly size: number;
+  readonly sampleIds: readonly string[];
+  readonly overlap?: {
+    readonly aOnly: number;
+    readonly bOnly: number;
+    readonly both: number;
+  };
+}
+
+export interface JourneyStepResult {
+  readonly key: string;
+  readonly type: string;
+  readonly status: string;
+  readonly outcome?: unknown;
+}
+
+export interface JourneyResult {
+  readonly journeyKey: string;
+  readonly status: "completed" | "halted" | "rejected";
+  readonly results: readonly JourneyStepResult[];
+}
+
+export interface FunnelStep {
+  readonly step: string;
+  readonly count: number;
+  readonly dropoff: number;
+}
+
+export interface RetentionPoint {
+  readonly day: number;
+  readonly rate: number;
+}
