@@ -20,6 +20,8 @@ describe("InMemoryTenantStore", () => {
       now: () => "2026-06-01T00:00:00.000Z",
     });
     expect(account.owner.email).toBe("owner@acme.example");
+    expect(account.plan).toBe("free");
+    expect(account.status).toBe("active");
 
     await store.enableTenantModule("t_acme", "email");
     const enabled = await store.enableTenantModule("t_acme", "email");
@@ -50,7 +52,7 @@ describe("DbTenantStore", () => {
       writeKey: "wk_us_northwind",
       region: "us",
       enabledModules: ["consent"],
-      plan: "agency",
+      plan: "free",
       status: "active",
       createdAt: new Date("2026-06-01T00:00:00.000Z"),
     });

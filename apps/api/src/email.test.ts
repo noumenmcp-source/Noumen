@@ -65,8 +65,21 @@ describe("email campaigns (consent-gated, billing-limited)", () => {
 
   it("sends only to marketing_email-consented profiles", async () => {
     const profileStore = new InMemoryProfileStore();
-    const app = await buildServer({ logger: false, profileStore });
-    const account = await signup(app);
+    // Onboarding plan is "free" (no email quota), so provision an email-capable
+    // plan explicitly — this test exercises consent gating, not billing limits.
+    const tenantStore = new InMemoryTenantStore();
+    const tokenStore = new InMemoryTokenStore();
+    const account = await tenantStore.createTenantAccount({
+      name: "Acme US",
+      ownerEmail: "owner@acme.example",
+      plan: "growth",
+    });
+    const { token } = await tokenStore.issue({
+      tenantId: account.tenant.id,
+      userId: account.owner.id,
+      role: account.owner.role,
+    });
+    const app = await buildServer({ logger: false, profileStore, tenantStore, tokenStore });
     const tid = account.tenant.id;
 
     for (const [id, email, company] of [
@@ -91,7 +104,7 @@ describe("email campaigns (consent-gated, billing-limited)", () => {
     const res = await app.inject({
       method: "POST",
       url: `/v1/tenants/${tid}/email/campaigns`,
-      headers: { authorization: `Bearer ${account.apiToken}` },
+      headers: { authorization: `Bearer ${token}` },
       payload: CAMPAIGN,
     });
     await app.close();

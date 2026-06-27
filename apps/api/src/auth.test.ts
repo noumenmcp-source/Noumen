@@ -3,7 +3,7 @@ import { InMemoryTokenStore } from "./auth.js";
 import { resetConsentOverrides } from "./consent.js";
 import { resetCounters } from "./routes/health.js";
 import { buildServer } from "./server.js";
-import { resetTenantRegistry } from "./tenant.js";
+import { InMemoryTenantStore, resetTenantRegistry } from "./tenant.js";
 
 type App = Awaited<ReturnType<typeof buildServer>>;
 
@@ -77,12 +77,25 @@ describe("auth + RBAC on module enablement", () => {
   });
 
   it("allows an owner to enable a module for its own tenant (200)", async () => {
-    const app = await buildServer({ logger: false });
-    const account = await signup(app);
+    // Onboarding "free" isn't entitled to email; provision a starter tenant so
+    // this test exercises owner RBAC, not the billing entitlement boundary.
+    const tenantStore = new InMemoryTenantStore();
+    const tokenStore = new InMemoryTokenStore();
+    const account = await tenantStore.createTenantAccount({
+      name: "Acme US",
+      ownerEmail: "owner@acme.example",
+      plan: "starter",
+    });
+    const { token } = await tokenStore.issue({
+      tenantId: account.tenant.id,
+      userId: account.owner.id,
+      role: account.owner.role,
+    });
+    const app = await buildServer({ logger: false, tenantStore, tokenStore });
     const res = await app.inject({
       method: "POST",
       url: `/v1/tenants/${account.tenant.id}/modules/email`,
-      headers: { authorization: `Bearer ${account.apiToken}` },
+      headers: { authorization: `Bearer ${token}` },
     });
     await app.close();
 

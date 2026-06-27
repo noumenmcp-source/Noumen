@@ -12,6 +12,13 @@ import { eq } from "drizzle-orm";
 const DEFAULT_PLAN: PlanKey = "agency";
 const DEFAULT_STATUS: PlatformTenantAccount["status"] = "active";
 
+/**
+ * Plan a fresh self-serve signup lands on. The entry "free" tier (consent only,
+ * no email) — not the top "agency" plan — so billing entitlement enforcement is
+ * meaningful from day one. Callers may override via CreateTenantAccountInput.plan.
+ */
+const ONBOARDING_PLAN: PlanKey = "free";
+
 const demo: Tenant = {
   id: "demo",
   name: "Demo US B2B",
@@ -228,7 +235,7 @@ function buildTenantAccount(input: CreateTenantAccountInput): TenantAccount {
   return {
     tenant,
     owner,
-    plan: input.plan ?? DEFAULT_PLAN,
+    plan: input.plan ?? ONBOARDING_PLAN,
     status: input.status ?? DEFAULT_STATUS,
   };
 }

@@ -16,6 +16,7 @@ dist/
 build/
 .next/
 out/
+.astro/
 *.tsbuildinfo
 
 # infra / tooling

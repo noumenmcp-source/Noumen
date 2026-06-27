@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { resetConsentOverrides, setConsent } from "./consent.js";
+import { InMemoryTokenStore } from "./auth.js";
 import { InMemoryIngestStore } from "./ingest-store.js";
 import { resetCounters } from "./routes/health.js";
 import { buildServer } from "./server.js";
-import { resetTenantRegistry } from "./tenant.js";
+import { InMemoryTenantStore, resetTenantRegistry } from "./tenant.js";
 
 describe("api server", () => {
   beforeEach(() => {
@@ -168,17 +169,23 @@ describe("api server", () => {
   });
 
   it("enables tenant modules idempotently", async () => {
-    const app = await buildServer({ logger: false });
-    const signup = await app.inject({
-      method: "POST",
-      url: "/v1/signup",
-      payload: {
-        companyName: "Module Buyer LLC",
-        ownerEmail: "owner@modulebuyer.example",
-      },
+    // Onboarding "free" isn't entitled to email; provision a starter tenant so
+    // this test exercises idempotent enablement, not the entitlement boundary.
+    const tenantStore = new InMemoryTenantStore();
+    const tokenStore = new InMemoryTokenStore();
+    const account = await tenantStore.createTenantAccount({
+      name: "Module Buyer LLC",
+      ownerEmail: "owner@modulebuyer.example",
+      plan: "starter",
     });
-    const tenantId = signup.json().tenant.id;
-    const auth = { authorization: `Bearer ${signup.json().apiToken}` };
+    const { token } = await tokenStore.issue({
+      tenantId: account.tenant.id,
+      userId: account.owner.id,
+      role: account.owner.role,
+    });
+    const app = await buildServer({ logger: false, tenantStore, tokenStore });
+    const tenantId = account.tenant.id;
+    const auth = { authorization: `Bearer ${token}` };
 
     const first = await app.inject({
       method: "POST",

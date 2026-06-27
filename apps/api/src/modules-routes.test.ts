@@ -31,6 +31,7 @@ async function enableModule(app: App, tid: string, token: string, key: string) {
 async function setupTenant(
   plan: PlanKey,
   status: TenantStatus = "active",
+  serverOpts: Parameters<typeof buildServer>[0] = {},
 ) {
   const tenantStore = new InMemoryTenantStore();
   const tokenStore = new InMemoryTokenStore();
@@ -48,7 +49,7 @@ async function setupTenant(
     userId: account.owner.id,
     role: account.owner.role,
   });
-  const app = await buildServer({ logger: false, tenantStore, tokenStore });
+  const app = await buildServer({ logger: false, tenantStore, tokenStore, ...serverOpts });
   return { app, account, token };
 }
 
@@ -100,18 +101,16 @@ describe("GET /v1/tenants/:id/intel (social-intel)", () => {
   ];
 
   it("runs collect→normalize→analyze and returns intent + signals", async () => {
-    const app = await buildServer({
-      logger: false,
+    const { app, account, token } = await setupTenant("agency", "active", {
       collectors: { youtube: fakeCollector("youtube", ITEMS) },
     });
-    const account = await signup(app);
     const tid = account.tenant.id;
-    expect((await enableModule(app, tid, account.apiToken, "social-intel")).statusCode).toBe(200);
+    expect((await enableModule(app, tid, token, "social-intel")).statusCode).toBe(200);
 
     const res = await app.inject({
       method: "GET",
       url: `/v1/tenants/${tid}/intel?platform=youtube&terms=robotics&limit=50`,
-      headers: { authorization: `Bearer ${account.apiToken}` },
+      headers: { authorization: `Bearer ${token}` },
     });
     await app.close();
 
@@ -141,15 +140,14 @@ describe("GET /v1/tenants/:id/intel (social-intel)", () => {
   });
 
   it("503s for a platform with no collector wired", async () => {
-    const app = await buildServer({ logger: false, collectors: {} });
-    const account = await signup(app);
+    const { app, account, token } = await setupTenant("agency", "active", { collectors: {} });
     const tid = account.tenant.id;
-    await enableModule(app, tid, account.apiToken, "social-intel");
+    await enableModule(app, tid, token, "social-intel");
 
     const res = await app.inject({
       method: "GET",
       url: `/v1/tenants/${tid}/intel?platform=tiktok&terms=x`,
-      headers: { authorization: `Bearer ${account.apiToken}` },
+      headers: { authorization: `Bearer ${token}` },
     });
     await app.close();
     expect(res.statusCode).toBe(503);
@@ -157,13 +155,11 @@ describe("GET /v1/tenants/:id/intel (social-intel)", () => {
   });
 
   it("rejects no token (401), cross-tenant (403), bad query (400)", async () => {
-    const app = await buildServer({
-      logger: false,
+    const { app, account, token } = await setupTenant("agency", "active", {
       collectors: { youtube: fakeCollector("youtube", ITEMS) },
     });
-    const account = await signup(app);
     const tid = account.tenant.id;
-    await enableModule(app, tid, account.apiToken, "social-intel");
+    await enableModule(app, tid, token, "social-intel");
 
     const noauth = await app.inject({
       method: "GET",
@@ -174,14 +170,14 @@ describe("GET /v1/tenants/:id/intel (social-intel)", () => {
     const cross = await app.inject({
       method: "GET",
       url: `/v1/tenants/other_tenant/intel?platform=youtube&terms=x`,
-      headers: { authorization: `Bearer ${account.apiToken}` },
+      headers: { authorization: `Bearer ${token}` },
     });
     expect(cross.statusCode).toBe(403);
 
     const badQuery = await app.inject({
       method: "GET",
       url: `/v1/tenants/${tid}/intel?platform=myspace&terms=`,
-      headers: { authorization: `Bearer ${account.apiToken}` },
+      headers: { authorization: `Bearer ${token}` },
     });
     await app.close();
     expect(badQuery.statusCode).toBe(400);
@@ -191,11 +187,11 @@ describe("GET /v1/tenants/:id/intel (social-intel)", () => {
 
 describe("POST /v1/tenants/:id/automations/run (TCPA-gated)", () => {
   async function setup() {
-    const app = await buildServer({ logger: false });
-    const account = await signup(app);
+    // Automation is an agency-tier module; onboarding "free" can't enable it.
+    const { app, account, token } = await setupTenant("agency", "active");
     const tid = account.tenant.id;
-    await enableModule(app, tid, account.apiToken, "automation");
-    return { app, tid, token: account.apiToken as string };
+    await enableModule(app, tid, token, "automation");
+    return { app, tid, token };
   }
 
   it("runs social_post and non-marketing messenger_send", async () => {
