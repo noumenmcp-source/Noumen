@@ -11,6 +11,10 @@ COPY package.json ./
 COPY worker.js ./
 COPY lib ./lib
 
+# Mount point for the signing keys (out of ES). Owned by `node` so the named
+# volume initializes node-writable.
+RUN mkdir -p /keys && chown node:node /keys
+
 USER node
 
 EXPOSE 8140

@@ -13,6 +13,8 @@ const http = require('node:http');
 const { ConsentLedger, verifyChain } = require('./lib/ledger');
 const { normalizeState, allowedPurposes } = require('./lib/cmp');
 const { EsLedgerStore } = require('./lib/es-store');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const RECEIPTS_PREFIX = 'cdp_consent_';
 
@@ -24,6 +26,7 @@ function makeDeps(env = process.env) {
     esUrl, esAuth, fetchImpl,
     store: new EsLedgerStore({ esUrl, esAuth, fetchImpl }),
     apiToken: env.CONSENT_API_TOKEN || '',
+    keyDir: env.CONSENT_KEY_DIR || '',
     port: parseInt(env.PORT || '8140', 10),
     scanSize: parseInt(env.SCAN_SIZE || '10000', 10),
     intervalMs: parseInt(env.LEDGER_INTERVAL_MS || '60000', 10),
@@ -65,13 +68,44 @@ async function scanReceipts(deps, site) {
   return hits.map((h) => ({ id: h._id, src: h._source }));
 }
 
-/** Load (or generate + persist) the per-tenant signing ledger. */
-async function ledgerFor(deps, site) {
+function keyFile(deps, site) {
+  return path.join(deps.keyDir, `${encodeURIComponent(site)}.json`);
+}
+
+/**
+ * Load the per-tenant keys. With CONSENT_KEY_DIR set, the private key lives in a
+ * mounted file (out of the ES datastore); otherwise it falls back to ES.
+ */
+async function keysFor(deps, site) {
+  if (deps.keyDir) {
+    const file = keyFile(deps, site);
+    if (fs.existsSync(file)) {
+      try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
+    }
+    return null;
+  }
   await deps.store.ensureKeysIndex();
-  let keys = await deps.store.loadKeys(site);
+  return deps.store.loadKeys(site);
+}
+
+/** Load (or generate/migrate + persist) the per-tenant signing ledger. */
+async function ledgerFor(deps, site) {
+  let keys = await keysFor(deps, site);
   if (!keys) {
-    keys = new ConsentLedger().exportKeys();
-    await deps.store.saveKeys(site, keys, deps.now());
+    if (deps.keyDir) {
+      // Migrate an existing ES key into the file store, else generate; then the
+      // private key is removed from ES so it lives only in the mounted file.
+      await deps.store.ensureKeysIndex();
+      const esKeys = await deps.store.loadKeys(site).catch(() => null);
+      keys = esKeys || new ConsentLedger().exportKeys();
+      fs.mkdirSync(deps.keyDir, { recursive: true });
+      fs.writeFileSync(keyFile(deps, site), JSON.stringify(keys), { mode: 0o600 });
+      if (esKeys) await deps.store.deleteKeys(site).catch(() => {});
+    } else {
+      await deps.store.ensureKeysIndex();
+      keys = new ConsentLedger().exportKeys();
+      await deps.store.saveKeys(site, keys, deps.now());
+    }
   }
   return new ConsentLedger({ keys, now: deps.now });
 }
@@ -153,7 +187,7 @@ function createServer(deps) {
 
       if (req.method === 'GET' && url.pathname === '/v1/consent/pubkey') {
         if (!site) return send(res, 400, { error: 'site required' });
-        const keys = await deps.store.loadKeys(site);
+        const keys = await keysFor(deps, site);
         return keys ? send(res, 200, { site, publicKeyPem: keys.publicKeyPem }) : send(res, 404, { error: 'no keys for site' });
       }
       if (req.method === 'GET' && url.pathname === '/v1/consent/state') {
@@ -161,7 +195,7 @@ function createServer(deps) {
         const docs = await deps.store.listBySubject(site, subject);
         if (!docs.length) return send(res, 404, { error: 'no consent for subject' });
         const latest = docs[docs.length - 1];
-        const keys = await deps.store.loadKeys(site);
+        const keys = await keysFor(deps, site);
         const verified = keys ? verifyChain(docs.map(recordOf), keys.publicKeyPem).ok : false;
         return send(res, 200, {
           site, subject, state: latest.state, allowedPurposes: allowedPurposes(latest.state),
@@ -171,7 +205,7 @@ function createServer(deps) {
       if (req.method === 'GET' && url.pathname === '/v1/consent/chain') {
         if (!site || !subject) return send(res, 400, { error: 'site and subject required' });
         const docs = await deps.store.listBySubject(site, subject);
-        const keys = await deps.store.loadKeys(site);
+        const keys = await keysFor(deps, site);
         const verify = keys ? verifyChain(docs.map(recordOf), keys.publicKeyPem) : { ok: false };
         return send(res, 200, { site, subject, length: docs.length, verify, chain: docs });
       }
@@ -179,7 +213,7 @@ function createServer(deps) {
         const body = await readBody(req).catch(() => ({}));
         const s = body.site || site;
         if (!s) return send(res, 400, { error: 'site required' });
-        const keys = await deps.store.loadKeys(s);
+        const keys = await keysFor(deps, s);
         if (!keys) return send(res, 404, { error: 'no keys for site' });
         const subj = body.subject || subject;
         if (subj) {
@@ -223,4 +257,4 @@ if (require.main === module) {
   main().catch((e) => { console.error(e); process.exit(1); });
 }
 
-module.exports = { makeDeps, discoverSites, scanReceipts, appendNewReceipts, appendAll, createServer, recordOf, RECEIPTS_PREFIX };
+module.exports = { makeDeps, discoverSites, scanReceipts, appendNewReceipts, appendAll, createServer, recordOf, ledgerFor, keysFor, RECEIPTS_PREFIX };

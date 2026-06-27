@@ -81,6 +81,12 @@ class EsLedgerStore {
     if (!res.ok) throw new Error(`saveKeys ${res.status}: ${await safeText(res)}`);
   }
 
+  /** Remove a site's key doc from ES (used after migrating the key to a file). */
+  async deleteKeys(site) {
+    const res = await this._req('DELETE', `/${this._keysIndex}/_doc/${encodeURIComponent(site)}?refresh=wait_for`);
+    if (!res.ok && res.status !== 404) throw new Error(`deleteKeys ${res.status}: ${await safeText(res)}`);
+  }
+
   async saveRecord(site, doc) {
     // Doc id = record hash (unique, content-addressed) -> idempotent re-writes.
     const res = await this._req('PUT', `/${this._index(site)}/_doc/${encodeURIComponent(doc.hash)}`, doc);

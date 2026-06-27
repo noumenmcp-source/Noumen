@@ -276,6 +276,10 @@ services:
       ES_PASSWORD: ${ES_PASSWORD:-}
       CONSENT_API_TOKEN: ${CONSENT_API_TOKEN:-}
       LEDGER_INTERVAL_MS: ${LEDGER_INTERVAL_MS:-60000}
+      # Private Ed25519 signing key lives in this mounted volume, not in ES.
+      CONSENT_KEY_DIR: /keys
+    volumes:
+      - consent_keys:/keys
     ports:
       - "127.0.0.1:8140:8140"
     networks:
@@ -353,6 +357,7 @@ volumes:
   clickhouse_lib:
   clickhouse_log:
   es_data:
+  consent_keys:
 
 networks:
   dittofeed-network-lite:
