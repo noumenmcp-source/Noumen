@@ -143,8 +143,11 @@ export const usageCounters = pgTable(
       .notNull()
       .references(() => tenants.id),
     metric: text("metric").notNull(),
+    // Billing period bucket "YYYY-MM" (UTC). Monthly metrics (emailsPerMonth,
+    // eventsPerMonth) reset implicitly when the period rolls over.
+    period: text("period").notNull(),
     count: bigint("count", { mode: "number" }).notNull().default(0),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [primaryKey({ columns: [t.tenantId, t.metric] })],
+  (t) => [primaryKey({ columns: [t.tenantId, t.metric, t.period] })],
 );

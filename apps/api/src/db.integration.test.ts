@@ -201,4 +201,24 @@ run("db integration (real Postgres)", () => {
     expect(await usageMeter.current(tenant.id, "emailsPerMonth")).toBe(25);
     expect(await usageMeter.current(tenant.id, "seats")).toBe(3);
   });
+
+  it("usage meter resets across the monthly billing period boundary", async () => {
+    const { tenant } = await tenantStore.createTenantAccount({
+      name: `Integration Test ${randomUUID()}`,
+      ownerEmail: `owner-${randomUUID()}@example.com`,
+    });
+    const june = new DbUsageMeter(db, () => new Date("2026-06-15T00:00:00.000Z"));
+    const july = new DbUsageMeter(db, () => new Date("2026-07-01T00:00:00.000Z"));
+
+    await june.record(tenant.id, "emailsPerMonth", 200);
+    expect(await june.current(tenant.id, "emailsPerMonth")).toBe(200);
+
+    // New month → fresh bucket, quota resets.
+    expect(await july.current(tenant.id, "emailsPerMonth")).toBe(0);
+    await july.record(tenant.id, "emailsPerMonth", 7);
+    expect(await july.current(tenant.id, "emailsPerMonth")).toBe(7);
+
+    // June's accrued usage is untouched by July writes.
+    expect(await june.current(tenant.id, "emailsPerMonth")).toBe(200);
+  });
 });

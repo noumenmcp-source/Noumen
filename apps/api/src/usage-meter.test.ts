@@ -1,22 +1,34 @@
 import { describe, expect, it, vi } from "vitest";
 import { usageCounters, type Db } from "@cdp-us/db";
-import { DbUsageMeter } from "./usage-meter.js";
+import { DbUsageMeter, billingPeriod } from "./usage-meter.js";
+
+const CLOCK = () => new Date("2026-06-15T00:00:00.000Z");
+
+describe("billingPeriod", () => {
+  it("formats UTC year-month, zero-padded", () => {
+    expect(billingPeriod(new Date("2026-06-15T23:00:00.000Z"))).toBe("2026-06");
+    expect(billingPeriod(new Date("2026-01-01T00:00:00.000Z"))).toBe("2026-01");
+    expect(billingPeriod(new Date("2026-12-31T23:59:59.000Z"))).toBe("2026-12");
+  });
+});
 
 describe("DbUsageMeter", () => {
-  it("records a positive delta as an atomic upsert", async () => {
+  it("records a positive delta as an atomic upsert bucketed by period", async () => {
     const onConflictDoUpdate = vi.fn(() => Promise.resolve());
     const values = vi.fn(() => ({ onConflictDoUpdate }));
     const insert = vi.fn(() => ({ values }));
-    const meter = new DbUsageMeter({ insert } as unknown as Db);
+    const meter = new DbUsageMeter({ insert } as unknown as Db, CLOCK);
 
     await meter.record("t_1", "emailsPerMonth", 5);
 
     expect(insert).toHaveBeenCalledWith(usageCounters);
     expect(values).toHaveBeenCalledWith(
-      expect.objectContaining({ tenantId: "t_1", metric: "emailsPerMonth", count: 5 }),
+      expect.objectContaining({ tenantId: "t_1", metric: "emailsPerMonth", period: "2026-06", count: 5 }),
     );
     expect(onConflictDoUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ target: [usageCounters.tenantId, usageCounters.metric] }),
+      expect.objectContaining({
+        target: [usageCounters.tenantId, usageCounters.metric, usageCounters.period],
+      }),
     );
   });
 
