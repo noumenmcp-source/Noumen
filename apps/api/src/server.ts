@@ -4,7 +4,7 @@ import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import type { ConsentState, IngestEvent } from "@cdp-us/contracts";
 import { InMemoryAuditStore, type AuditStore } from "@cdp-us/audit-log";
-import { InMemorySuppressionStore } from "@cdp-us/deliverability";
+import { InMemorySuppressionStore, type SuppressionStore } from "@cdp-us/deliverability";
 import { createDb } from "@cdp-us/db";
 import type { DsarReaders, Subject } from "@cdp-us/data-export";
 import type { Sender as DestinationSender } from "@cdp-us/destinations";
@@ -72,6 +72,7 @@ import {
   type TenantStore,
 } from "./tenant.js";
 import { DbAuditStore } from "./audit-store.js";
+import { DbSuppressionStore } from "./suppression-store.js";
 
 export async function buildServer(
   opts: {
@@ -81,6 +82,7 @@ export async function buildServer(
     tokenStore?: TokenStore;
     profileStore?: ProfileStore;
     auditStore?: AuditStore;
+    suppressionStore?: SuppressionStore;
     emailSender?: EmailSender;
     usageMeter?: UsageMeter;
     collectors?: CollectorRegistry;
@@ -95,6 +97,7 @@ export async function buildServer(
   const tokenStore = opts.tokenStore ?? createDefaultTokenStore();
   const profileStore = opts.profileStore ?? createDefaultProfileStore();
   const auditStore = opts.auditStore ?? createDefaultAuditStore();
+  const suppressionStore = opts.suppressionStore ?? createDefaultSuppressionStore();
   const profileService = new ProfileService(profileStore);
   const emailSender = opts.emailSender ?? createDefaultEmailSender();
   const usageMeter = opts.usageMeter ?? new InMemoryUsageMeter();
@@ -160,7 +163,7 @@ export async function buildServer(
     events: { readRows: async (tenantId) => (await ingestStore.listByTenant(tenantId)).map(toFunnelRow) },
   });
   registerLeadScoring(app, { tenantStore, tokenStore, profileStore, now: new Date().toISOString() });
-  registerDeliverability(app, { tenantStore, tokenStore, store: new InMemorySuppressionStore() });
+  registerDeliverability(app, { tenantStore, tokenStore, store: suppressionStore });
   registerCohorts(app, {
     tenantStore,
     tokenStore,
@@ -218,6 +221,14 @@ function createDefaultAuditStore(): AuditStore {
     return new DbAuditStore(createDb(connectionString));
   }
   return new InMemoryAuditStore();
+}
+
+function createDefaultSuppressionStore(): SuppressionStore {
+  const connectionString = process.env.DATABASE_URL;
+  if (connectionString) {
+    return new DbSuppressionStore(createDb(connectionString));
+  }
+  return new InMemorySuppressionStore();
 }
 
 function defaultRateLimit(): { max: number; timeWindow: number | string } {

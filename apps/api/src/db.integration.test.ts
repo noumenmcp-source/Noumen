@@ -5,6 +5,8 @@ import { createDb, events } from "@cdp-us/db";
 import { DbTenantStore } from "./tenant.js";
 import { DbIngestStore, toStoredIngestEvent } from "./ingest-store.js";
 import { DbAuditStore } from "./audit-store.js";
+import { DbSuppressionStore } from "./suppression-store.js";
+import { shouldSuppress } from "@cdp-us/deliverability";
 import { DbTokenStore } from "./auth.js";
 
 const url = process.env.DATABASE_URL;
@@ -16,6 +18,7 @@ run("db integration (real Postgres)", () => {
   let ingestStore!: DbIngestStore;
   let tokenStore!: DbTokenStore;
   let auditStore!: DbAuditStore;
+  let suppressionStore!: DbSuppressionStore;
 
   beforeAll(() => {
     db = createDb(url as string);
@@ -23,6 +26,7 @@ run("db integration (real Postgres)", () => {
     ingestStore = new DbIngestStore(db);
     tokenStore = new DbTokenStore(db);
     auditStore = new DbAuditStore(db);
+    suppressionStore = new DbSuppressionStore(db);
   });
 
   it("tenant lifecycle", async () => {
@@ -153,5 +157,21 @@ run("db integration (real Postgres)", () => {
     const filtered = await auditStore.query({ tenantId: tenant.id, action: "export" });
     expect(filtered).toHaveLength(1);
     expect(filtered[0]?.resource.id).toBe("p_2");
+  });
+
+  it("suppression upsert + normalized lookup persists across reasons", async () => {
+    const email = `Buyer-${randomUUID()}@Acme.TEST`;
+
+    await suppressionStore.add({ email, reason: "unsubscribe" });
+    const first = await suppressionStore.get(email.toLowerCase());
+    expect(first).toEqual({ email: email.trim().toLowerCase(), reason: "unsubscribe" });
+    expect(await shouldSuppress(email, suppressionStore)).toBe(true);
+
+    // Re-adding the same email upserts the reason (no duplicate row / PK clash).
+    await suppressionStore.add({ email, reason: "complaint" });
+    const updated = await suppressionStore.get(email);
+    expect(updated?.reason).toBe("complaint");
+
+    expect(await suppressionStore.get(`absent-${randomUUID()}@acme.test`)).toBeNull();
   });
 });

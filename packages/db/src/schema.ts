@@ -116,3 +116,14 @@ export const auditEntries = pgTable(
   },
   (t) => [index("audit_tenant_ts_idx").on(t.tenantId, t.ts)],
 );
+
+/**
+ * Email suppression list (CAN-SPAM). Keyed by normalized email — global across
+ * the sending surface, matching the @cdp-us/deliverability SuppressionStore
+ * contract (no tenant scope). Append/upsert only; never silently dropped.
+ */
+export const suppressionEntries = pgTable("suppression_entries", {
+  email: text("email").primaryKey(),
+  reason: text("reason").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
