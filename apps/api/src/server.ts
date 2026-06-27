@@ -119,7 +119,7 @@ export async function buildServer(
   registerSignup(app, tenantStore, tokenStore);
   registerIngest(app, ingestStore, tenantStore, profileService);
   registerData(app, profileStore, ingestStore, tokenStore);
-  registerEmail(app, profileStore, tokenStore, {
+  registerEmail(app, tenantStore, profileStore, tokenStore, {
     sender: emailSender,
     usageMeter,
   });

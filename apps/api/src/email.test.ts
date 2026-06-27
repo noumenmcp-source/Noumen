@@ -1,12 +1,16 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import type { PlanKey } from "@cdp-us/billing";
 import { InMemoryProfileStore } from "@cdp-us/core-cdp";
 import { InMemoryUsageMeter, PLANS } from "@cdp-us/billing";
+import type { TenantAccount as PlatformTenantAccount } from "@cdp-us/platform";
+import { InMemoryTokenStore } from "./auth.js";
 import { resetConsentOverrides, setConsent } from "./consent.js";
 import { resetCounters } from "./routes/health.js";
 import { buildServer } from "./server.js";
-import { resetTenantRegistry } from "./tenant.js";
+import { InMemoryTenantStore, resetTenantRegistry } from "./tenant.js";
 
 type App = Awaited<ReturnType<typeof buildServer>>;
+type TenantStatus = PlatformTenantAccount["status"];
 
 const NOW = "2026-06-01T00:00:00.000Z";
 
@@ -17,6 +21,31 @@ async function signup(app: App) {
     payload: { companyName: "Acme US", ownerEmail: "owner@acme.example" },
   });
   return res.json();
+}
+
+async function setupTenant(
+  plan: PlanKey,
+  status: TenantStatus = "active",
+  usageMeter = new InMemoryUsageMeter(),
+) {
+  const tenantStore = new InMemoryTenantStore();
+  const tokenStore = new InMemoryTokenStore();
+  const account = await tenantStore.createTenantAccount({
+    id: `email_${plan}_${status}`,
+    writeKey: `wk_email_${plan}_${status}`,
+    ownerId: `owner_email_${plan}_${status}`,
+    name: `${plan} tenant`,
+    ownerEmail: `${plan}.${status}@example.test`,
+    plan,
+    status,
+  });
+  const { token } = await tokenStore.issue({
+    tenantId: account.tenant.id,
+    userId: account.owner.id,
+    role: account.owner.role,
+  });
+  const app = await buildServer({ logger: false, tenantStore, tokenStore, usageMeter });
+  return { app, account, token, usageMeter };
 }
 
 const CAMPAIGN = {
@@ -100,20 +129,49 @@ describe("email campaigns (consent-gated, billing-limited)", () => {
 
   it("returns 402 when the plan email limit is reached", async () => {
     const usageMeter = new InMemoryUsageMeter();
-    const app = await buildServer({ logger: false, usageMeter });
-    const account = await signup(app);
+    const { app, account, token } = await setupTenant("growth", "active", usageMeter);
     const tid = account.tenant.id;
     await usageMeter.record(tid, "emailsPerMonth", PLANS.growth.limits.emailsPerMonth);
 
     const res = await app.inject({
       method: "POST",
       url: `/v1/tenants/${tid}/email/campaigns`,
-      headers: { authorization: `Bearer ${account.apiToken}` },
+      headers: { authorization: `Bearer ${token}` },
       payload: CAMPAIGN,
     });
     await app.close();
 
     expect(res.statusCode).toBe(402);
     expect(res.json()).toMatchObject({ error: "limit_reached", metric: "emailsPerMonth" });
+  });
+
+  it("uses the tenant plan limit instead of a route default", async () => {
+    const { app, account, token } = await setupTenant("free");
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/v1/tenants/${account.tenant.id}/email/campaigns`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: CAMPAIGN,
+    });
+    await app.close();
+
+    expect(res.statusCode).toBe(402);
+    expect(res.json()).toMatchObject({ error: "limit_reached", metric: "emailsPerMonth" });
+  });
+
+  it("403s suspended tenants before sending an email campaign", async () => {
+    const { app, account, token } = await setupTenant("agency", "suspended");
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/v1/tenants/${account.tenant.id}/email/campaigns`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: CAMPAIGN,
+    });
+    await app.close();
+
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ error: "tenant_suspended", metric: "emailsPerMonth" });
   });
 });

@@ -1,16 +1,13 @@
 import type { FastifyInstance } from "fastify";
 import { enforceEntitlement } from "@cdp-us/platform";
-import type { TenantAccount as PlatformTenantAccount } from "@cdp-us/platform";
 import {
   getModuleManifest,
   isModuleKey,
   listModuleManifests,
 } from "../module-registry.js";
 import { authenticate, roleSatisfies, type TokenStore } from "../auth.js";
+import { getPlatformTenantAccount } from "../platform.js";
 import type { TenantStore } from "../tenant.js";
-
-const DEFAULT_PLAN = "agency" as const;
-const DEFAULT_STATUS = "active" as const;
 
 /**
  * Module catalog (public) + tenant module enablement (auth + RBAC).
@@ -68,14 +65,4 @@ export function registerModules(
       module: getModuleManifest(moduleKey),
     });
   });
-}
-
-async function getPlatformTenantAccount(
-  tenantStore: TenantStore,
-  tenantId: string,
-): Promise<PlatformTenantAccount | undefined> {
-  const account = await tenantStore.getTenantAccount?.(tenantId);
-  if (account) return account;
-  const tenant = await tenantStore.getTenant(tenantId);
-  return tenant ? { tenant, plan: DEFAULT_PLAN, status: DEFAULT_STATUS } : undefined;
 }

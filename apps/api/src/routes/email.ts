@@ -8,12 +8,12 @@ import {
   TemplateGenerator,
   sendCampaign,
 } from "@cdp-us/email";
-import { PLANS, withinLimit, type UsageMeter } from "@cdp-us/billing";
+import { enforceLimit } from "@cdp-us/platform";
+import type { UsageMeter } from "@cdp-us/billing";
 import { authenticate, roleSatisfies, type TokenStore } from "../auth.js";
 import { isAllowed } from "../consent.js";
-
-/** Plan used for enforcement until per-tenant plans are wired. */
-const DEFAULT_PLAN = "growth" as const;
+import { getPlatformTenantAccount } from "../platform.js";
+import type { TenantStore } from "../tenant.js";
 
 const campaignSchema = z.object({
   trigger: z.string(),
@@ -34,6 +34,7 @@ const campaignSchema = z.object({
  */
 export function registerEmail(
   app: FastifyInstance,
+  tenantStore: TenantStore,
   profileStore: ProfileStore,
   tokenStore: TokenStore,
   deps: { sender: EmailSender; usageMeter: UsageMeter },
@@ -58,9 +59,18 @@ export function registerEmail(
       return reply.code(400).send({ error: "invalid_trigger" });
     }
 
+    const account = await getPlatformTenantAccount(tenantStore, tenantId);
+    if (!account) return reply.code(404).send({ error: "unknown_tenant" });
+
     const usage = await deps.usageMeter.current(tenantId, "emailsPerMonth");
-    if (!withinLimit(PLANS[DEFAULT_PLAN], "emailsPerMonth", usage)) {
-      return reply.code(402).send({ error: "limit_reached", metric: "emailsPerMonth" });
+    const limit = enforceLimit(account, "emailsPerMonth", usage);
+    if (!limit.ok) {
+      const error = account.status === "suspended" ? "tenant_suspended" : "limit_reached";
+      return reply.code(error === "tenant_suspended" ? 403 : 402).send({
+        error,
+        metric: "emailsPerMonth",
+        reason: limit.reason,
+      });
     }
 
     const profiles = await profileStore.listByTenant(tenantId);
