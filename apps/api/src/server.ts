@@ -77,7 +77,9 @@ export async function buildServer(
   await app.register(cors, {
     origin: true,
     methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["content-type"],
+    // authorization is required: the console + SDKs send Bearer tokens on
+    // read/write endpoints; without it the browser blocks the CORS preflight.
+    allowedHeaders: ["content-type", "authorization"],
   });
   const rateLimitConfig = opts.rateLimit ?? defaultRateLimit();
   if (rateLimitConfig !== false) {

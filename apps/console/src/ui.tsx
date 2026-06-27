@@ -52,6 +52,28 @@ export function ErrorState(props: { readonly message: string }) {
   return <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">{props.message}</p>;
 }
 
+/** Small pill, tinted by tone. Used for intent score and module state.
+ * @example <Badge tone="hot">Intent 82</Badge>
+ */
+export function Badge(props: {
+  readonly children: ReactNode;
+  readonly tone?: "neutral" | "warm" | "hot" | "ok";
+}) {
+  const tones = {
+    neutral: "border-line bg-field text-ink/70",
+    warm: "border-amber-200 bg-amber-50 text-amber-800",
+    hot: "border-red-200 bg-red-50 text-red-800",
+    ok: "border-emerald-200 bg-emerald-50 text-emerald-800",
+  } as const;
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${tones[props.tone ?? "neutral"]}`}
+    >
+      {props.children}
+    </span>
+  );
+}
+
 export function Shell(props: { readonly children: ReactNode }) {
   return (
     <div className="min-h-screen bg-[#f8faf7] text-ink">
