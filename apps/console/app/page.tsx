@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { analyticsFunnel, analyticsTimeseries, audienceSize, getHealth } from "../src/api";
 import type { TimePoint } from "../src/api";
-import { readSession } from "../src/session";
+import { clearSession, readSession } from "../src/session";
 import type { FunnelStep, Health, Session } from "../src/types";
 import { Badge, ErrorState, PageHeader, Shell } from "../src/ui";
 import {
@@ -77,11 +77,13 @@ export default function DashboardPage() {
       setLoading(false);
       return;
     }
-    const { tenantId, apiToken } = found.session;
     const { from, to } = windowDates();
     const deviceIcons = Object.fromEntries(DEVICES.map((d) => [d.v, d.icon]));
+    const demoTenant = process.env.NEXT_PUBLIC_DEMO_TENANT;
+    const demoToken = process.env.NEXT_PUBLIC_DEMO_TOKEN;
 
-    async function load(): Promise<void> {
+    async function loadWith(session: Session): Promise<number> {
+      const { tenantId, apiToken } = session;
       const funnel: readonly FunnelStep[] = await analyticsFunnel(tenantId, apiToken, FUNNEL_STEPS as unknown as string[]).catch(() => []);
       const series: readonly TimePoint[] = await analyticsTimeseries(tenantId, apiToken, { metric: "events", from, to }).catch(() => []);
       const [devices, channels, industries] = await Promise.all([
@@ -91,10 +93,26 @@ export default function DashboardPage() {
       ]);
       let events = 0;
       for (const p of series) events += p.value;
-      setOverview({ total: funnel[0]?.count ?? 0, events, funnel, series, devices, channels, industries });
+      const total = funnel[0]?.count ?? 0;
+      setOverview({ total, events, funnel, series, devices, channels, industries });
+      return total;
     }
 
-    load().catch((err: unknown) => setError(String(err))).finally(() => setLoading(false));
+    const active = found;
+    async function run(): Promise<void> {
+      const total = await loadWith(active.session).catch(() => 0);
+      // A stored session that yields no data (stale/invalid token, or an empty
+      // tenant) must not brick the public demo: blow it away and load the demo
+      // workspace instead. A real, populated login (total > 0) is left untouched.
+      if (total === 0 && !active.demo && demoTenant && demoToken) {
+        clearSession();
+        const demoSession: Session = { tenantId: demoTenant, apiToken: demoToken, tenant: null };
+        setCtx({ session: demoSession, demo: true });
+        await loadWith(demoSession);
+      }
+    }
+
+    run().catch((err: unknown) => setError(String(err))).finally(() => setLoading(false));
   }, []);
 
   const conv = overview && overview.funnel.length > 1
