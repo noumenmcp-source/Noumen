@@ -1,0 +1,12 @@
+{
+  "name": "@cdp-us/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": { "cdp": "./dist/index.js" },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": { "build": "tsc -b", "test": "vitest run" },
+  "dependencies": { "commander": "^12.1.0" },
+  "devDependencies": { "vitest": "^2.1.8" }
+}
