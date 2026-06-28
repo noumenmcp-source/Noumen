@@ -35,6 +35,14 @@ describe("ProfileService.applyEvent", () => {
     expect(profile.intent.lastActiveAt).toBeDefined();
   });
 
+  it("lifts the email trait onto Profile.email and keeps it across later events", async () => {
+    const svc = service();
+    const created = await svc.applyEvent(TENANT, identify("a1", undefined, { email: " Buyer@Acme.test " }));
+    expect(created.email).toBe("Buyer@Acme.test");
+    const later = await svc.applyEvent(TENANT, track("a1", "page"));
+    expect(later.email).toBe("Buyer@Acme.test"); // not clobbered by an email-less event
+  });
+
   it("repeat track on same anonymousId upserts (no dup, same id)", async () => {
     clock = 0;
     const store = new InMemoryProfileStore();

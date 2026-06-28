@@ -52,6 +52,9 @@ export class ProfileService {
       ...base,
       anonymousId: base.anonymousId ?? event.anonymousId,
       userId: event.type === "identify" ? event.userId ?? base.userId : base.userId,
+      // Lift the email trait onto the first-class identifier (first non-empty wins),
+      // so identify { traits: { email } } populates Profile.email for segments/export.
+      email: base.email ?? stringTrait(traits, "email"),
       traits,
       firmographics: liftFirmographics(base.firmographics, traits),
       intent: { ...base.intent, topics, score, lastActiveAt: ts },
@@ -64,6 +67,12 @@ export class ProfileService {
 /** Traits carried by an event: identify.traits, or {} for track. */
 function eventTraits(event: IngestEvent): Record<string, unknown> {
   return event.type === "identify" ? event.traits : {};
+}
+
+/** Read a non-empty string trait, trimmed; undefined otherwise. */
+function stringTrait(traits: Record<string, unknown>, key: string): string | undefined {
+  const value = traits[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 /** Shallow-merge incoming traits onto existing ones (incoming wins per key). */
