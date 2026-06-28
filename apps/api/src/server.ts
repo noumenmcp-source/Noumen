@@ -4,7 +4,7 @@ import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import type { ConsentState, IngestEvent } from "@cdp-us/contracts";
 import { InMemoryAuditStore, type AuditStore } from "@cdp-us/audit-log";
-import { InMemorySuppressionStore, type SuppressionStore } from "@cdp-us/deliverability";
+import { InMemorySuppressionStore, shouldSuppress, type SuppressionStore } from "@cdp-us/deliverability";
 import { createDb } from "@cdp-us/db";
 import { redactProfile, type DsarEraser, type DsarReaders, type Subject } from "@cdp-us/data-export";
 import type { Sender as DestinationSender } from "@cdp-us/destinations";
@@ -188,7 +188,12 @@ export async function buildServer(
       (await profileStore.listByTenant(tenantId)).map((p) => ({ id: p.id, anonymousId: p.anonymousId, email: p.email })),
     loadEvents: async (tenantId) => (await ingestStore.listByTenant(tenantId)).map(toIngestEvent),
   };
-  registerSegments(app, { tenantStore, tokenStore, store: lifecycleStore });
+  registerSegments(app, {
+    tenantStore,
+    tokenStore,
+    store: lifecycleStore,
+    suppression: { isSuppressed: (email) => shouldSuppress(email, suppressionStore) },
+  });
   registerChannelQuality(app, { tenantStore, tokenStore, store: lifecycleStore });
   registerReport(app, { tenantStore, tokenStore, store: lifecycleStore });
   registerCohorts(app, {

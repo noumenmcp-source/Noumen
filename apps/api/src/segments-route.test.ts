@@ -92,6 +92,26 @@ describe("lifecycle segments route", () => {
     expect(lines).toHaveLength(2); // header + the single dormant profile
   });
 
+  it("excludes suppressed emails from CSV export (CAN-SPAM) unless overridden", async () => {
+    const tokenStore = new InMemoryTokenStore();
+    const { token } = await tokenStore.issue({ tenantId: "t1", userId: "u1", role: "analyst", token: "tok" });
+    const app = Fastify();
+    registerSegments(app, {
+      tenantStore: store(tenant()),
+      tokenStore,
+      store: { loadProfiles: async () => PROFILES, loadEvents: async () => EVENTS },
+      now: () => NOW,
+      suppression: { isSuppressed: async (email) => email === "dorm@acme.test" },
+    });
+
+    const filtered = await app.inject({ method: "GET", url: "/v1/tenants/t1/segments/lifecycle/dormant/export", headers: auth(token) });
+    expect(filtered.body.trim().split("\r\n")).toHaveLength(1); // header only — the dormant member is suppressed
+
+    const all = await app.inject({ method: "GET", url: "/v1/tenants/t1/segments/lifecycle/dormant/export?includeSuppressed=true", headers: auth(token) });
+    await app.close();
+    expect(all.body).toContain("p_dormant");
+  });
+
   it("rejects an unknown lifecycle stage in export (400)", async () => {
     const { app, token } = await setup(tenant());
     const res = await app.inject({ method: "GET", url: "/v1/tenants/t1/segments/lifecycle/bogus/export", headers: auth(token) });

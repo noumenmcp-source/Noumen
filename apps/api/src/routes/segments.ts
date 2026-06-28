@@ -22,6 +22,8 @@ export type SegmentsDeps = Readonly<{
   tenantStore: TenantStore;
   tokenStore: TokenStore;
   store: LifecycleStore;
+  /** Optional CAN-SPAM guard: suppressed emails are excluded from exports. */
+  suppression?: Readonly<{ isSuppressed(email: string): Promise<boolean> }>;
   now?: () => string;
 }>;
 
@@ -96,12 +98,22 @@ export function registerSegments(app: FastifyInstance, deps: SegmentsDeps): void
     const tenant = await deps.tenantStore.getTenant(tenantId);
     if (!tenant) return reply.code(404).send({ error: "unknown_tenant" });
 
+    // Default: exclude suppressed emails (CAN-SPAM). ?includeSuppressed=true overrides.
+    const includeSuppressed = (req.query as { includeSuppressed?: string }).includeSuppressed === "true";
     const now = deps.now?.() ?? new Date().toISOString();
     try {
       const members = await lifecycleMembers(deps.store, tenantId, now, stage);
+      const exportable =
+        includeSuppressed || !deps.suppression
+          ? members
+          : (
+              await Promise.all(
+                members.map(async (m) => ((m.email && (await deps.suppression!.isSuppressed(m.email))) ? null : m)),
+              )
+            ).filter((m): m is LifecycleProfile => m !== null);
       const csv = toCsv(
         ["profile_id", "email", "anonymous_id", "lifecycle_stage"],
-        members.map((m) => [m.id, m.email ?? "", m.anonymousId ?? "", stage]),
+        exportable.map((m) => [m.id, m.email ?? "", m.anonymousId ?? "", stage]),
       );
       return reply
         .header("content-type", "text/csv; charset=utf-8")
