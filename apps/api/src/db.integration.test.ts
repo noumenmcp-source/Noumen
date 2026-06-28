@@ -374,4 +374,32 @@ run("db integration (real Postgres)", () => {
     expect(kinds).toContain("win_back"); // dormant=1 → win-back email action
     expect(kinds).toContain("resell"); // vip=1 → resell SMS action
   });
+
+  it("CSV import creates email-bearing profiles on real Postgres", async () => {
+    const { tenant, owner } = await tenantStore.createTenantAccount({
+      name: `Integration Test ${randomUUID()}`,
+      ownerEmail: `owner-${randomUUID()}@example.com`,
+    });
+    const { token } = await tokenStore.issue({ tenantId: tenant.id, userId: owner.id, role: "owner" });
+    const e1 = `import-${randomUUID()}@acme.test`;
+    const e2 = `import-${randomUUID()}@beta.test`;
+    const csv = `email,firstName,company\n${e1},Jane,Acme\n${e2},Bob,Beta`;
+
+    const app = await buildServer({ logger: false });
+    const res = await app.inject({
+      method: "POST",
+      url: `/v1/tenants/${tenant.id}/import/csv`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { csv },
+    });
+    await app.close();
+
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toMatchObject({ ok: true, imported: 2, skipped: 0 });
+
+    const profileStore = new DbProfileStore(db);
+    const profiles = await profileStore.listByTenant(tenant.id);
+    expect(profiles.map((p) => p.email).sort()).toEqual([e1, e2].sort());
+    expect(profiles.find((p) => p.email === e1)?.firmographics.company).toBe("Acme");
+  });
 });
