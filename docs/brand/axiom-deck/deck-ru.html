@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Аксиом — Revenue OS</title>
+<style>
+@font-face{font-family:'Lora';src:url('fonts/Lora-Regular.ttf') format('truetype');font-weight:400;font-style:normal;font-display:block}
+@font-face{font-family:'Lora';src:url('fonts/Lora-Bold.ttf') format('truetype');font-weight:700;font-style:normal;font-display:block}
+@font-face{font-family:'Lora';src:url('fonts/Lora-Italic.ttf') format('truetype');font-weight:400;font-style:italic;font-display:block}
+@font-face{font-family:'Lora';src:url('fonts/Lora-BoldItalic.ttf') format('truetype');font-weight:700;font-style:italic;font-display:block}
+@font-face{font-family:'Geist Mono';src:url('fonts/GeistMono-Regular.ttf') format('truetype');font-weight:400;font-display:block}
+@font-face{font-family:'Geist Mono';src:url('fonts/GeistMono-Bold.ttf') format('truetype');font-weight:700;font-display:block}
+
+:root{
+  --bg:#16120B; --bg2:#1c1710;
+  --ink:#F2ECDF; --dim:rgba(242,236,223,.60); --faint:rgba(242,236,223,.34);
+  --gold:#C8A24C; --gold-dim:rgba(200,162,76,.55); --gold-soft:rgba(200,162,76,.12);
+  --line:rgba(242,236,223,.14); --clay:#C16B4E;
+  /* app mockup palette (light) */
+  --app:#F4EEE2; --app-ink:#221b12; --app-dim:#7a6f5c; --app-faint:#9a8f7b;
+  --app-gold:#9a7b2e; --app-green:#3f7d4f; --app-red:#b3492f; --app-line:rgba(34,27,18,.12);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{background:#0d0a06}
+.deck{width:1280px;margin:0 auto}
+.slide{position:relative;width:1280px;height:720px;overflow:hidden;
+  background:
+    radial-gradient(120% 80% at 8% 0%, rgba(200,162,76,.09) 0%, rgba(200,162,76,0) 42%),
+    radial-gradient(90% 90% at 100% 110%, rgba(193,107,78,.07) 0%, rgba(193,107,78,0) 50%),
+    linear-gradient(160deg,var(--bg2) 0%,var(--bg) 60%);
+  color:var(--ink);font-family:'Lora',Georgia,serif;padding:80px 96px 72px;
+  display:flex;flex-direction:column;page-break-after:always;break-after:page}
+.slide:last-child{page-break-after:auto}
+.slide::after{content:"";position:absolute;inset:0;
+  background:radial-gradient(130% 120% at 50% 50%, rgba(0,0,0,0) 55%, rgba(0,0,0,.34) 100%);pointer-events:none}
+.mono{font-family:'Geist Mono',monospace}
+.eyebrow{font-family:'Geist Mono',monospace;font-size:15px;letter-spacing:.18em;text-transform:uppercase;color:#E2BD66;font-weight:700}
+.gold{color:var(--gold)} .clay{color:var(--clay)} .dim{color:var(--dim)} .it{font-style:italic}
+.tf{display:inline-grid;grid-template-columns:repeat(3,1fr);grid-template-rows:1fr 1fr;width:1.05em;height:.92em;vertical-align:middle;align-items:center;justify-items:center}
+.tf i{width:.155em;height:.155em;border-radius:50%;background:var(--gold);display:block}
+.tf i:nth-child(1){grid-column:2;grid-row:1}.tf i:nth-child(2){grid-column:1;grid-row:2}.tf i:nth-child(3){grid-column:3;grid-row:2}
+.top{display:flex;justify-content:space-between;align-items:center}
+.brand{display:flex;align-items:center;gap:12px;font-family:'Geist Mono',monospace;font-size:14px;letter-spacing:.22em;text-transform:uppercase;color:var(--ink)}
+.brand .tf{font-size:18px}
+.top .kicker{font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:.26em;text-transform:uppercase;color:var(--faint)}
+.body{flex:1;display:flex;flex-direction:column;justify-content:center}
+h1{font-size:74px;line-height:1.02;font-weight:700;letter-spacing:-.012em}
+h2{font-size:52px;line-height:1.06;font-weight:700;letter-spacing:-.01em}
+.lead{font-size:24px;line-height:1.5;color:var(--dim);max-width:880px;margin-top:24px}
+.foot{display:flex;justify-content:space-between;align-items:center;font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:.18em;color:var(--faint);text-transform:uppercase}
+.foot .hair{position:absolute;left:96px;right:96px;height:1px;background:var(--line);transform:translateY(-22px)}
+.wm{position:absolute;right:10px;bottom:-40px;line-height:1}
+.wm .tf{font-size:430px}.wm .tf i{background:rgba(200,162,76,.055)}
+
+/* cover */
+.cover .latin{font-family:'Geist Mono',monospace;font-size:18px;letter-spacing:.4em;color:var(--gold-dim);text-transform:uppercase;margin-bottom:26px}
+.cover h1{font-size:150px;letter-spacing:-.02em;line-height:.9}
+.cover .tag{font-size:38px;font-style:italic;color:var(--ink);margin-top:30px;line-height:1.12}
+.cover .tag b{font-style:italic;color:var(--gold);font-weight:700}
+.cover .formula{margin-top:28px;font-family:'Geist Mono',monospace;font-size:14px;letter-spacing:.16em;color:var(--dim);text-transform:uppercase}
+
+/* problem stat */
+.stat{display:flex;align-items:flex-start;gap:48px;margin-top:30px}
+.stat .big{font-size:150px;line-height:.86;font-weight:700;letter-spacing:-.02em}
+.stat .big.g{color:var(--gold)} .stat .pct{font-size:60px;vertical-align:super}
+.stat .cap{font-size:17px;color:var(--dim);line-height:1.4;margin-top:14px;max-width:240px}
+.stat .arrow{font-family:'Geist Mono';font-size:48px;color:var(--gold-dim);align-self:center;margin-top:-20px}
+.punch{margin-top:40px;font-size:27px;line-height:1.3;color:var(--ink);max-width:900px}
+.punch .it{color:var(--gold)}
+
+/* promise cols */
+.cols{display:grid;gap:30px;margin-top:44px}
+.c3{grid-template-columns:repeat(3,1fr)}
+.c4{grid-template-columns:repeat(4,1fr)}
+.col .h{font-family:'Geist Mono';font-size:13px;letter-spacing:.2em;text-transform:uppercase;color:var(--gold)}
+.col .d{font-size:17px;line-height:1.5;color:var(--dim);margin-top:14px}
+.step .n{font-family:'Geist Mono';font-size:15px;color:var(--gold);letter-spacing:.1em}
+.step .t{font-size:22px;font-weight:700;margin-top:14px;line-height:1.2}
+.step .d{font-size:15px;line-height:1.5;color:var(--dim);margin-top:10px}
+.step{border-top:1px solid var(--line);padding-top:18px}
+
+/* product mockup */
+.demo{display:grid;grid-template-columns:1fr 360px;gap:48px;align-items:center;margin-top:30px}
+.mock{background:var(--app);border-radius:12px;overflow:hidden;box-shadow:0 40px 90px -30px rgba(0,0,0,.7);color:var(--app-ink)}
+.mock-bar{display:flex;align-items:center;gap:14px;padding:12px 16px;background:#e7e0d2;border-bottom:1px solid var(--app-line)}
+.mock-bar .dots{display:flex;gap:7px}
+.mock-bar .dots i{width:11px;height:11px;border-radius:50%;background:#c9beac;display:block}
+.mock-bar .url{font-family:'Geist Mono';font-size:12px;color:var(--app-dim);background:#f4efe4;border-radius:6px;padding:5px 14px}
+.mock-app{padding:26px 30px 30px}
+.mock-app .ahead{display:flex;justify-content:space-between;align-items:center;font-family:'Geist Mono';font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--app-faint)}
+.mock-app .ahead .biz{color:var(--app-ink);font-weight:700;letter-spacing:.1em}
+.mock-app .badge{font-family:'Geist Mono';font-size:11px;color:var(--app-green);background:rgba(63,125,79,.12);border-radius:20px;padding:5px 12px;letter-spacing:.04em}
+.mock-app h3{font-size:30px;font-weight:700;line-height:1.12;margin-top:20px;letter-spacing:-.01em}
+.mock-app h3 .g{color:var(--app-gold)}
+.mock-app .warn{color:var(--app-red);font-size:14px;margin-top:8px;font-weight:700}
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--app-line);border:1px solid var(--app-line);border-radius:8px;overflow:hidden;margin-top:22px}
+.tiles .t{background:var(--app);padding:14px 16px}
+.tiles .t .k{font-family:'Geist Mono';font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--app-faint)}
+.tiles .t .v{font-size:22px;font-weight:700;margin-top:6px}
+.tiles .t .v.g{color:var(--app-gold)} .tiles .t .v.green{color:var(--app-green)}
+.where{margin-top:24px}
+.where .wt{font-size:16px;font-weight:700}
+.where .wd{font-size:12px;color:var(--app-dim);margin-top:2px}
+.bar{display:flex;align-items:center;gap:14px;margin-top:13px;font-size:13px}
+.bar .nm{width:150px;color:var(--app-ink)}
+.bar .tr{flex:1;height:14px;background:rgba(34,27,18,.06);border-radius:3px;overflow:hidden}
+.bar .fl{height:100%;border-radius:3px}
+.bar .am{width:130px;text-align:right;font-family:'Geist Mono';font-size:12px;color:var(--app-dim)}
+/* annotations */
+.notes .nt{display:flex;gap:16px;margin-bottom:26px}
+.notes .num{flex:none;width:30px;height:30px;border-radius:50%;border:1px solid var(--gold-dim);color:var(--gold);font-family:'Geist Mono';font-size:13px;display:flex;align-items:center;justify-content:center}
+.notes .tt{font-size:19px;font-weight:700;line-height:1.2}
+.notes .dd{font-size:14px;color:var(--dim);line-height:1.45;margin-top:6px}
+.demo-h{font-size:40px;font-weight:700;line-height:1.05;letter-spacing:-.01em}
+.demo-sub{font-size:16px;color:var(--dim);margin-top:12px;line-height:1.5}
+
+/* works/leaks rows */
+.rows{margin-top:22px}
+.row2{display:grid;grid-template-columns:1fr auto auto;gap:18px;align-items:center;border:1px solid var(--app-line);border-radius:8px;padding:14px 18px;margin-bottom:10px}
+.row2 .nm{font-size:16px;font-weight:700}
+.row2 .nm small{display:block;font-family:'Geist Mono';font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--app-faint);font-weight:400;margin-top:3px}
+.row2 .why{font-family:'Geist Mono';font-size:11px;color:var(--app-dim);max-width:230px;text-align:right;line-height:1.4}
+.row2 .roas{font-size:24px;font-weight:700;text-align:right}
+.row2 .roas small{display:block;font-family:'Geist Mono';font-size:10px;font-weight:400;letter-spacing:.04em;margin-top:3px}
+.row2.win{border-left:3px solid var(--app-green)} .row2.win .roas{color:var(--app-green)} .row2.win .roas small{color:var(--app-green)}
+.row2.leak{border-left:3px solid var(--app-red)} .row2.leak .roas{color:var(--app-red)} .row2.leak .roas small{color:var(--app-red)}
+.todo{margin-top:18px}
+.todo .th{font-size:16px;font-weight:700}
+.todo .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:12px}
+.todo .card{background:#ece5d6;border-radius:8px;padding:14px 16px}
+.todo .card .ck{font-family:'Geist Mono';font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--app-faint)}
+.todo .card .ct{font-size:14px;font-weight:700;margin-top:8px;line-height:1.25}
+.demo.wide{grid-template-columns:360px 1fr}
+
+/* audience */
+.aud{display:grid;grid-template-columns:1fr 1fr;gap:36px;margin-top:44px}
+.aud .card{border:1px solid var(--line);padding:28px 26px;border-top:2px solid var(--gold-dim)}
+.aud .tag{font-family:'Geist Mono';font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--gold)}
+.aud .t{font-size:24px;font-weight:700;margin-top:14px}
+.aud .d{font-size:15px;color:var(--dim);line-height:1.5;margin-top:12px}
+/* outcome */
+.otiles{display:grid;grid-template-columns:repeat(3,1fr);gap:26px;margin-top:46px}
+.otile{border-top:1px solid var(--line);padding-top:22px}
+.otile .t{font-size:22px;font-weight:700;line-height:1.2;color:var(--gold)}
+.otile .d{font-size:15px;color:var(--dim);line-height:1.5;margin-top:12px}
+/* axiom concept */
+.axiom .def{font-size:58px;line-height:1.14;font-weight:400;font-style:italic;max-width:1000px;margin-top:28px}
+.axiom .def .q{color:var(--gold)}
+.axiom .turn{font-size:34px;line-height:1.25;margin-top:36px;max-width:880px}
+.axiom .turn b{color:var(--gold);font-weight:700}
+/* extra mock patterns: seo/email/social/booking/forecast */
+.mock-app h4{font-size:14px;font-weight:700;margin-top:18px}
+.mchart{margin-top:10px}
+.mchart-leg{display:flex;gap:20px;font-family:'Geist Mono';font-size:10px;color:var(--app-dim);margin-top:6px}
+.mchart-leg i{display:inline-block;width:14px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}
+.krow{display:flex;justify-content:space-between;align-items:center;font-size:13.5px;padding:9px 0;border-bottom:1px solid var(--app-line)}
+.krow:last-child{border-bottom:none}
+.krow .d{font-family:'Geist Mono';font-size:12px}
+.up{color:var(--app-green)} .down{color:var(--app-red)}
+.srow{font-size:13.5px;padding:11px 0;border-bottom:1px solid var(--app-line);line-height:1.4}
+.srow:last-child{border-bottom:none}
+.srow b{font-weight:700}
+.srow .m{font-family:'Geist Mono';font-size:11px;color:var(--app-gold)}
+.tiles.t3{grid-template-columns:repeat(3,1fr)}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.chip{font-family:'Geist Mono';font-size:11px;color:var(--app-gold);border:1px solid var(--app-line);border-radius:20px;padding:5px 12px}
+.ppanel{background:rgba(63,125,79,.10);border-radius:8px;padding:12px 14px;font-family:'Geist Mono';font-size:12px;font-weight:700;color:var(--app-green);margin-top:14px;letter-spacing:.02em}
+.fb{background:#ece5d6;border-radius:8px;padding:12px 14px;font-size:13.5px;margin-top:12px;line-height:1.4}
+.fb .who{font-family:'Geist Mono';font-size:10px;color:var(--app-faint);text-transform:uppercase;letter-spacing:.08em;margin-top:5px}
+.ro{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px}
+.ro .c{border-radius:8px;padding:13px 15px;font-size:13px;line-height:1.4}
+.ro .risk{background:rgba(179,73,47,.10);border-left:3px solid var(--app-red)}
+.ro .opp{background:rgba(63,125,79,.10);border-left:3px solid var(--app-green)}
+.ro .k{font-family:'Geist Mono';font-size:10px;letter-spacing:.1em;text-transform:uppercase;margin-bottom:6px}
+.ro .risk .k{color:var(--app-red)} .ro .opp .k{color:var(--app-green)}
+/* close */
+.close .body{justify-content:center}
+.close h1{font-size:80px;line-height:1.05;max-width:1000px}
+.close h1 .it{color:var(--gold)}
+.close .cta{margin-top:38px;font-family:'Geist Mono';font-size:15px;letter-spacing:.18em;color:var(--dim);text-transform:uppercase}
+.fa{color:var(--gold-dim)}
+</style>
+</head>
+<body>
+<div class="deck">
+
+<!-- 1 COVER -->
+<section class="slide cover">
+  <div class="top"><div class="brand"><span class="tf"><i></i><i></i><i></i></span> Аксиом</div><div class="kicker">Revenue OS · операционная система выручки</div></div>
+  <div class="body">
+    <div class="latin">A X I O M</div>
+    <h1>Аксиом</h1>
+    <div class="tag">делает выручку <b>очевидной.</b></div>
+    <div class="formula">что приносит деньги? &nbsp;·&nbsp; что сливает бюджет? &nbsp;·&nbsp; как вырастить прибыль?</div>
+  </div>
+  <div class="foot"><span class="hair"></span><span>Питч-дек · 2026</span><span>01 / 15</span></div>
+  <div class="wm"><span class="tf"><i></i><i></i><i></i></span></div>
+</section>
+
+<!-- 2 PROBLEM -->
+<section class="slide">
+  <div class="top"><div class="brand"><span class="tf"><i></i><i></i><i></i></span> Аксиом</div><div class="kicker">01 — Проблема</div></div>
+  <div class="body">
+    <div class="eyebrow">Большинство платит вслепую</div>
+    <div class="stat">
+      <div><div class="big g">95<span class="pct">%</span></div><div class="cap">уверены, что считают свой маркетинговый ROI</div></div>
+      <div class="arrow">→</div>
+      <div><div class="big">25<span class="pct">%</span></div><div class="cap">реально считают его регулярно</div></div>
+    </div>
+    <div class="punch">Маркетинг — чёрный ящик. Вы платите. Что-то происходит. <span class="it">Никто не скажет почему.</span></div>
+  </div>
+  <div class="foot"><span class="hair"></span><span>Опрос SMB · WhatConverts</span><span>02 / 15</span></div>
+</section>
+
+<!-- 3 PROMISE -->
+<section class="slide">
+  <div class="top"><div class="brand"><span class="tf"><i></i><i></i><i></i></span> Аксиом</div><div class="kicker">02 — Что это</div></div>
+  <div class="body">
+    <div class="eyebrow">Решение</div>
+    <h1 style="margin-top:18px">Переводит маркетинг<br>на <span class="gold">язык денег.</span></h1>
+    <div class="cols c3">
+      <div class="col"><div class="h">Подключает</div><div class="d">Яндекс.Директ, VK, Метрика, эквайринг, CRM, маркетплейсы — за минуты.</div></div>
+      <div class="col"><div class="h">Сводит</div><div class="d">Расход, выручку и позиции — в одну честную картину по факту оплат.</div></div>
+      <div class="col"><div class="h">Объясняет</div><div class="d">Что было, почему и что делать — языком, который понимает владелец.</div></div>
+    </div>
+    <div class="punch" style="margin-top:34px;font-size:24px">Дашборды говорят, что произошло. <span class="it">Аксиом говорит, что делать.</span></div>
+  </div>
+  <div class="foot"><span class="hair"></span><span>Одна картина · простые слова</span><span>03 / 15</span></div>
+</section>
+
+<!-- 4 DEMO: MONEY SCREEN -->
+<section class="slide">
+  <div class="top"><div class="brand"><span class="tf"><i></i><i></i><i></i></span> Аксиом</div><div class="kicker">03 — Покажем вживую</div></div>
+  <div class="demo" style="flex:1">
+    <div class="mock">
+      <div class="mock-bar"><div class="dots"><i></i><i></i><i></i></div><div class="url">app.aksiom.ru / kofe-ryadom / деньги</div></div>
+      <div class="mock-app">
+        <div class="ahead"><span class="biz">Кофе Рядом</span><span class="badge">● Прибыльно · 3,3 ₽ на 1 ₽</span></div>
+        <h3>Потрачено <span class="g">1,2 млн ₽</span> на маркетинг —<br>вернулось <span class="g">3,96 млн ₽</span>.</h3>
+        <div class="warn">Но один канал тихо теряет деньги — см. VK ниже <span class="mono">↓</span></div>
+        <div class="tiles">
+          <div class="t"><div class="k">Потрачено</div><div class="v">1,2 млн ₽</div></div>
+          <div class="t"><div class="k">Вернулось</div><div class="v">3,96 млн ₽</div></div>
+          <div class="t"><div class="k">На каждый ₽</div><div class="v g">3,30 ₽</div></div>
+          <div class="t"><div class="k">Осталось</div><div class="v green">2,76 млн ₽</div></div>
+        </div>
+        <div class="where">
+          <div class="wt">Куда ушли деньги</div>
+          <div class="wd">Бюджет 1,2 млн ₽, по каналам</div>
+          <div class="bar"><div class="nm">VK Реклама</div><div class="tr"><div class="fl" style="width:45%;background:#b3492f"></div></div><div class="am">540 000 ₽ · 45%</div></div>
+          <div class="bar"><div class="nm">Яндекс.Директ</div><div class="tr"><div class="fl" style="width:27%;background:#caa14e"></div></div><div class="am">324 000 ₽ · 27%</div></div>
+          <div class="bar"><div class="nm">Маркетплейсы</div><div class="tr"><div class="fl" style="width:16%;background:#caa14e"></div></div><div class="am">192 000 ₽ · 16%</div></div>
+          <div class="bar"><div class="nm">Email</div><div class="tr"><div class="fl" style="width:7%;background:#3f7d4f"></div></div><div class="am">84 000 ₽ · 7%</div></div>
+          <div class="bar"><div class="nm">Прочее</div><div class="tr"><div class="fl" style="width:5%;background:#b9ad97"></div></div><div class="am">60 000 ₽ · 5%</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <div class="demo-h">Что владелец<br>видит первым.</div>
+      <div class="demo-sub" style="margin-bottom:30px">Реальный экран — без аналитика.</div>
+      <div class="nt"><div class="num">1</div><div><div class="tt">Итог одной строкой</div><div class="dd">«Потрачено 1,2 млн — вернулось 3,96 млн». Слова, а не график для расшифровки.</div></div></div>
+      <div class="nt"><div class="num">2</div><div><div class="tt">Прибыль, не тщеславие</div><div class="dd">Четыре числа, которые реально важны: потрачено, вернулось, на ₽, осталось.</div></div></div>
+      <div class="nt"><div class="num">3</div><div><div class="tt">Куда ушли деньги</div><div class="dd">Бюджет по каналам, крупнейший сверху — VK занимает 45% с одного взгляда.</div></div></div>
+    </div>
+  </div>
+  <div class="foot"><span class="hair"></span><span>Сверено с эквайрингом · по факту оплат</span><span>04 / 15</span></div>
+</section>
+
+<!-- 5 DEMO: WORKS / LEAKS / DO -->
+<section class="slide">
+  <div class="top"><div class="brand"><span class="tf"><i></i><i></i><i></i></span> Аксиом</div><div class="kicker">04 — Работает · сливает · делать</div></div>
+  <div class="demo wide" style="flex:1">
+    <div class="notes">
+      <div class="demo-h" style="font-size:33px;line-height:1.1">Что работает,<br>что сливает,<br><span class="gold">что делать,<br>чтоб росла прибыль.</span></div>
+      <div class="demo-sub" style="margin-bottom:28px">Переводчик за работой.</div>
+      <div class="nt"><div class="num">1</div><div><div class="tt">Зелёное приносит, красное сливает</div><div class="dd">Отсортировано от лучшего к худшему — по возврату на ₽. Без догадок.</div></div></div>
+      <div class="nt"><div class="num">2</div><div><div class="tt">«Почему» простыми словами</div><div class="dd">«Потрачено на 34% больше — продажи упали». С цифрами, не выдуманными.</div></div></div>
+      <div class="nt"><div class="num">3</div><div><div class="tt">Что делать, по порядку</div><div class="dd">Остановить потерю · усилить · быстрая победа. Каждый шаг привязан к данным.</div></div></div>
+    </div>
+    <div class="mock">
+      <div class="mock-bar"><div class="dots"><i></i><i></i><i></i></div><div class="url">app.aksiom.ru / kofe-ryadom / деньги</div></div>
+      <div class="mock-app">
+        <h3 style="font-size:22px;margin-top:0">Что работает — и что сливает деньги</h3>
+        <div class="rows">
+          <div class="row2 win"><div class="nm">Email<small>скрытый герой</small></div><div class="why">3,10 ₽ на ₽. Дёшево и надёжно — канал недоиспользован.</div><div class="roas">×3,1<small>приносит</small></div></div>
+          <div class="row2 win"><div class="nm">Яндекс.Директ (бренд)<small>лучший канал</small></div><div class="why">Каждый ₽ возвращается вчетверо. Рост тут дешевле всего.</div><div class="roas">×4,0<small>приносит</small></div></div>
+          <div class="row2 leak"><div class="nm">VK Реклама (холодный)<small>теряет деньги</small></div><div class="why">Потрачено на 34% больше, продажи упали на 25%. Оффер перестал работать.</div><div class="roas">×0,6<small>сливает</small></div></div>
+        </div>
+        <div class="todo">
+          <div class="th">Что делать дальше</div>
+          <div class="cards">
+            <div class="card"><div class="ck">01 · остановить потерю</div><div class="ct">Отключить холодный VK до масштабирования</div></div>
+            <div class="card"><div class="ck">02 · усилить</div><div class="ct">Перенести бюджет в Email и бренд-поиск</div></div>
+            <div class="card"><div class="ck">03 · быстрая победа</div><div class="ct">Больше писем — почти бесплатная прибыль</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span class="hair"></span><span>Заземлено на данные · без выдуманных советов</span><span>05 / 15</span></div>
+</section>
+
+<!-- 6 SEO -->
+<section class="slide">
+  <div class="top"><div class="brand"><span class="tf"><i></i><i></i><i></i></span> Аксиом</div><div class="kicker">05 — SEO</div></div>
+  <div class="demo" style="flex:1">
+    <div class="mock">
+      <div class="mock-bar"><div class="dots"><i></i><i></i><i></i></div><div class="url">app.aksiom.ru / kofe-ryadom / seo</div></div>
+      <div class="mock-app">
+        <div class="ahead"><span class="biz">Кофе Рядом</span><span class="badge">● 38% лидов · 0 ₽ за клик</span></div>
+        <h3 style="font-size:24px">Поиск приносит <span class="g">38% лидов</span> без оплаты за клик.</h3>
+        <div class="warn">Но конкурент обходит вас по денежным запросам.</div>
+        <h4>Видимость: вы против конкурента</h4>
+        <div class="mchart">
+          <svg viewBox="0 0 320 104" style="width:100%;height:100px" preserveAspectRatio="none">
+            <polyline fill="none" stroke="#b3492f" stroke-width="2.5" points="0,62 64,54 128,44 192,33 256,25 320,17"/>
+            <polyline fill="none" stroke="#3f7d4f" stroke-width="2.5" points="0,90 64,86 128,79 192,71 256,63 320,55"/>
+          </svg>
+          <div class="mchart-leg"><span><i style="background:#3f7d4f"></i>вы — растёте, 34%</span><span><i style="background:#b3492f"></i>конкурент — 48%, обходит</span></div>
+        </div>
+        <h4>Запросы в движении</h4>
+        <div class="krow"><span>зёрна для кофейни оптом</span><span class="d up">↑ #14 → #6</span></div>
+        <div class="krow"><span>кофейня рядом со мной</span><span class="d up">↑ #9 → #3</span></div>
+        <div class="krow"><span>кофе на вынос цена</span><span class="d down">↓ #4 → #9</span></div>
+      </div>
+    </div>
+    <div class="notes">
+      <div class="demo-h">Органический трафик —<br>наконец понятный.</div>
+      <div class="demo-sub" style="margin-bottom:28px">Видимость и конкуренты — без SEO-диплома.</div>
+      <div class="nt"><div class="num">1</div><div><div class="tt">Вы против конкурентов</div><div class="dd">Видимость месяц к месяцу — кто кого обходит по денежным запросам.</div></div></div>
+      <div class="nt"><div class="num">2</div><div><div class="tt">Запросы в движении</div><div class="dd">Что растёт, что падает — и сколько это клиентов.</div></div></div>
+      <div class="nt"><div class="num">3</div><div><div class="tt">Привязано к деньгам</div><div class="dd">Закрыть SEO-разрыв дешевле, чем купить тот же трафик рекламой.</div></div></div>
+    </div>
+  </div>
+  <div class="foot"><span class="hair"></span><span>Яндекс.Вебмастер · DataForSEO</span><span>06 / 15</span></div>
+</section>
+
+<!-- 7 EMAIL -->
+<section class="slide">
+  <div class="top"><div class="brand"><span class="tf"><i></i><i></i><i></i></span> Аксиом</div><div class="kicker">06 — Email</div></div>
+  <div class="demo wide" style="flex:1">
+    <div class="notes">
+      <div class="demo-h">Email, который<br>возвращает клиентов.</div>
+      <div class="demo-sub" style="margin-bottom:28px">Адресно, по истории покупок — не массовая рассылка.</div>
+      <div class="nt"><div class="num">1</div><div><div class="tt">Персональные предложения</div><div class="dd">Каждому — своё, по его покупкам и поведению. Не спам на всю базу.</div></div></div>
+      <div class="nt"><div class="num">2</div><div><div class="tt">Меньше оттока</div><div class="dd">Спящих возвращают вовремя — до того, как они ушли насовсем.</div></div></div>
+      <div class="nt"><div class="num">3</div><div><div class="tt">Выше средний чек</div><div class="dd">Апсейл и допродажа по истории — в нужный момент.</div></div></div>
+    </div>
+    <div class="mock">
+      <div class="mock-bar"><div class="dots"><i></i><i></i><i></i></div><div class="url">app.aksiom.ru / kofe-ryadom / email</div></div>
+      <div class="mock-app">
+        <h3 style="font-size:22px;margin-top:0">Кампании за месяц</h3>
+        <div class="tiles t3">
+          <div class="t"><div class="k">Отток</div><div class="v green">−24%</div></div>
+          <div class="t"><div class="k">Средний чек</div><div class="v g">+18%</div></div>
+          <div class="t"><div class="k">Вернулось спящих</div><div class="v">312</div></div>
+        </div>
+        <h4>Кому и что ушло</h4>
+        <div class="srow"><b>Спящие 90 дней</b> → −15% на любимую категорию <span class="m">· вернулось 312</span></div>
+        <div class="srow"><b>VIP по чеку</b> → ранний доступ + апсейл <span class="m">· чек +22%</span></div>
+        <div class="srow"><b>Брошенная корзина</b> → напоминание через 2 ч <span class="m">· +9% выручки</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span class="hair"></span><span>Сегменты + триггеры · по истории покупок</span><span>07 / 15</span></div>
+</section>
+
+<!-- 8 SOCIAL -->
+<section class="slide">
+  <div class="top"><div class="brand"><span class="tf"><i></i><i></i><i></i></span> Аксиом</div><div class="kicker">07 — Соцразведка</div></div>
+  <div class="demo" style="flex:1">
+    <div class="mock">
+      <div class="mock-bar"><div class="dots"><i></i><i></i><i></i></div><div class="url">app.aksiom.ru / kofe-ryadom / соцразведка</div></div>
+      <div class="mock-app">
+        <div class="ahead"><span class="biz">Кофе Рядом</span><span class="badge">● VK · Telegram · YouTube</span></div>
+        <h3 style="font-size:24px">Спрос виден <span class="g">до</span> запуска рекламы.</h3>
+        <h4>Тренды по вашей ЦА и ГЕО</h4>
+        <div class="krow"><span>«кофе с собой»</span><span class="d up">↑ +38% обсуждений</span></div>
+        <div class="krow"><span>«растительное молоко»</span><span class="d up">↑ +52%</span></div>
+        <div class="krow"><span>«подписка на кофе»</span><span class="d up">↑ +21%</span></div>
+        <h4>Гипотезы на проверку</h4>
+        <div class="chips"><span class="chip">оффер: подписка</span><span class="chip">SKU: овсяное молоко</span><span class="chip">формат: опрос в stories</span></div>
+      </div>
+    </div>
+    <div class="notes">
+      <div class="demo-h">Соцсети — как<br>разведка спроса.</div>
+      <div class="demo-sub" style="margin-bottom:28px">Гипотезы проверяются парсингом, а не бюджетом.</div>
+      <div class="nt"><div class="num">1</div><div><div class="tt">Разведка спроса</div><div class="dd">Что реально хотят — до того, как вы потратите на рекламу.</div></div></div>
+      <div class="nt"><div class="num">2</div><div><div class="tt">Быстрая проверка гипотез</div><div class="dd">Парсинг VK, Telegram, YouTube вместо слитого на тест бюджета.</div></div></div>
+      <div class="nt"><div class="num">3</div><div><div class="tt">Тренды и настроение</div><div class="dd">По вашей ЦА и ГЕО — что растёт прямо сейчас.</div></div></div>
+    </div>
+  </div>
+  <div class="foot"><span class="hair"></span><span>social-intel · VK · Telegram · YouTube</span><span>08 / 15</span></div>
+</section>
+
+<!-- 9 BOOKING -->
+<section class="slide">
+  <div class="top"><div class="brand"><span class="tf"><i></i><i></i><i></i></span> Аксиом</div><div class="kicker">08 — Бронирование</div></div>
+  <div class="demo wide" style="flex:1">
+    <div class="notes">
+      <div class="demo-h">Запись с памятью<br>бренд-менеджера.</div>
+      <div class="demo-sub" style="margin-bottom:28px">Сезонность, история клиента, проактивные касания.</div>
+      <div class="nt"><div class="num">1</div><div><div class="tt">Запись + контекст клиента</div><div class="dd">Учитывает сезонность и историю — кто, когда и на что приходил.</div></div></div>
+      <div class="nt"><div class="num">2</div><div><div class="tt">Напоминает заранее</div><div class="dd">Записаться снова и сезонные спецпредложения — до того, как клиент ушёл к другим.</div></div></div>
+      <div class="nt"><div class="num">3</div><div><div class="tt">Обратная связь после услуги</div><div class="dd">Сама спросит отзыв в сообщениях — как настоящий бренд-менеджер.</div></div></div>
+    </div>
+    <div class="mock">
+      <div class="mock-bar"><div class="dots"><i></i><i></i><i></i></div><div class="url">app.aksiom.ru / kofe-ryadom / запись</div></div>
+      <div class="mock-app">
+        <h3 style="font-size:22px;margin-top:0">Записи и проактивные касания</h3>
+        <div class="ppanel">● Напоминания отправлены 142 клиентам · сезонный оффер</div>
+        <h4>Что работает на автомате</h4>
+        <div class="srow"><b>Сезонность + история</b> → персональное напоминание <span class="m">· +64 записи</span></div>
+        <div class="srow"><b>Окно простоя пн–ср</b> → спецпредложение <span class="m">· загрузка +18%</span></div>
+        <div class="fb">«Спасибо, всё было отлично!»<div class="who">Авто-запрос обратной связи · оценка 5,0 · через 1 ч после визита</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span class="hair"></span><span>automation · journeys · обратная связь</span><span>09 / 15</span></div>
+</section>
+
+<!-- 10 FORECAST -->
+<section class="slide">
+  <div class="top"><div class="brand"><span class="tf"><i></i><i></i><i></i></span> Аксиом</div><div class="kicker">09 — Прогноз</div></div>
+  <div class="demo" style="flex:1">
+    <div class="mock">
+      <div class="mock-bar"><div class="dots"><i></i><i></i><i></i></div><div class="url">app.aksiom.ru / kofe-ryadom / прогноз</div></div>
+      <div class="mock-app">
+        <div class="ahead"><span class="biz">Кофе Рядом</span><span class="badge">● прогноз на 3 месяца</span></div>
+        <h3 style="font-size:24px">Прогноз с поправкой<br>на тренды спроса.</h3>
+        <div class="mchart">
+          <svg viewBox="0 0 320 100" style="width:100%;height:96px" preserveAspectRatio="none">
+            <line x1="200" y1="6" x2="200" y2="92" stroke="rgba(34,27,18,.20)" stroke-width="1" stroke-dasharray="2 3"/>
+            <polyline fill="none" stroke="#9a7b2e" stroke-width="2.5" points="0,76 53,66 106,68 160,50 200,54"/>
+            <polyline fill="none" stroke="#9a7b2e" stroke-width="2.5" stroke-dasharray="5 4" points="200,54 253,42 306,32 320,28"/>
+          </svg>
+          <div class="mchart-leg"><span><i style="background:#9a7b2e"></i>история сезонов</span><span><i style="background:#9a7b2e;opacity:.45"></i>прогноз + тренды</span></div>
+        </div>
+        <div class="ro">
+          <div class="c risk"><div class="k">▼ Риск — погасить</div>Спрос на латте проседает в соцсетях — пик сезона под угрозой.</div>
+          <div class="c opp"><div class="k">▲ Выгода — не упустить</div>Тренд на холодный кофе растёт — успеть с оффером раньше конкурентов.</div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <div class="demo-h">Видит тренды<br>раньше вас.</div>
+      <div class="demo-sub" style="margin-bottom:28px">История сезонов + сдвиг спроса из соцсетей по ЦА и ГЕО.</div>
+      <div class="nt"><div class="num">1</div><div><div class="tt">Прогноз по сезонам</div><div class="dd">На основе прошлых лет — с поправкой на динамику и тренды спроса.</div></div></div>
+      <div class="nt"><div class="num">2</div><div><div class="tt">Риски — заранее</div><div class="dd">Подсвечены до того, как наступили. Время сработать на упреждение.</div></div></div>
+      <div class="nt"><div class="num">3</div><div><div class="tt">Выгоды — не упустить</div><div class="dd">Что нельзя пропустить на основании трендов.</div></div></div>
+    </div>
+  </div>
+  <div class="foot"><span class="hair"></span><span>история + тренды соцсетей · риски и выгоды</span><span>10 / 15</span></div>
+</section>
+
+<!-- 6 HOW IT WORKS -->
+<section class="slide">
+  <div class="top"><div class="brand"><span class="tf"><i></i><i></i><i></i></span> Аксиом</div><div class="kicker">10 — Движок</div></div>
+  <div class="body">
+    <div class="eyebrow">Как это работает</div>
+    <div class="formula mono" style="margin-top:30px;font-size:15px;letter-spacing:.14em;color:var(--dim);text-transform:uppercase">
+      ВАШИ ДАННЫЕ <span class="fa">→</span> МЕТРИКИ <span class="fa">→</span> ДОКАЗАТЕЛЬСТВО <span class="fa">→</span> ОТВЕТ <span class="fa">→</span> ДЕЙСТВИЕ
+    </div>
+    <h1 style="margin-top:30px">AI объясняет каждую цифру.<br><span class="it gold">Не выдумывает их.</span></h1>
+    <div class="lead">Под каждым выводом — ссылка на исходные данные и факт оплаты. Видно не только <span class="it">что</span> произошло, но и <span class="it">почему</span> — и это можно проверить.</div>
+  </div>
+  <div class="foot"><span class="hair"></span><span>Каждый вывод ссылается на метрику</span><span>11 / 15</span></div>
+</section>
+
+<!-- 7 AXIOM CONCEPT -->
+<section class="slide axiom">
+  <div class="top"><div class="brand"><span class="tf"><i></i><i></i><i></i></span> Аксиом</div><div class="kicker">Аксиома</div></div>
+  <div class="body">
+    <div class="eyebrow">Почему «Аксиом»</div>
+    <div class="def">Аксиома — самоочевидная <span class="q">истина</span>, которая не требует доказательств.</div>
+    <div class="turn">Мы делаем такой <b>вашу прибыль.</b></div>
+  </div>
+  <div class="foot"><span class="hair"></span><span style="display:inline-flex;align-items:center;gap:8px"><span class="tf" style="font-size:15px"><i></i><i></i><i></i></span> Следовательно</span><span>12 / 15</span></div>
+</section>
+
+<!-- 8 AUDIENCE -->
+<section class="slide">
+  <div class="top"><div class="brand"><span class="tf"><i></i><i></i><i></i></span> Аксиом</div><div class="kicker">11 — Для кого</div></div>
+  <div class="body">
+    <div class="eyebrow">Для кого · два пути</div>
+    <h2 style="margin-top:18px">Один движок — две модели продаж</h2>
+    <div class="aud">
+      <div class="card"><div class="tag">Напрямую</div><div class="t">SMB · фаундеры · growth-команды</div><div class="d">Точно знать, где работают деньги — без аналитика в штате. Один источник правды и приоритеты вместо споров о каналах.</div></div>
+      <div class="card"><div class="tag">White-label</div><div class="t">Агентства</div><div class="d">Ответы уровня стратега для каждого клиента — под вашим брендом, на потоке. Готовые клиентские отчёты вместо ручного Looker.</div></div>
+    </div>
+  </div>
+  <div class="foot"><span class="hair"></span><span>Аксиом · Revenue OS</span><span>13 / 15</span></div>
+</section>
+
+<!-- 9 OUTCOME -->
+<section class="slide">
+  <div class="top"><div class="brand"><span class="tf"><i></i><i></i><i></i></span> Аксиом</div><div class="kicker">12 — Результат</div></div>
+  <div class="body">
+    <div class="eyebrow">Что меняется</div>
+    <h2 style="margin-top:18px">Меньше потерь в бюджете.<br>Больше решений, которые двигают прибыль.</h2>
+    <div class="otiles">
+      <div class="otile"><div class="t">Каждый ₽ — с понятным ROI</div><div class="d">Отдача по каждому каналу по факту оплат, а не «средний» результат.</div></div>
+      <div class="otile"><div class="t">Решения за минуты</div><div class="d">Не недели ручных отчётов. Приоритеты сразу, с доказательством.</div></div>
+      <div class="otile"><div class="t">Один источник правды</div><div class="d">Вместо десяти вкладок и противоречивых выгрузок.</div></div>
+    </div>
+  </div>
+  <div class="foot"><span class="hair"></span><span>Аксиом · Revenue OS</span><span>14 / 15</span></div>
+</section>
+
+<!-- 10 CLOSE -->
+<section class="slide close">
+  <div class="top"><div class="brand"><span class="tf"><i></i><i></i><i></i></span> Аксиом</div><div class="kicker" style="display:inline-flex;align-items:center;gap:8px"><span class="tf" style="font-size:15px"><i></i><i></i><i></i></span> Следовательно</div></div>
+  <div class="body">
+    <h1>Сделаем вашу прибыль<br><span class="it">очевидной.</span></h1>
+    <div class="cta">Аксиом · Revenue OS &nbsp;—&nbsp; что работает, что сливает, что дальше</div>
+  </div>
+  <div class="foot"><span class="hair"></span><span>AXIOM / Аксиом</span><span>15 / 15</span></div>
+  <div class="wm"><span class="tf"><i></i><i></i><i></i></span></div>
+</section>
+
+</div>
+</body>
+</html>
