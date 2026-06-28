@@ -13,6 +13,8 @@ export interface ProfileStore {
   getByAnonymousId(tenantId: TenantId, anonymousId: string): Promise<Profile | undefined>;
   getByUserId(tenantId: TenantId, userId: string): Promise<Profile | undefined>;
   listByTenant(tenantId: TenantId): Promise<Profile[]>;
+  /** Remove a profile by id (used by identity-merge to fold duplicates). */
+  delete(tenantId: TenantId, id: string): Promise<void>;
 }
 
 /**
@@ -55,6 +57,10 @@ export class InMemoryProfileStore implements ProfileStore {
 
   async listByTenant(tenantId: TenantId): Promise<Profile[]> {
     return [...this.#byId.values()].filter((p) => p.tenantId === tenantId);
+  }
+
+  async delete(tenantId: TenantId, id: string): Promise<void> {
+    this.#byId.delete(key(tenantId, id));
   }
 
   #find(tenantId: TenantId, match: (p: Profile) => boolean): Profile | undefined {
@@ -122,6 +128,12 @@ export class DbProfileStore implements ProfileStore {
   async listByTenant(tenantId: TenantId): Promise<Profile[]> {
     const rows = await this.db.select().from(profiles).where(eq(profiles.tenantId, tenantId));
     return rows.map(toProfile);
+  }
+
+  async delete(tenantId: TenantId, id: string): Promise<void> {
+    await this.db
+      .delete(profiles)
+      .where(and(eq(profiles.tenantId, tenantId), eq(profiles.id, id)));
   }
 }
 

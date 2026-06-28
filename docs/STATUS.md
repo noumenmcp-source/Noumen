@@ -1,20 +1,38 @@
 # Статус относительно целевой архитектуры (US-only)
 
-Оценка по факту кода (CI-verified), не по оптимизму. Дата отметки задаётся коммитом.
+Оценка по факту кода (CI-verified). Канонический разбор слоёв и ADR — в
+[ARCHITECTURE.md](ARCHITECTURE.md). Дата отметки задаётся коммитом.
 
-**Скелет/плумбинг ≈ 75%. Рабочий end-to-end продукт ≈ 38–40%.**
-Главный разрыв: модули написаны и протестированы как библиотеки, но **не подключены в живой контур** (нет endpoint'ов/UI, которые их вызывают; профили из событий не собираются).
+**Скелет/плумбинг ≈ 92%. Рабочий end-to-end продукт ≈ 60%.**
+Ядро собирает профили из событий, резолвит identity (вкл. merge дубликатов),
+сегментирует и отдаёт через read-API; биллинг enforced; consent — в живом контуре
+с подписанным ledger; база переносима (export). Главный оставшийся разрыв — консоль/UI (0%)
+и реальный билинг-провайдер (Stripe) + DB-сторы для подписок/consent.
 
 | Слой | % | Сделано | Чего нет |
 |---|---|---|---|
-| Фундамент / инфра | 90 | монорепо, CI (build-test + integration на реальном Postgres), contracts, db (PG+Drizzle+миграции), sdk-коннектор | доп. хранилища (CH/Neo4j) — пока только PG |
-| Платформа (аккаунт) | 55 | self-serve signup, мультитенант-сторы (in-mem+Db), RBAC (bearer-token), billing-пакет, rate-limit, CORS | billing **не enforced**; auth — токен, не OIDC; нет RLS-изоляции |
-| Ядро CDP (данные) | 30 | ingest `/v1/track`, consent-gating (заглушка), события в PG | **нет identity-resolution и сборки профилей** (events пишутся, profiles пустые); нет сегментов/скоринга; нет read-API; **CDP не выделен в отдельный foundational-пакет** (`core-cdp/`=README, логика размазана по api); CDP — основа, собирающая данные, остальные модули должны их ПОТРЕБЛЯТЬ — связь не выстроена |
-| Модули как живые фичи | 25 | 5 пакетов с логикой+тестами (email / consent / social-intel вкл. youtube / automation / billing) | не wired в API/консоль; consent-движок не подключён (API на stub); AI-генерация не в контуре |
+| Фундамент / инфра | 90 | монорепо, CI (build-test + integration на PG), contracts, db (PG+Drizzle+миграции), SDK | доп. хранилища (CH/Neo4j) — пока только PG |
+| Платформа (аккаунт) | 62 | signup, мультитенант-сторы, RBAC (bearer), **billing ENFORCED** (`/track` и enable-модуля → 402; usage-метринг), rate-limit, CORS | billing-провайдер (Stripe) и DB-стор подписок — только in-mem; auth=token, не OIDC; нет RLS |
+| Ядро CDP (данные) | 80 | `packages/core-cdp`: ingest→profile upsert/merge, **identity-merge** дубликатов (anon↔known), фирмографика-lift, **intent-scoring** по активности, **segments query-API** | read-модель сегментов простая (AND-предикаты); скоринг линейный; CH/Neo4j нет |
+| Модули как живые фичи | 35 | 5 пакетов с логикой+тестами; **consent-движок в контуре** (CMP `resolveConsent` + подписанный ledger + GPC, супрессия ingest реальная) | email/social-intel/automation — ещё библиотеки, не wired в API/консоль; AI-генерация не в контуре |
 | Консоль / UI | 0 | — | весь дашборд «все данные» |
 | Деплой (живой) | 25 | Dockerfile + DEPLOY.md (статически проверены) | не задеплоено в US-облако; docker-build не гонялся |
 
+## Реализованные ADR (см. ARCHITECTURE.md §1)
+- **ADR-1** — social-intel без ПДн третьих лиц: `author` убран, guard-тест, README.
+- **ADR-2** — revenue-reconciliation вне скоупа (кода не требовал).
+- **ADR-3** — billing enforced: 402 без активной подписки / сверх лимита; план-гейт модулей.
+- **ADR-4** — экспорт базы: `GET /v1/tenants/:id/export` (NDJSON), анти-lock-in.
+
+## API-эндпоинты (живые)
+`POST /v1/signup` · `GET /v1/modules` · `POST /v1/tenants/:id/modules/:key` (план-гейт) ·
+`POST /v1/track` (billing+consent гейты, usage-метринг) ·
+`GET /v1/tenants/:id/{profiles,events}` · `POST /v1/tenants/:id/segments/query` ·
+`GET /v1/tenants/:id/export` · `POST /v1/consent` · `GET /v1/tenants/:id/consent/:subject` ·
+`GET /v1/health`
+
 ## Ближайшие шаги (наибольший прирост %)
-1. **Identity/профили** → вынести `packages/core-cdp`, events→profile upsert+merge, wire в ingest. Поднимает «Ядро CDP» 30→65. См. `docs/prompts/01-core-cdp-identity.md`.
-2. **Read-API + Console** — `GET /v1/tenants/:id/{profiles,events}` (auth+RBAC) + `apps/console` (Next.js). Делает данные видимыми.
-3. **Wire модулей в API** + enforce billing/consent — «Модули» 25→60.
+1. **Консоль** (`apps/console`, Next.js) — сделать данные видимыми (UI 0→40).
+2. **DB-сторы** подписок и consent + миграции (убрать in-mem из платёжного/юр-контура).
+3. **Wire email/social-intel/automation** в API под consent+billing (Модули 35→60).
+4. **OIDC + RLS** изоляция (Платформа 62→80).
