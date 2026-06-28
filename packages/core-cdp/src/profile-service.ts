@@ -61,7 +61,7 @@ export class ProfileService {
         event.type === "identify"
           ? event.userId ?? base.userId ?? mergeFrom?.userId
           : base.userId ?? mergeFrom?.userId,
-      email: base.email ?? mergeFrom?.email,
+      email: pickEmail(traits, base.email, mergeFrom?.email),
       traits,
       firmographics: liftFirmographics(baseFirmographics, traits),
       intent: {
@@ -105,6 +105,24 @@ export class ProfileService {
     }
     return { base: newProfile(tenantId, event, this.#now) };
   }
+}
+
+/**
+ * Resolve a profile email: a fresh `traits.email` wins (latest identify), else
+ * keep the first non-empty fallback (existing profile / merged duplicate).
+ */
+function pickEmail(
+  traits: Record<string, unknown>,
+  ...fallbacks: Array<string | undefined>
+): string | undefined {
+  const fromTraits = traits["email"];
+  if (typeof fromTraits === "string" && fromTraits.includes("@")) {
+    return fromTraits;
+  }
+  for (const candidate of fallbacks) {
+    if (candidate) return candidate;
+  }
+  return undefined;
 }
 
 /** Earliest of two ISO timestamps (b may be absent). */

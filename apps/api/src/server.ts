@@ -15,9 +15,11 @@ import {
   type ProfileStore,
 } from "@cdp-us/core-cdp";
 import { InMemoryUsageMeter, type UsageMeter } from "@cdp-us/billing";
+import { FakeSender, type EmailSender } from "@cdp-us/email";
 import { ConsentService } from "./consent-service.js";
 import { registerConsent } from "./routes/consent.js";
 import { registerData } from "./routes/data.js";
+import { registerEmail } from "./routes/email.js";
 import { registerExport } from "./routes/export.js";
 import { registerSegments } from "./routes/segments.js";
 import {
@@ -48,6 +50,7 @@ export async function buildServer(
     profileStore?: ProfileStore;
     subscriptionStore?: SubscriptionStore;
     usageMeter?: UsageMeter;
+    emailSender?: EmailSender;
     rateLimit?: { max: number; timeWindow: number | string } | false;
   } = {},
 ) {
@@ -60,6 +63,7 @@ export async function buildServer(
     opts.subscriptionStore ?? new InMemorySubscriptionStore();
   const usageMeter = opts.usageMeter ?? new InMemoryUsageMeter();
   const consentService = new ConsentService();
+  const emailSender = opts.emailSender ?? new FakeSender();
   const profileService = new ProfileService(profileStore);
   await app.register(cors, {
     origin: true,
@@ -88,6 +92,15 @@ export async function buildServer(
   registerExport(app, profileStore, ingestStore, tokenStore);
   registerSegments(app, profileStore, tokenStore);
   registerConsent(app, tenantStore, tokenStore, consentService);
+  registerEmail(
+    app,
+    profileStore,
+    tokenStore,
+    subscriptionStore,
+    usageMeter,
+    consentService,
+    emailSender,
+  );
   return app;
 }
 
