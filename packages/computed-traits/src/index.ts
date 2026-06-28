@@ -26,6 +26,102 @@ export function rfm(events: readonly IngestEvent[], opts: RfmOptions): { recency
   return { recency, frequency, monetary, score };
 }
 
+/** Auto lifecycle stages (AXIOM deck slide 6). One stage per profile. */
+export const LIFECYCLE_STAGES = ["new", "active", "dormant", "lost", "vip", "junk"] as const;
+export type LifecycleStage = (typeof LIFECYCLE_STAGES)[number];
+
+/** @example const t: LifecycleThresholds = DEFAULT_LIFECYCLE_THRESHOLDS; */
+export type LifecycleThresholds = Readonly<{
+  /** Activity recency (days) at/after which a profile is "dormant". */
+  dormantDays: number;
+  /** Activity recency (days) at/after which a profile is "lost". */
+  lostDays: number;
+  /** Tenure (days since first seen) at/below which an unconverted profile is "new". */
+  newDays: number;
+  /** RFM score at/above which a repeat buyer is "vip". */
+  vipScore: number;
+  /** Minimum purchases for "vip". */
+  vipPurchases: number;
+  /** Max total events for an unconverted, aged profile to count as "junk". */
+  junkMaxEvents: number;
+}>;
+
+export const DEFAULT_LIFECYCLE_THRESHOLDS: LifecycleThresholds = {
+  dormantDays: 90,
+  lostDays: 365,
+  newDays: 30,
+  vipScore: 80,
+  vipPurchases: 2,
+  junkMaxEvents: 1,
+};
+
+/** @example const s: LifecycleSignals = result.signals; */
+export type LifecycleSignals = Readonly<{
+  recencyDays: number | null;
+  tenureDays: number | null;
+  purchases: number;
+  score: number;
+  totalEvents: number;
+}>;
+
+/** @example const r: LifecycleResult = classifyLifecycle(events, { now }); */
+export type LifecycleResult = Readonly<{ stage: LifecycleStage; signals: LifecycleSignals }>;
+
+export type LifecycleOptions = Readonly<{
+  now: string;
+  thresholds?: Partial<LifecycleThresholds>;
+  purchaseEvent?: string;
+  valueProperty?: string;
+}>;
+
+/**
+ * Classify a profile into one lifecycle stage from its event history.
+ * Deterministic, threshold-driven (no ML): activity recency + RFM + tenure.
+ * Priority: empty→junk, lost, dormant, vip, new, junk, else active.
+ *
+ * @example classifyLifecycle(events, { now: "2026-06-10T00:00:00.000Z" }).stage; // => "vip"
+ */
+export function classifyLifecycle(
+  events: readonly IngestEvent[],
+  opts: LifecycleOptions,
+): LifecycleResult {
+  const t = { ...DEFAULT_LIFECYCLE_THRESHOLDS, ...opts.thresholds };
+  const r = rfm(events, {
+    now: opts.now,
+    valueProperty: opts.valueProperty,
+    purchaseEvent: opts.purchaseEvent,
+  });
+  const totalEvents = events.length;
+  const lastTs = latestTs(events);
+  const firstTs = earliestTs(events);
+  const recencyDays = lastTs ? daysBetween(lastTs, opts.now) : null;
+  const tenureDays = firstTs ? daysBetween(firstTs, opts.now) : null;
+  const signals: LifecycleSignals = {
+    recencyDays,
+    tenureDays,
+    purchases: r.frequency,
+    score: r.score,
+    totalEvents,
+  };
+  return { stage: pickLifecycleStage(t, signals), signals };
+}
+
+function pickLifecycleStage(t: LifecycleThresholds, s: LifecycleSignals): LifecycleStage {
+  if (s.totalEvents === 0) return "junk";
+  const recency = s.recencyDays ?? Number.POSITIVE_INFINITY;
+  const tenure = s.tenureDays ?? Number.POSITIVE_INFINITY;
+  if (recency >= t.lostDays) return "lost";
+  if (recency >= t.dormantDays) return "dormant";
+  if (s.purchases >= t.vipPurchases && s.score >= t.vipScore) return "vip";
+  if (tenure <= t.newDays && s.purchases === 0) return "new";
+  if (s.purchases === 0 && s.totalEvents <= t.junkMaxEvents) return "junk";
+  return "active";
+}
+
+function earliestTs(events: readonly IngestEvent[]): string | null {
+  return events.map((event) => event.ts).filter((ts): ts is string => Boolean(ts)).sort()[0] ?? null;
+}
+
 function compute(events: readonly IngestEvent[], def: TraitDefinition, opts: ComputeOptions): unknown {
   const matching = filterEvents(events, def.eventName);
   if (def.op === "count") return matching.length;

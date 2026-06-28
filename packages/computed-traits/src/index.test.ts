@@ -1,6 +1,54 @@
 import type { IngestEvent } from "@cdp-us/contracts";
 import { describe, expect, it } from "vitest";
-import { computeTraits, rfm } from "./index.js";
+import { classifyLifecycle, computeTraits, rfm } from "./index.js";
+
+const NOW = "2026-06-10T00:00:00.000Z";
+function ev(event: string, daysAgo: number, value?: number): IngestEvent {
+  const ts = new Date(Date.parse(NOW) - daysAgo * 86_400_000).toISOString();
+  return { type: "track", anonymousId: "a", event, properties: value === undefined ? {} : { value }, ts };
+}
+
+describe("classifyLifecycle", () => {
+  const stage = (events: readonly IngestEvent[]) => classifyLifecycle(events, { now: NOW }).stage;
+
+  it("junk for a signal-less (zero-event) profile", () => {
+    expect(stage([])).toBe("junk");
+  });
+
+  it("new for a recent unconverted profile", () => {
+    expect(stage([ev("Page Viewed", 10)])).toBe("new");
+  });
+
+  it("active for a recent engaged buyer below VIP", () => {
+    expect(stage([ev("Page Viewed", 5), ev("Order Completed", 10, 50)])).toBe("active");
+  });
+
+  it("vip for a recent repeat high-value buyer", () => {
+    expect(stage([ev("Order Completed", 2, 100), ev("Order Completed", 1, 100)])).toBe("vip");
+  });
+
+  it("dormant when last activity is 90..365 days old", () => {
+    expect(stage([ev("Order Completed", 120, 80)])).toBe("dormant");
+  });
+
+  it("lost when last activity is >= 365 days old", () => {
+    expect(stage([ev("Order Completed", 400, 80)])).toBe("lost");
+  });
+
+  it("junk for an aged sparse unconverted profile", () => {
+    expect(stage([ev("Page Viewed", 60)])).toBe("junk");
+  });
+
+  it("honors custom thresholds (dormantDays=30 → 40d activity is dormant)", () => {
+    expect(classifyLifecycle([ev("Page Viewed", 40)], { now: NOW, thresholds: { dormantDays: 30 } }).stage).toBe("dormant");
+  });
+
+  it("exposes signals (recency, tenure, purchases, score, totalEvents)", () => {
+    const r = classifyLifecycle([ev("Order Completed", 2, 100), ev("Page Viewed", 30)], { now: NOW });
+    expect(r.signals).toMatchObject({ recencyDays: 2, tenureDays: 30, purchases: 1, totalEvents: 2 });
+    expect(r.signals.score).toBeGreaterThan(0);
+  });
+});
 
 describe("computed traits", () => {
   it("computes count, sum, last, and recency deterministically", () => {
