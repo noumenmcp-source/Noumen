@@ -12,6 +12,7 @@
     { "path": "packages/destinations" },
     { "path": "packages/journeys" },
     { "path": "packages/attribution" },
+    { "path": "packages/channel-roi" },
     { "path": "packages/warehouse-sync" },
     { "path": "packages/data-quality" },
     { "path": "packages/audiences" },
