@@ -18,6 +18,7 @@
     "@cdp-us/audit-log": "workspace:*",
     "@cdp-us/automation": "workspace:*",
     "@cdp-us/cohorts": "workspace:*",
+    "@cdp-us/computed-traits": "workspace:*",
     "@cdp-us/deliverability": "workspace:*",
     "@cdp-us/enrichment": "workspace:*",
     "@cdp-us/forms": "workspace:*",

@@ -45,6 +45,7 @@ import { registerAttribution } from "./routes/attribution.js";
 import { registerAudiences } from "./routes/audiences.js";
 import { registerAuditLog } from "./routes/audit-log.js";
 import { registerCohorts } from "./routes/cohorts.js";
+import { registerSegments } from "./routes/segments.js";
 import { registerDataExport } from "./routes/data-export.js";
 import { registerDataQuality } from "./routes/data-quality.js";
 import { registerDestinations } from "./routes/destinations.js";
@@ -180,6 +181,15 @@ export async function buildServer(
   });
   registerLeadScoring(app, { tenantStore, tokenStore, profileStore, now: new Date().toISOString() });
   registerDeliverability(app, { tenantStore, tokenStore, store: suppressionStore });
+  registerSegments(app, {
+    tenantStore,
+    tokenStore,
+    store: {
+      loadProfiles: async (tenantId) =>
+        (await profileStore.listByTenant(tenantId)).map((p) => ({ id: p.id, anonymousId: p.anonymousId })),
+      loadEvents: async (tenantId) => (await ingestStore.listByTenant(tenantId)).map(toIngestEvent),
+    },
+  });
   registerCohorts(app, {
     tenantStore,
     tokenStore,

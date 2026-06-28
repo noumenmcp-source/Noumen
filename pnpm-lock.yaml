@@ -77,6 +77,9 @@ importers:
       '@cdp-us/cohorts':
         specifier: workspace:*
         version: link:../../packages/cohorts
+      '@cdp-us/computed-traits':
+        specifier: workspace:*
+        version: link:../../packages/computed-traits
       '@cdp-us/consent':
         specifier: workspace:*
         version: link:../../modules/consent

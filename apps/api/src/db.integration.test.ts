@@ -310,4 +310,58 @@ run("db integration (real Postgres)", () => {
     await app2.close();
     expect(isAllowed(tenant.id, subject, "marketing_email")).toBe(true);
   });
+
+  it("lifecycle segments classify the tenant base over real data", async () => {
+    const { tenant, owner } = await tenantStore.createTenantAccount({
+      name: `Integration Test ${randomUUID()}`,
+      ownerEmail: `owner-${randomUUID()}@example.com`,
+    });
+    const { token } = await tokenStore.issue({ tenantId: tenant.id, userId: owner.id, role: "owner" });
+    const profileStore = new DbProfileStore(db);
+    const ago = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString();
+
+    const seed: Array<{ anon: string; events: Array<{ name: string; daysAgo: number; value?: number }> }> = [
+      { anon: `vip_${randomUUID()}`, events: [{ name: "Order Completed", daysAgo: 1, value: 100 }, { name: "Order Completed", daysAgo: 2, value: 100 }] },
+      { anon: `dorm_${randomUUID()}`, events: [{ name: "Order Completed", daysAgo: 120, value: 80 }] },
+      { anon: `new_${randomUUID()}`, events: [{ name: "Page Viewed", daysAgo: 3 }] },
+    ];
+    for (const row of seed) {
+      await profileStore.save({
+        id: `p_${randomUUID()}`,
+        tenantId: tenant.id,
+        anonymousId: row.anon,
+        firmographics: {},
+        intent: {},
+        traits: {},
+        createdAt: ago(200),
+        updatedAt: ago(1),
+      });
+      for (const e of row.events) {
+        await ingestStore.save(
+          toStoredIngestEvent(tenant.id, {
+            type: "track",
+            anonymousId: row.anon,
+            event: e.name,
+            properties: e.value === undefined ? {} : { value: e.value },
+            ts: ago(e.daysAgo),
+          }),
+        );
+      }
+    }
+
+    const app = await buildServer({ logger: false });
+    const res = await app.inject({
+      method: "GET",
+      url: `/v1/tenants/${tenant.id}/segments/lifecycle`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    await app.close();
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      ok: true,
+      total: 3,
+      stages: { vip: 1, dormant: 1, new: 1, active: 0, lost: 0, junk: 0 },
+    });
+  });
 });
