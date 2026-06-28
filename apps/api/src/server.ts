@@ -17,6 +17,7 @@ import {
 import { InMemoryUsageMeter, type UsageMeter } from "@cdp-us/billing";
 import { FakeSender, type EmailSender } from "@cdp-us/email";
 import { ConsentService } from "./consent-service.js";
+import { registerAutomation } from "./routes/automation.js";
 import { registerConsent } from "./routes/consent.js";
 import { registerData } from "./routes/data.js";
 import { registerEmail } from "./routes/email.js";
@@ -101,6 +102,7 @@ export async function buildServer(
     consentService,
     emailSender,
   );
+  registerAutomation(app, tokenStore, subscriptionStore, consentService);
   return app;
 }
 

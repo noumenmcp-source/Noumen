@@ -14,7 +14,7 @@
 | Фундамент / инфра | 90 | монорепо, CI (build-test + integration на PG), contracts, db (PG+Drizzle+миграции), SDK | доп. хранилища (CH/Neo4j) — пока только PG |
 | Платформа (аккаунт) | 62 | signup, мультитенант-сторы, RBAC (bearer), **billing ENFORCED** (`/track` и enable-модуля → 402; usage-метринг), rate-limit, CORS | billing-провайдер (Stripe) и DB-стор подписок — только in-mem; auth=token, не OIDC; нет RLS |
 | Ядро CDP (данные) | 80 | `packages/core-cdp`: ingest→profile upsert/merge, **identity-merge** дубликатов (anon↔known), фирмографика-lift, **intent-scoring** по активности, **segments query-API** | read-модель сегментов простая (AND-предикаты); скоринг линейный; CH/Neo4j нет |
-| Модули как живые фичи | 45 | 5 пакетов с логикой+тестами; **consent-движок в контуре** (CMP `resolveConsent` + подписанный ledger + GPC, супрессия ingest реальная); **email wired** — `POST /v1/tenants/:id/email/campaigns` под billing + per-recipient marketing-consent, usage-метринг, FakeSender по умолчанию | social-intel/automation — ещё библиотеки; реальный ESP (Resend) и AI-генерация не в контуре |
+| Модули как живые фичи | 55 | 5 пакетов с логикой+тестами; **consent-движок в контуре** (CMP + подписанный ledger + GPC, реальная супрессия ingest); **email wired** (`/email/campaigns`, billing + per-recipient marketing-consent + usage); **automation wired** (`/automation/scenarios`, plan-гейт + per-recipient TCPA-consent на marketing messenger) | social-intel — research-lib (ADR-1, не строит профили); реальный ESP (Resend) и AI-генерация (AI Gateway) не в контуре |
 | Консоль / UI | 0 | — | весь дашборд «все данные» |
 | Деплой (живой) | 25 | Dockerfile + DEPLOY.md (статически проверены) | не задеплоено в US-облако; docker-build не гонялся |
 
@@ -29,7 +29,8 @@
 `POST /v1/track` (billing+consent гейты, usage-метринг) ·
 `GET /v1/tenants/:id/{profiles,events}` · `POST /v1/tenants/:id/segments/query` ·
 `GET /v1/tenants/:id/export` · `POST /v1/consent` · `GET /v1/tenants/:id/consent/:subject` ·
-`POST /v1/tenants/:id/email/campaigns` · `GET /v1/health`
+`POST /v1/tenants/:id/email/campaigns` · `POST /v1/tenants/:id/automation/scenarios` ·
+`GET /v1/health`
 
 ## Ближайшие шаги (наибольший прирост %)
 1. **Консоль** (`apps/console`, Next.js) — сделать данные видимыми (UI 0→40).
