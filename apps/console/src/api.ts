@@ -80,6 +80,26 @@ export async function getEvents(
   return asEvents(await authed(`/v1/tenants/${tenantId}/events${query}`, token));
 }
 
+/** A single segment predicate (AND-combined server-side). */
+export interface SegmentPredicate {
+  path: string;
+  equals?: string;
+  exists?: boolean;
+}
+
+export async function querySegment(
+  tenantId: string,
+  token: string,
+  rule: readonly SegmentPredicate[],
+): Promise<readonly Profile[]> {
+  const data = await request(`/v1/tenants/${tenantId}/segments/query`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}` },
+    body: JSON.stringify({ rule }),
+  });
+  return asProfiles((data as { members?: unknown }).members);
+}
+
 export function trackerSnippet(writeKey: string): string {
   return `import { createTracker } from "@cdp-us/sdk";
 

@@ -15,7 +15,7 @@
 | Платформа (аккаунт) | 70 | signup, мультитенант-сторы, RBAC (bearer), **billing ENFORCED** (`/track` и enable-модуля → 402; usage-метринг), **подписки/usage в Postgres** (DbSubscriptionStore upsert + DbUsageMeter атомарный), rate-limit, CORS | billing-провайдер (Stripe) не подключён; auth=token, не OIDC; нет RLS |
 | Ядро CDP (данные) | 80 | `packages/core-cdp`: ingest→profile upsert/merge, **identity-merge** дубликатов (anon↔known), фирмографика-lift, **intent-scoring** по активности, **segments query-API** | read-модель сегментов простая (AND-предикаты); скоринг линейный; CH/Neo4j нет |
 | Модули как живые фичи | 55 | 5 пакетов с логикой+тестами; **consent-движок в контуре** (CMP + подписанный ledger + GPC, реальная супрессия ingest); **email wired** (`/email/campaigns`, billing + per-recipient marketing-consent + usage); **automation wired** (`/automation/scenarios`, plan-гейт + per-recipient TCPA-consent на marketing messenger) | social-intel — research-lib (ADR-1, не строит профили); реальный ESP (Resend) и AI-генерация (AI Gateway) не в контуре |
-| Консоль / UI | 0 | — | весь дашборд «все данные» |
+| Консоль / UI | 30 | Next.js-консоль (`apps/console`): login/signup, profiles (список+таймлайн), **segments** (query по фирмографике), modules, connect; собирается (`next build`, 10 страниц) | живой E2E в браузере не гонялся; нет страниц consent/email/automation/export; стилизация черновая |
 | Деплой (живой) | 25 | Dockerfile + DEPLOY.md (статически проверены) | не задеплоено в US-облако; docker-build не гонялся |
 
 ## Реализованные ADR (см. ARCHITECTURE.md §1)
@@ -39,7 +39,7 @@ profiles · events · tenants · users · api_tokens · **subscriptions** · **u
 `POST /v1/tenants/:id/social-intel/analyze` · `GET /v1/health`
 
 ## Ближайшие шаги (наибольший прирост %)
-1. **Консоль** (`apps/console`, Next.js) — сделать данные видимыми (UI 0→40).
+1. **Консоль**: страницы consent/email/automation/export + живой E2E-смоук в браузере (UI 30→55).
 2. **DB-сторы** подписок и consent + миграции (убрать in-mem из платёжного/юр-контура).
 3. **Wire email/social-intel/automation** в API под consent+billing (Модули 35→60).
 4. **OIDC + RLS** изоляция (Платформа 62→80).
