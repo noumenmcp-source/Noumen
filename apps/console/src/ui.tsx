@@ -59,7 +59,7 @@ export function Shell(props: { readonly children: ReactNode }) {
         <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-3">
           <Link className="font-semibold tracking-normal" href="/">CDP-US Console</Link>
           <nav className="flex gap-1 text-sm">
-            {["Profiles", "Segments", "Modules", "Connect"].map((item) => (
+            {["Profiles", "Segments", "Consent", "Email", "Automation", "Export", "Modules", "Connect"].map((item) => (
               <Link className="navlink" href={`/${item.toLowerCase()}`} key={item}>{item}</Link>
             ))}
           </nav>
