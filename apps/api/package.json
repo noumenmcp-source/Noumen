@@ -31,6 +31,7 @@
     "@cdp-us/billing": "workspace:*",
     "@cdp-us/consent": "workspace:*",
     "@cdp-us/contracts": "workspace:*",
+    "@cdp-us/copy": "workspace:*",
     "@cdp-us/core-cdp": "workspace:*",
     "@cdp-us/data-export": "workspace:*",
     "@cdp-us/data-quality": "workspace:*",

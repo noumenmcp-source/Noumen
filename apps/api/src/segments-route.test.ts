@@ -65,11 +65,13 @@ describe("lifecycle segments route", () => {
     expect(kinds).toContain("win_back");
     expect(kinds).toContain("exclude_junk");
     expect(kinds).not.toContain("reactivate"); // lost = 0 → dropped
-    expect(body.actions.find((a: { kind: string }) => a.kind === "win_back")).toMatchObject({
-      stage: "dormant",
-      channel: "email",
-      audienceSize: 1,
-    });
+    const winBack = body.actions.find((a: { kind: string }) => a.kind === "win_back");
+    expect(winBack).toMatchObject({ stage: "dormant", channel: "email", audienceSize: 1, copyValid: true });
+    expect(winBack.copy).toMatchObject({ channel: "email" });
+    expect(winBack.copy.body).toMatch(/unsubscribe/i);
+    // ad_audience action carries no message → copy null, copyValid null
+    const exclude = body.actions.find((a: { kind: string }) => a.kind === "exclude_junk");
+    expect(exclude).toMatchObject({ channel: "ad_audience", copy: null, copyValid: null });
   });
 
   it("exports a lifecycle segment as CSV", async () => {

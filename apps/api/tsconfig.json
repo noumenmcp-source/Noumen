@@ -12,6 +12,7 @@
     { "path": "../../packages/attribution" },
     { "path": "../../packages/audiences" },
     { "path": "../../packages/computed-traits" },
+    { "path": "../../packages/copy" },
     { "path": "../../packages/playbook" },
     { "path": "../../packages/data-export" },
     { "path": "../../packages/data-quality" },

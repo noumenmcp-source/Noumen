@@ -6,6 +6,7 @@ import {
   type LifecycleStage,
 } from "@cdp-us/computed-traits";
 import { generatePlaybook } from "@cdp-us/playbook";
+import { draftCopy, validateCopy } from "@cdp-us/copy";
 import { authenticate, roleSatisfies, type TokenStore } from "../auth.js";
 import type { TenantStore } from "../tenant.js";
 
@@ -68,7 +69,12 @@ export function registerSegments(app: FastifyInstance, deps: SegmentsDeps): void
     const now = deps.now?.() ?? new Date().toISOString();
     try {
       const dist = await lifecycleDistribution(deps.store, tenantId, now);
-      const actions = generatePlaybook({ stages: dist.stages });
+      // Each action ships with baseline, validated copy (the "ready action").
+      // Quality gate: copyValid=false means the copy must not be sent as-is.
+      const actions = generatePlaybook({ stages: dist.stages }).map((action) => {
+        const copy = draftCopy({ kind: action.kind, channel: action.channel, brand: { name: tenant.name } });
+        return { ...action, copy, copyValid: copy ? validateCopy(copy).ok : null };
+      });
       return reply.send({ ok: true, tenantId, now, total: dist.total, stages: dist.stages, actions });
     } catch {
       return reply.code(502).send({ error: "playbook_failed" });
