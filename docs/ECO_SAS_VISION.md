@@ -30,6 +30,39 @@ are **channel/campaign aggregates** and usually can't be resolved to a person.
 So the product lives on two planes: *3D on your own customers* + *an X-ray on
 channels*. Never promise person-level where the data physically isn't.
 
+## Validated positioning — "marketing ROI translator" (research verdict: GO)
+
+US market research returns **GO — but as a narrow wedge, not another all-in-one
+martech.** We are a **marketing ROI translator** for SMB / mid-market and the
+agencies that serve them.
+
+**Market (US) [fact, per research]:**
+- US digital marketing software: $37.1B (2025) → $152.6B (2034).
+- Attribution software (global): $5.3B (2025); North America 42.4%.
+- CDP: $3.28B (2025) → $17.03B (2034).
+- **Realistic starting SAM ≈ $0.6–1.8B/yr** [estimate] — US firms with ad spend
+  + a revenue source + the "I don't understand my ROI" pain.
+
+**The validated gap — not data, not SEO, but explanation.** Collecting data is
+solved (Funnel, Supermetrics, Improvado, Adverity); SEO is solved (Ahrefs,
+Semrush, SE Ranking). The hole is **plain-language translation for the owner /
+marketing generalist**: *what's happening, why, how much money, what to do, what
+to buy or delegate.* Evidence: McKinsey/BI on siloed tools, complexity, weak
+skills, vanity-metric focus; WhatConverts — **95% of SMBs think they measure ad
+ROI, only 25% do consistently.**
+
+**ICP:** SMB / mid-market owners & marketing generalists + **agencies** (multi-
+client resellers). Agencies imply multi-client / light white-label early — an
+architectural input to the tenant + connector model (tenant-of-tenants).
+
+**Non-goals (explicit):** don't out-Ahrefs Ahrefs, don't out-Funnel Funnel. Data
+breadth and SEO depth are table-stakes *inputs*; the product **is the translation**.
+
+**Caveat that gates the bet:** a translator is only as good as the ROI beneath
+it. A confident explanation of a *wrong* attributed number is worse than silence
+— so attribution correctness + honest model assumptions are what make the moat
+possible, not nice-to-haves.
+
 ## Target architecture (layers)
 
 | Layer | Responsibility | Status |
