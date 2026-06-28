@@ -1,5 +1,5 @@
 import { asEvents, asHealth, asModules, asProfiles, asTenant } from "./guards";
-import type { AudienceEvaluateBody, AudienceResult, FunnelStep, Health, JourneyResult, ModuleManifest, Profile, RetentionPoint, Tenant, TimelineEvent } from "./types";
+import type { AudienceEvaluateBody, AudienceResult, AutomationRunResult, AutomationStep, AutomationStepResult, CampaignResult, DsarKind, EmailCampaignBody, FunnelStep, Health, JourneyResult, ModuleManifest, Profile, RetentionPoint, Tenant, TimelineEvent } from "./types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8110";
 
@@ -121,6 +121,44 @@ export async function analyticsRetention(tenantId: string, token: string, opts: 
 
 function authedPost(path: string, token: string, body: unknown): Promise<unknown> {
   return request(path, { method: "POST", headers: { authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
+}
+
+/** Run a triggered email campaign over live profiles (marketing_email consent enforced per recipient).
+ * @example await runEmailCampaign("t_1", token, { trigger: "welcome", from, brandName, physicalAddress, unsubscribeUrl }); */
+export async function runEmailCampaign(tenantId: string, token: string, body: EmailCampaignBody): Promise<CampaignResult> {
+  const data = await authedPost(`/v1/tenants/${tenantId}/email/campaigns`, token, body);
+  const d = isRecord(data) ? data : {};
+  return {
+    ok: d.ok === true,
+    selected: typeof d.selected === "number" ? d.selected : 0,
+    sent: typeof d.sent === "number" ? d.sent : 0,
+    skippedNoConsent: typeof d.skippedNoConsent === "number" ? d.skippedNoConsent : 0,
+  };
+}
+
+/** Run an automation scenario (TCPA messaging consent enforced per recipient).
+ * @example await runAutomation("t_1", token, [{ kind: "messenger_send", to: "+15555550100", content: "hi", marketing: true }]); */
+export async function runAutomation(tenantId: string, token: string, steps: readonly AutomationStep[]): Promise<AutomationRunResult> {
+  const data = await authedPost(`/v1/tenants/${tenantId}/automations/run`, token, { steps });
+  const d = isRecord(data) ? data : {};
+  const summary = isRecord(d.summary) ? d.summary : {};
+  const status = (k: string): number => (typeof summary[k] === "number" ? (summary[k] as number) : 0);
+  return {
+    ok: d.ok === true,
+    results: Array.isArray(d.results) ? d.results.filter(isStepResult) : [],
+    summary: { sent: status("sent"), posted: status("posted"), waited: status("waited"), skipped: status("skipped") },
+  };
+}
+
+/** Submit a CCPA data-subject request (access/delete/correct). Returns the raw report payload.
+ * @example await dsarRequest("t_1", token, "user@example.com", "access"); */
+export async function dsarRequest(tenantId: string, token: string, subject: string, kind: DsarKind): Promise<Record<string, unknown>> {
+  const data = await authedPost(`/v1/tenants/${tenantId}/dsar`, token, { subject, kind });
+  return isRecord(data) ? data : {};
+}
+
+function isStepResult(value: unknown): value is AutomationStepResult {
+  return isRecord(value) && typeof value.index === "number" && typeof value.kind === "string" && typeof value.status === "string";
 }
 
 function asAudienceResult(value: unknown): AudienceResult | null {

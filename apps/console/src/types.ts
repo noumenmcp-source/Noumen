@@ -120,3 +120,46 @@ export interface RetentionPoint {
   readonly day: number;
   readonly rate: number;
 }
+
+export const EMAIL_TRIGGERS = ["welcome", "abandoned_cart", "reactivation"] as const;
+export type EmailTrigger = (typeof EMAIL_TRIGGERS)[number];
+
+export interface EmailCampaignBody {
+  readonly trigger: EmailTrigger;
+  readonly from: string;
+  readonly brandName: string;
+  readonly productName?: string;
+  readonly ctaUrl?: string;
+  readonly physicalAddress: string;
+  readonly unsubscribeUrl: string;
+}
+
+export interface CampaignResult {
+  readonly ok: boolean;
+  readonly selected: number;
+  readonly sent: number;
+  readonly skippedNoConsent: number;
+}
+
+export type AutomationStep =
+  | { readonly kind: "social_post"; readonly content: string }
+  | { readonly kind: "messenger_send"; readonly to: string; readonly content: string; readonly marketing?: boolean }
+  | { readonly kind: "wait"; readonly ms?: number };
+
+export type AutomationStepStatus = "sent" | "posted" | "waited" | "skipped";
+
+export interface AutomationStepResult {
+  readonly index: number;
+  readonly kind: string;
+  readonly status: AutomationStepStatus;
+  readonly id?: string;
+  readonly reason?: string;
+}
+
+export interface AutomationRunResult {
+  readonly ok: boolean;
+  readonly results: readonly AutomationStepResult[];
+  readonly summary: Record<AutomationStepStatus, number>;
+}
+
+export type DsarKind = "access" | "delete" | "correct";
