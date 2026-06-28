@@ -139,7 +139,7 @@ function toCsv(header: readonly string[], rows: readonly (readonly string[])[]):
 }
 
 /** Classify every profile and tally the lifecycle distribution + per-stage samples. */
-async function lifecycleDistribution(
+export async function lifecycleDistribution(
   store: LifecycleStore,
   tenantId: string,
   now: string,

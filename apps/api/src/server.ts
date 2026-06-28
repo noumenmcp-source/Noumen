@@ -47,6 +47,7 @@ import { registerAuditLog } from "./routes/audit-log.js";
 import { registerCohorts } from "./routes/cohorts.js";
 import { registerSegments, type LifecycleStore } from "./routes/segments.js";
 import { registerChannelQuality } from "./routes/channel-quality.js";
+import { registerReport } from "./routes/report.js";
 import { registerDataExport } from "./routes/data-export.js";
 import { registerDataQuality } from "./routes/data-quality.js";
 import { registerDestinations } from "./routes/destinations.js";
@@ -189,6 +190,7 @@ export async function buildServer(
   };
   registerSegments(app, { tenantStore, tokenStore, store: lifecycleStore });
   registerChannelQuality(app, { tenantStore, tokenStore, store: lifecycleStore });
+  registerReport(app, { tenantStore, tokenStore, store: lifecycleStore });
   registerCohorts(app, {
     tenantStore,
     tokenStore,

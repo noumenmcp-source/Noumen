@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { IngestEvent } from "@cdp-us/contracts";
-import { channelQuality, type ChannelQualityRow } from "@cdp-us/attribution";
+import { channelQuality, type ChannelQuality, type ChannelQualityRow } from "@cdp-us/attribution";
 import { rfm } from "@cdp-us/computed-traits";
 import { authenticate, roleSatisfies, type TokenStore } from "../auth.js";
 import type { TenantStore } from "../tenant.js";
@@ -38,34 +38,38 @@ export function registerChannelQuality(app: FastifyInstance, deps: ChannelQualit
 
     const now = deps.now?.() ?? new Date().toISOString();
     try {
-      const [profiles, events] = await Promise.all([
-        deps.store.loadProfiles(tenantId),
-        deps.store.loadEvents(tenantId),
-      ]);
-
-      const eventsByAnon = new Map<string, IngestEvent[]>();
-      for (const event of events) {
-        const list = eventsByAnon.get(event.anonymousId) ?? [];
-        list.push(event);
-        eventsByAnon.set(event.anonymousId, list);
-      }
-
-      const rows: ChannelQualityRow[] = profiles.map((profile) => {
-        const profileEvents = profile.anonymousId ? eventsByAnon.get(profile.anonymousId) ?? [] : [];
-        const metrics = rfm(profileEvents, { now });
-        return {
-          channel: firstTouchChannel(profileEvents),
-          converted: metrics.frequency > 0,
-          repeat: metrics.frequency >= 2,
-          value: metrics.monetary,
-        };
-      });
-
-      return reply.send({ ok: true, tenantId, now, channels: channelQuality(rows) });
+      const channels = await computeChannelQuality(deps.store, tenantId, now);
+      return reply.send({ ok: true, tenantId, now, channels });
     } catch {
       return reply.code(502).send({ error: "channel_quality_failed" });
     }
   });
+}
+
+/** Derive first-touch channel + outcome per profile and aggregate channel quality. */
+export async function computeChannelQuality(
+  store: LifecycleStore,
+  tenantId: string,
+  now: string,
+): Promise<readonly ChannelQuality[]> {
+  const [profiles, events] = await Promise.all([store.loadProfiles(tenantId), store.loadEvents(tenantId)]);
+  const eventsByAnon = new Map<string, IngestEvent[]>();
+  for (const event of events) {
+    const list = eventsByAnon.get(event.anonymousId) ?? [];
+    list.push(event);
+    eventsByAnon.set(event.anonymousId, list);
+  }
+  const rows: ChannelQualityRow[] = profiles.map((profile) => {
+    const profileEvents = profile.anonymousId ? eventsByAnon.get(profile.anonymousId) ?? [] : [];
+    const metrics = rfm(profileEvents, { now });
+    return {
+      channel: firstTouchChannel(profileEvents),
+      converted: metrics.frequency > 0,
+      repeat: metrics.frequency >= 2,
+      value: metrics.monetary,
+    };
+  });
+  return channelQuality(rows);
 }
 
 /** First-touch acquisition channel from the earliest event's properties. */
