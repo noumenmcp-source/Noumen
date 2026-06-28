@@ -1,5 +1,39 @@
 import { describe, expect, it } from "vitest";
-import { attribute, attributeMany, type AttributionModel, type Touchpoint } from "./index.js";
+import { attribute, attributeMany, channelQuality, type AttributionModel, type ChannelQualityRow, type Touchpoint } from "./index.js";
+
+describe("channelQuality", () => {
+  const rows: readonly ChannelQualityRow[] = [
+    { channel: "seo", converted: true, repeat: true, value: 100 },
+    { channel: "seo", converted: true, repeat: false, value: 200 },
+    { channel: "seo", converted: false, repeat: false, value: 0 },
+    { channel: "meta", converted: true, repeat: false, value: 50 },
+    { channel: "meta", converted: false, repeat: false, value: 0 },
+    { channel: "meta", converted: false, repeat: false, value: 0 },
+    { channel: "meta", converted: false, repeat: false, value: 0 },
+  ];
+
+  it("ranks channels by conversion and exposes repeat/AOV/never-closed", () => {
+    const q = channelQuality(rows);
+    expect(q.map((c) => c.channel)).toEqual(["seo", "meta"]); // seo converts better → first
+    expect(q[0]).toMatchObject({
+      channel: "seo",
+      profiles: 3,
+      customers: 2,
+      repeatCustomers: 1,
+      conversionRate: 0.6667,
+      repeatRate: 0.5,
+      avgValue: 150,
+      neverClosedRate: 0.3333,
+    });
+    expect(q[1]).toMatchObject({ channel: "meta", profiles: 4, customers: 1, conversionRate: 0.25, neverClosedRate: 0.75, avgValue: 50 });
+  });
+
+  it("handles an empty set and channels with no customers", () => {
+    expect(channelQuality([])).toEqual([]);
+    const q = channelQuality([{ channel: "x", converted: false, repeat: false, value: 0 }]);
+    expect(q[0]).toMatchObject({ conversionRate: 0, repeatRate: 0, avgValue: 0, neverClosedRate: 1 });
+  });
+});
 
 const touches: readonly Touchpoint[] = [
   { channel: "paid_search", ts: "2026-06-01T00:00:00.000Z" },

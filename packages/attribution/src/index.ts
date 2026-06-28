@@ -1,6 +1,63 @@
 /** @example const touch: Touchpoint = { channel: "paid_search", ts: "2026-06-01T00:00:00.000Z" }; */
 export type Touchpoint = Readonly<{ channel: string; ts: string }>;
 
+/**
+ * Channel quality (AXIOM deck slide 6): not "cost per lead" but which channel
+ * brings customers who buy and return. One row per profile, aggregated per
+ * first-touch channel.
+ *
+ * @example const q = channelQuality([{ channel: "seo", converted: true, repeat: true, value: 120 }]);
+ */
+export type ChannelQualityRow = Readonly<{ channel: string; converted: boolean; repeat: boolean; value: number }>;
+
+export type ChannelQuality = Readonly<{
+  channel: string;
+  profiles: number;
+  customers: number;
+  repeatCustomers: number;
+  /** customers / profiles. */
+  conversionRate: number;
+  /** repeatCustomers / customers (0 if no customers). */
+  repeatRate: number;
+  /** mean order value across converted profiles (0 if none). */
+  avgValue: number;
+  /** 1 - conversionRate: share of leads the channel never closed. */
+  neverClosedRate: number;
+}>;
+
+/** Aggregate per-profile rows into per-channel quality, best channel first. */
+export function channelQuality(rows: readonly ChannelQualityRow[]): readonly ChannelQuality[] {
+  const byChannel = new Map<string, ChannelQualityRow[]>();
+  for (const row of rows) {
+    const list = byChannel.get(row.channel) ?? [];
+    list.push(row);
+    byChannel.set(row.channel, list);
+  }
+  return [...byChannel.entries()]
+    .map(([channel, group]) => {
+      const profiles = group.length;
+      const converted = group.filter((row) => row.converted);
+      const customers = converted.length;
+      const repeatCustomers = group.filter((row) => row.repeat).length;
+      const value = converted.reduce((sum, row) => sum + (Number.isFinite(row.value) ? row.value : 0), 0);
+      return {
+        channel,
+        profiles,
+        customers,
+        repeatCustomers,
+        conversionRate: round(profiles ? customers / profiles : 0),
+        repeatRate: round(customers ? repeatCustomers / customers : 0),
+        avgValue: round(customers ? value / customers : 0),
+        neverClosedRate: round(profiles ? 1 - customers / profiles : 0),
+      };
+    })
+    .sort((left, right) => right.conversionRate - left.conversionRate || left.channel.localeCompare(right.channel));
+}
+
+function round(value: number): number {
+  return Math.round(value * 10_000) / 10_000;
+}
+
 /** @example const conversion: Conversion = { touchpoints: [touch], ts: "2026-06-03T00:00:00.000Z" }; */
 export type Conversion = Readonly<{ touchpoints: readonly Touchpoint[]; ts?: string }>;
 
