@@ -16,7 +16,7 @@
 | Ядро CDP (данные) | 80 | `packages/core-cdp`: ingest→profile upsert/merge, **identity-merge** дубликатов (anon↔known), фирмографика-lift, **intent-scoring** по активности, **segments query-API** | read-модель сегментов простая (AND-предикаты); скоринг линейный; CH/Neo4j нет |
 | Модули как живые фичи | 55 | 5 пакетов с логикой+тестами; **consent-движок в контуре** (CMP + подписанный ledger + GPC, реальная супрессия ingest); **email wired** (`/email/campaigns`, billing + per-recipient marketing-consent + usage); **automation wired** (`/automation/scenarios`, plan-гейт + per-recipient TCPA-consent на marketing messenger) | social-intel — research-lib (ADR-1, не строит профили); реальный ESP (Resend) и AI-генерация (AI Gateway) не в контуре |
 | Консоль / UI | 30 | Next.js-консоль (`apps/console`): login/signup, profiles (список+таймлайн), **segments** (query по фирмографике), modules, connect; собирается (`next build`, 10 страниц) | живой E2E в браузере не гонялся; нет страниц consent/email/automation/export; стилизация черновая |
-| Деплой (живой) | 25 | Dockerfile + DEPLOY.md (статически проверены) | не задеплоено в US-облако; docker-build не гонялся |
+| Деплой (живой) | 40 | Dockerfile + DEPLOY.md; **прод-entrypoint `dist/server.js` загружается и обслуживает end-to-end** — `scripts/smoke.mjs` (8 живых HTTP-проверок: health/openapi/signup/track/segment/export) зелёный | не задеплоено в US-облако; docker-build не гонялся; нет CD |
 
 ## Реализованные ADR (см. ARCHITECTURE.md §1)
 - **ADR-1** — social-intel без ПДн третьих лиц: `author` убран, guard-тест, README.
