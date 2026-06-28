@@ -9,7 +9,7 @@ const SHELL = '/Users/a1/Library/Caches/ms-playwright/chromium_headless_shell-12
   await page.waitForTimeout(300);
   await page.pdf({ path: dir + '/AXIOM-deck-EN.pdf', width: '1280px', height: '720px', printBackground: true });
   const n = await page.locator('.slide').count();
-  for (const i of [3, 10]) {
+  for (const i of [0,1,2,3,4,5,6,7,8,9,10,11,12]) {
     await page.locator('.slide').nth(i).screenshot({ path: dir + '/e_' + String(i + 1).padStart(2, '0') + '.png' });
   }
   console.log('slides=' + n);
