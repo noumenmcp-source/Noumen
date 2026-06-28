@@ -15,7 +15,7 @@ import {
   type ProfileStore,
 } from "@cdp-us/core-cdp";
 import { InMemoryUsageMeter, type UsageMeter } from "@cdp-us/billing";
-import { FakeSender, type EmailSender } from "@cdp-us/email";
+import { FakeSender, ResendSender, type EmailSender } from "@cdp-us/email";
 import { ConsentService } from "./consent-service.js";
 import { registerAutomation } from "./routes/automation.js";
 import { registerConsent } from "./routes/consent.js";
@@ -30,6 +30,7 @@ import {
   type IngestStore,
 } from "./ingest-store.js";
 import { registerHealth } from "./routes/health.js";
+import { registerOpenapi } from "./routes/openapi.js";
 import { registerIngest } from "./routes/ingest.js";
 import { registerModules } from "./routes/modules.js";
 import { registerSignup } from "./routes/signup.js";
@@ -65,7 +66,7 @@ export async function buildServer(
     opts.subscriptionStore ?? new InMemorySubscriptionStore();
   const usageMeter = opts.usageMeter ?? new InMemoryUsageMeter();
   const consentService = new ConsentService();
-  const emailSender = opts.emailSender ?? new FakeSender();
+  const emailSender = opts.emailSender ?? createDefaultEmailSender();
   const profileService = new ProfileService(profileStore);
   await app.register(cors, {
     origin: true,
@@ -80,6 +81,7 @@ export async function buildServer(
     });
   }
   registerHealth(app);
+  registerOpenapi(app);
   registerModules(app, tenantStore, tokenStore, subscriptionStore);
   registerSignup(app, tenantStore, tokenStore);
   registerIngest(
@@ -138,6 +140,14 @@ function createDefaultProfileStore(): ProfileStore {
     return new DbProfileStore(createDb(connectionString));
   }
   return new InMemoryProfileStore();
+}
+
+/**
+ * Production email sender when `RESEND_API_KEY` is set, else the in-memory
+ * FakeSender so dev/test never make a real ESP call.
+ */
+function createDefaultEmailSender(): EmailSender {
+  return process.env.RESEND_API_KEY ? new ResendSender() : new FakeSender();
 }
 
 function defaultRateLimit(): { max: number; timeWindow: number | string } {

@@ -46,10 +46,19 @@ describe("OpenAPI spec ⇄ live routes parity", () => {
     expect(missing, `documented but unrouted: ${missing.join(", ")}`).toEqual([]);
   });
 
-  it("documents exactly 14 operations across 14 paths", () => {
+  it("serves the spec at GET /v1/openapi.json", async () => {
+    const app = await buildServer({ logger: false, rateLimit: false });
+    const res = await app.inject({ method: "GET", url: "/v1/openapi.json" });
+    await app.close();
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toContain("application/json");
+    expect(res.json().openapi).toMatch(/^3\./);
+  });
+
+  it("documents exactly 15 operations across 15 paths", () => {
     const paths = Object.keys(spec.paths);
     const ops = paths.reduce((n, p) => n + Object.keys(spec.paths[p]!).length, 0);
-    expect(paths).toHaveLength(14);
-    expect(ops).toBe(14);
+    expect(paths).toHaveLength(15);
+    expect(ops).toBe(15);
   });
 });
