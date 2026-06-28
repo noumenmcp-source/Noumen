@@ -1,7 +1,9 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
+import type { IngestEvent } from "@cdp-us/contracts";
 import { createDb, events } from "@cdp-us/db";
+import { DbProfileStore, ProfileService } from "@cdp-us/core-cdp";
 import { DbTenantStore } from "./tenant.js";
 import { DbIngestStore, toStoredIngestEvent } from "./ingest-store.js";
 import { DbTokenStore } from "./auth.js";
@@ -93,5 +95,45 @@ run("db integration (real Postgres)", () => {
     expect(principal?.role).toBe("owner");
 
     await expect(tokenStore.resolve("cdpus_bad")).resolves.toBeUndefined();
+  });
+
+  it("DbProfileStore: identity-merge folds a duplicate and deletes it", async () => {
+    const { tenant } = await tenantStore.createTenantAccount({
+      name: `Integration Test ${randomUUID()}`,
+      ownerEmail: `owner-${randomUUID()}@example.com`,
+    });
+    const svc = new ProfileService(new DbProfileStore(db));
+    const a1 = `a_${randomUUID()}`;
+    const a2 = `a_${randomUUID()}`;
+    const u1 = `u_${randomUUID()}`;
+
+    const track: IngestEvent = {
+      type: "track",
+      anonymousId: a1,
+      event: "view",
+      properties: {},
+    };
+    const p1 = await svc.applyEvent(tenant.id, track);
+    await svc.applyEvent(tenant.id, {
+      type: "identify",
+      anonymousId: a2,
+      userId: u1,
+      traits: { plan: "pro" },
+    });
+    expect(await new DbProfileStore(db).listByTenant(tenant.id)).toHaveLength(2);
+
+    const merged = await svc.applyEvent(tenant.id, {
+      type: "identify",
+      anonymousId: a1,
+      userId: u1,
+      traits: { source: "ads" },
+    });
+    const store = new DbProfileStore(db);
+    expect(merged.userId).toBe(u1);
+    expect(merged.anonymousId).toBe(a1);
+    expect(merged.traits.plan).toBe("pro");
+    expect(merged.traits.source).toBe("ads");
+    expect(await store.listByTenant(tenant.id)).toHaveLength(1);
+    expect(await store.getById(tenant.id, p1.id)).toBeUndefined();
   });
 });
