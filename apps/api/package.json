@@ -26,6 +26,7 @@
     "@cdp-us/lead-scoring": "workspace:*",
     "@cdp-us/notifications": "workspace:*",
     "@cdp-us/platform": "workspace:*",
+    "@cdp-us/playbook": "workspace:*",
     "@cdp-us/webhooks-inbound": "workspace:*",
     "@cdp-us/billing": "workspace:*",
     "@cdp-us/consent": "workspace:*",

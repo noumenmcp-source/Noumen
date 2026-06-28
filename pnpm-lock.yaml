@@ -128,6 +128,9 @@ importers:
       '@cdp-us/platform':
         specifier: workspace:*
         version: link:../../packages/platform
+      '@cdp-us/playbook':
+        specifier: workspace:*
+        version: link:../../packages/playbook
       '@cdp-us/social-intel':
         specifier: workspace:*
         version: link:../../modules/social-intel
@@ -561,6 +564,16 @@ importers:
       '@cdp-us/contracts':
         specifier: workspace:*
         version: link:../contracts
+    devDependencies:
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
+
+  packages/playbook:
+    dependencies:
+      '@cdp-us/computed-traits':
+        specifier: workspace:*
+        version: link:../computed-traits
     devDependencies:
       vitest:
         specifier: ^2.1.8

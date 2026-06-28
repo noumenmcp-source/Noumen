@@ -49,6 +49,36 @@ describe("lifecycle segments route", () => {
     expect(body.samples.vip).toEqual(["p_vip"]);
   });
 
+  it("returns the ranked money-this-week playbook over the base", async () => {
+    const { app, token } = await setup(tenant());
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/tenants/t1/playbook",
+      headers: auth(token),
+    });
+    await app.close();
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.stages).toMatchObject({ vip: 1, dormant: 1, new: 1, active: 1, junk: 1, lost: 0 });
+    const kinds = body.actions.map((a: { kind: string }) => a.kind);
+    expect(kinds).toContain("win_back");
+    expect(kinds).toContain("exclude_junk");
+    expect(kinds).not.toContain("reactivate"); // lost = 0 → dropped
+    expect(body.actions.find((a: { kind: string }) => a.kind === "win_back")).toMatchObject({
+      stage: "dormant",
+      channel: "email",
+      audienceSize: 1,
+    });
+  });
+
+  it("playbook enforces auth + own-tenant", async () => {
+    const { app, token } = await setup(tenant());
+    expect((await app.inject({ method: "GET", url: "/v1/tenants/t1/playbook" })).statusCode).toBe(401);
+    expect((await app.inject({ method: "GET", url: "/v1/tenants/other/playbook", headers: auth(token) })).statusCode).toBe(403);
+    await app.close();
+  });
+
   it("enforces auth, own-tenant, analyst role, and unknown tenant", async () => {
     const { app, token } = await setup(tenant());
     expect((await app.inject({ method: "GET", url: "/v1/tenants/t1/segments/lifecycle" })).statusCode).toBe(401);

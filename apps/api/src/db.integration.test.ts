@@ -355,6 +355,11 @@ run("db integration (real Postgres)", () => {
       url: `/v1/tenants/${tenant.id}/segments/lifecycle`,
       headers: { authorization: `Bearer ${token}` },
     });
+    const playbook = await app.inject({
+      method: "GET",
+      url: `/v1/tenants/${tenant.id}/playbook`,
+      headers: { authorization: `Bearer ${token}` },
+    });
     await app.close();
 
     expect(res.statusCode).toBe(200);
@@ -363,5 +368,10 @@ run("db integration (real Postgres)", () => {
       total: 3,
       stages: { vip: 1, dormant: 1, new: 1, active: 0, lost: 0, junk: 0 },
     });
+
+    expect(playbook.statusCode).toBe(200);
+    const kinds = playbook.json().actions.map((a: { kind: string }) => a.kind);
+    expect(kinds).toContain("win_back"); // dormant=1 → win-back email action
+    expect(kinds).toContain("resell"); // vip=1 → resell SMS action
   });
 });
