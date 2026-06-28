@@ -1,5 +1,7 @@
 import type { TenantId } from "@cdp-us/contracts";
 import type { PlanKey } from "@cdp-us/billing";
+import { subscriptions, type Db } from "@cdp-us/db";
+import { eq } from "drizzle-orm";
 
 /** Lifecycle of a tenant's paid subscription. */
 export type SubscriptionStatus = "trialing" | "active" | "past_due" | "canceled";
@@ -51,5 +53,43 @@ export class InMemorySubscriptionStore implements SubscriptionStore {
 
   async set(sub: Subscription): Promise<void> {
     this.#byTenant.set(sub.tenantId, sub);
+  }
+}
+
+/**
+ * Postgres-backed {@link SubscriptionStore}. Unknown tenants default to a fresh
+ * `starter` trial (same posture as the in-memory store), so new self-serve
+ * signups can use the product during their trial.
+ */
+export class DbSubscriptionStore implements SubscriptionStore {
+  constructor(private readonly db: Db) {}
+
+  async get(tenantId: TenantId): Promise<Subscription> {
+    const [row] = await this.db
+      .select()
+      .from(subscriptions)
+      .where(eq(subscriptions.tenantId, tenantId))
+      .limit(1);
+    if (!row) return { tenantId, plan: "starter", status: "trialing" };
+    return {
+      tenantId: row.tenantId,
+      plan: row.plan as PlanKey,
+      status: row.status as SubscriptionStatus,
+    };
+  }
+
+  async set(sub: Subscription): Promise<void> {
+    await this.db
+      .insert(subscriptions)
+      .values({
+        tenantId: sub.tenantId,
+        plan: sub.plan,
+        status: sub.status,
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: subscriptions.tenantId,
+        set: { plan: sub.plan, status: sub.status, updatedAt: new Date() },
+      });
   }
 }

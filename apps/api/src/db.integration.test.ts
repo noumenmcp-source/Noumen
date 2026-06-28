@@ -7,6 +7,8 @@ import { DbProfileStore, ProfileService } from "@cdp-us/core-cdp";
 import { DbTenantStore } from "./tenant.js";
 import { DbIngestStore, toStoredIngestEvent } from "./ingest-store.js";
 import { DbTokenStore } from "./auth.js";
+import { DbSubscriptionStore } from "./subscription.js";
+import { DbUsageMeter } from "./usage-store.js";
 
 const url = process.env.DATABASE_URL;
 const run = describe.skipIf(!url);
@@ -135,5 +137,48 @@ run("db integration (real Postgres)", () => {
     expect(merged.traits.source).toBe("ads");
     expect(await store.listByTenant(tenant.id)).toHaveLength(1);
     expect(await store.getById(tenant.id, p1.id)).toBeUndefined();
+  });
+
+  it("DbSubscriptionStore: default trial, upsert, and status change", async () => {
+    const { tenant } = await tenantStore.createTenantAccount({
+      name: `Integration Test ${randomUUID()}`,
+      ownerEmail: `owner-${randomUUID()}@example.com`,
+    });
+    const subs = new DbSubscriptionStore(db);
+
+    // Unknown tenant defaults to a fresh starter trial.
+    expect(await subs.get(tenant.id)).toMatchObject({
+      plan: "starter",
+      status: "trialing",
+    });
+
+    await subs.set({ tenantId: tenant.id, plan: "growth", status: "active" });
+    expect(await subs.get(tenant.id)).toMatchObject({
+      plan: "growth",
+      status: "active",
+    });
+
+    // Upsert on the same tenant updates in place (no duplicate row).
+    await subs.set({ tenantId: tenant.id, plan: "growth", status: "canceled" });
+    expect(await subs.get(tenant.id)).toMatchObject({
+      plan: "growth",
+      status: "canceled",
+    });
+  });
+
+  it("DbUsageMeter: atomic increments accumulate", async () => {
+    const { tenant } = await tenantStore.createTenantAccount({
+      name: `Integration Test ${randomUUID()}`,
+      ownerEmail: `owner-${randomUUID()}@example.com`,
+    });
+    const meter = new DbUsageMeter(db);
+
+    expect(await meter.current(tenant.id, "eventsPerMonth")).toBe(0);
+    await meter.record(tenant.id, "eventsPerMonth", 3);
+    await meter.record(tenant.id, "eventsPerMonth", 4);
+    expect(await meter.current(tenant.id, "eventsPerMonth")).toBe(7);
+    // Negative/zero deltas are ignored.
+    await meter.record(tenant.id, "eventsPerMonth", -5);
+    expect(await meter.current(tenant.id, "eventsPerMonth")).toBe(7);
   });
 });

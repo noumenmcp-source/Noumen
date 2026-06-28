@@ -35,9 +35,11 @@ import { registerIngest } from "./routes/ingest.js";
 import { registerModules } from "./routes/modules.js";
 import { registerSignup } from "./routes/signup.js";
 import {
+  DbSubscriptionStore,
   InMemorySubscriptionStore,
   type SubscriptionStore,
 } from "./subscription.js";
+import { DbUsageMeter } from "./usage-store.js";
 import {
   DbTenantStore,
   InMemoryTenantStore,
@@ -63,8 +65,8 @@ export async function buildServer(
   const tokenStore = opts.tokenStore ?? createDefaultTokenStore();
   const profileStore = opts.profileStore ?? createDefaultProfileStore();
   const subscriptionStore =
-    opts.subscriptionStore ?? new InMemorySubscriptionStore();
-  const usageMeter = opts.usageMeter ?? new InMemoryUsageMeter();
+    opts.subscriptionStore ?? createDefaultSubscriptionStore();
+  const usageMeter = opts.usageMeter ?? createDefaultUsageMeter();
   const consentService = new ConsentService();
   const emailSender = opts.emailSender ?? createDefaultEmailSender();
   const profileService = new ProfileService(profileStore);
@@ -132,6 +134,22 @@ function createDefaultTokenStore(): TokenStore {
     return new DbTokenStore(createDb(connectionString));
   }
   return new InMemoryTokenStore();
+}
+
+function createDefaultSubscriptionStore(): SubscriptionStore {
+  const connectionString = process.env.DATABASE_URL;
+  if (connectionString) {
+    return new DbSubscriptionStore(createDb(connectionString));
+  }
+  return new InMemorySubscriptionStore();
+}
+
+function createDefaultUsageMeter(): UsageMeter {
+  const connectionString = process.env.DATABASE_URL;
+  if (connectionString) {
+    return new DbUsageMeter(createDb(connectionString));
+  }
+  return new InMemoryUsageMeter();
 }
 
 function createDefaultProfileStore(): ProfileStore {

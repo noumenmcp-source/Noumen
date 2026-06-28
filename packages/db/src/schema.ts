@@ -1,6 +1,7 @@
 import {
   pgTable,
   text,
+  integer,
   timestamp,
   jsonb,
   index,
@@ -95,4 +96,31 @@ export const apiTokens = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("api_tokens_tenant_idx").on(t.tenantId)],
+);
+
+/** One subscription per tenant (the billing-enforced money path, ADR-3). */
+export const subscriptions = pgTable("subscriptions", {
+  tenantId: text("tenant_id")
+    .primaryKey()
+    .references(() => tenants.id),
+  plan: text("plan").notNull(),
+  status: text("status").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Metered usage counters. Surrogate PK `id = "${tenantId}::${metric}"` keeps a
+ * single-column primary key (avoids the composite-PK migration reorder pitfall).
+ */
+export const usageCounters = pgTable(
+  "usage_counters",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    metric: text("metric").notNull(),
+    value: integer("value").notNull().default(0),
+  },
+  (t) => [index("usage_tenant_idx").on(t.tenantId)],
 );
