@@ -61,12 +61,15 @@ h2{font-size:52px;line-height:1.06;font-weight:700;letter-spacing:-.01em}
 .stat .arrow{font-family:'Geist Mono';font-size:48px;color:var(--gold-dim);align-self:center;margin-top:-20px}
 .punch{margin-top:40px;font-size:27px;line-height:1.3;color:var(--ink);max-width:900px}
 .punch .it{color:var(--gold)}
+.risks{margin-top:30px;display:flex;flex-direction:column;gap:14px;max-width:940px}
+.risk{font-size:19px;line-height:1.4;color:var(--dim);padding-left:24px;position:relative}
+.risk::before{content:"";position:absolute;left:0;top:9px;width:8px;height:8px;background:var(--clay);border-radius:1px}
 .cols{display:grid;gap:30px;margin-top:44px}
 .c3{grid-template-columns:repeat(3,1fr)}
 .col .h{font-family:'Geist Mono';font-size:13px;letter-spacing:.2em;text-transform:uppercase;color:var(--gold)}
 .col .d{font-size:17px;line-height:1.5;color:var(--dim);margin-top:14px}
-.demo{display:grid;grid-template-columns:1fr 360px;gap:48px;align-items:center;margin-top:30px}
-.mock{background:var(--app);border-radius:12px;overflow:hidden;box-shadow:0 40px 90px -30px rgba(0,0,0,.7);color:var(--app-ink)}
+.demo{display:grid;grid-template-columns:1fr 360px;gap:48px;align-items:start;margin-top:30px}
+.mock{background:var(--app);border-radius:12px;overflow:hidden;box-shadow:0 22px 50px -34px rgba(0,0,0,.4);color:var(--app-ink)}
 .mock-bar{display:flex;align-items:center;gap:14px;padding:12px 16px;background:#e7e0d2;border-bottom:1px solid var(--app-line)}
 .mock-bar .dots{display:flex;gap:7px}
 .mock-bar .dots i{width:11px;height:11px;border-radius:50%;background:#c9beac;display:block}
@@ -169,7 +172,7 @@ h2{font-size:52px;line-height:1.06;font-weight:700;letter-spacing:-.01em}
     <div class="tag">makes your revenue <b>self-evident.</b></div>
     <div class="formula">what makes money? &nbsp;·&nbsp; what wastes budget? &nbsp;·&nbsp; how to grow profit?</div>
   </div>
-  <div class="foot"><span class="hair"></span><span>Pitch deck · 2026</span><span>01 / 15</span></div>
+  <div class="foot"><span class="hair"></span><span>Pitch deck · 2026</span><span>01 / 16</span></div>
   <div class="wm"><span class="tf"><i></i><i></i><i></i></span></div>
 </section>
 
@@ -185,7 +188,40 @@ h2{font-size:52px;line-height:1.06;font-weight:700;letter-spacing:-.01em}
     </div>
     <div class="punch">Marketing is a black box. You spend. Something happens. <span class="it">Nobody tells you why.</span></div>
   </div>
-  <div class="foot"><span class="hair"></span><span>SMB survey · WhatConverts</span><span>02 / 15</span></div>
+  <div class="foot"><span class="hair"></span><span>SMB survey · WhatConverts</span><span>02 / 16</span></div>
+</section>
+
+<!-- DATA OWNERSHIP (FEAR) -->
+<section class="slide">
+  <div class="top"><div class="brand"><span class="tf"><i></i><i></i><i></i></span> AXIOM</div><div class="kicker">Who owns the data</div></div>
+  <div class="body">
+    <div class="eyebrow" style="color:var(--clay)">The uncomfortable truth</div>
+    <h2 style="margin-top:18px">Whoever owns the customer data<br>owns the <span class="clay">business</span>.</h2>
+    <div class="lead" style="margin-top:20px">Right now, that isn't you. Your data is scattered across Meta, Google and your contractor's spreadsheet — you have no base of your own.</div>
+    <div class="risks">
+      <div class="risk">A platform hikes rates or bans your account — and access to your customers is gone.</div>
+      <div class="risk">A marketer or agency leaves — and takes the base with them. You're left with nothing.</div>
+      <div class="risk">Every campaign, you pay again to reach people who already bought from you.</div>
+    </div>
+    <div class="punch" style="margin-top:30px">Without your own base, you're <span class="it" style="color:var(--clay)">renting your own customers</span>.</div>
+  </div>
+  <div class="foot"><span class="hair"></span><span>Data = power · with platforms, not you</span><span>03 / 17</span></div>
+</section>
+
+<!-- CUSTOMER BASE -->
+<section class="slide">
+  <div class="top"><div class="brand"><span class="tf"><i></i><i></i><i></i></span> AXIOM</div><div class="kicker">Customer base</div></div>
+  <div class="body">
+    <div class="eyebrow">Relief · your asset</div>
+    <h1 style="font-size:62px;margin-top:12px;letter-spacing:-.015em;line-height:1.04">Now the data is yours.<br>So is the <span class="gold">business</span>.</h1>
+    <div class="lead" style="margin-top:18px;max-width:1010px">AXIOM builds your customer base and hands it to you — for good. The threat to your business is gone, and marketing's silver bullet is in your hands.</div>
+    <div class="otiles" style="margin-top:32px;grid-template-columns:repeat(3,1fr);gap:30px">
+      <div class="otile"><div class="t">Grows every day</div><div class="d">Built from your site and socials: every visit and touch becomes a profile. A month is already a base.</div></div>
+      <div class="otile"><div class="t">Enriched with real data</div><div class="d">Interests, social, geo — from ad channels and social.</div></div>
+      <div class="otile"><div class="t">Yours forever</div><div class="d">Export in one click (CSV · Excel · API). Leave and your data stays — no lock-in.</div></div>
+    </div>
+  </div>
+  <div class="foot"><span class="hair"></span><span>CDP · profiles · export · no lock-in</span><span>03 / 16</span></div>
 </section>
 
 <!-- 3 PROMISE -->
@@ -201,7 +237,7 @@ h2{font-size:52px;line-height:1.06;font-weight:700;letter-spacing:-.01em}
     </div>
     <div class="punch" style="margin-top:34px;font-size:24px">Dashboards tell you what happened. <span class="it">AXIOM tells you what to do.</span></div>
   </div>
-  <div class="foot"><span class="hair"></span><span>One picture · plain words</span><span>03 / 15</span></div>
+  <div class="foot"><span class="hair"></span><span>One picture · plain words</span><span>03 / 16</span></div>
 </section>
 
 <!-- 4 MONEY -->
@@ -239,7 +275,7 @@ h2{font-size:52px;line-height:1.06;font-weight:700;letter-spacing:-.01em}
       <div class="nt"><div class="num">3</div><div><div class="tt">Where the money goes</div><div class="dd">Budget by channel, biggest first — Meta eats 45% at a glance.</div></div></div>
     </div>
   </div>
-  <div class="foot"><span class="hair"></span><span>Reconciled with Stripe · by actual payments</span><span>04 / 15</span></div>
+  <div class="foot"><span class="hair"></span><span>Reconciled with Stripe · by actual payments</span><span>04 / 16</span></div>
 </section>
 
 <!-- 5 WORKS/LEAKS -->
@@ -273,7 +309,7 @@ h2{font-size:52px;line-height:1.06;font-weight:700;letter-spacing:-.01em}
       </div>
     </div>
   </div>
-  <div class="foot"><span class="hair"></span><span>Grounded in data · no invented advice</span><span>05 / 15</span></div>
+  <div class="foot"><span class="hair"></span><span>Grounded in data · no invented advice</span><span>05 / 16</span></div>
 </section>
 
 <!-- 6 SEO -->
@@ -308,7 +344,7 @@ h2{font-size:52px;line-height:1.06;font-weight:700;letter-spacing:-.01em}
       <div class="nt"><div class="num">3</div><div><div class="tt">Tied to ROI</div><div class="dd">Closing the SEO gap is cheaper than buying the same traffic with ads.</div></div></div>
     </div>
   </div>
-  <div class="foot"><span class="hair"></span><span>Google Search Console · DataForSEO</span><span>06 / 15</span></div>
+  <div class="foot"><span class="hair"></span><span>Google Search Console · DataForSEO</span><span>06 / 16</span></div>
 </section>
 
 <!-- 7 EMAIL -->
@@ -338,7 +374,7 @@ h2{font-size:52px;line-height:1.06;font-weight:700;letter-spacing:-.01em}
       </div>
     </div>
   </div>
-  <div class="foot"><span class="hair"></span><span>Segments + triggers · by purchase history</span><span>07 / 15</span></div>
+  <div class="foot"><span class="hair"></span><span>Segments + triggers · by purchase history</span><span>07 / 16</span></div>
 </section>
 
 <!-- 8 SOCIAL -->
@@ -366,7 +402,7 @@ h2{font-size:52px;line-height:1.06;font-weight:700;letter-spacing:-.01em}
       <div class="nt"><div class="num">3</div><div><div class="tt">Trends &amp; sentiment</div><div class="dd">Across your audience and geo — what's rising right now.</div></div></div>
     </div>
   </div>
-  <div class="foot"><span class="hair"></span><span>social-intel · Reddit · X · TikTok · YouTube</span><span>08 / 15</span></div>
+  <div class="foot"><span class="hair"></span><span>social-intel · Reddit · X · TikTok · YouTube</span><span>08 / 16</span></div>
 </section>
 
 <!-- 9 BOOKING -->
@@ -374,7 +410,7 @@ h2{font-size:52px;line-height:1.06;font-weight:700;letter-spacing:-.01em}
   <div class="top"><div class="brand"><span class="tf"><i></i><i></i><i></i></span> AXIOM</div><div class="kicker">08 — Booking</div></div>
   <div class="demo wide" style="flex:1">
     <div class="notes">
-      <div class="demo-h">Booking with a brand<br>manager's memory.</div>
+      <div class="demo-h" style="font-size:31px;line-height:1.12">Booking with a brand<br>manager's memory.</div>
       <div class="demo-sub" style="margin-bottom:28px">Seasonality, client history, proactive touches.</div>
       <div class="nt"><div class="num">1</div><div><div class="tt">Booking + client context</div><div class="dd">Knows seasonality and history — who came, when, and for what.</div></div></div>
       <div class="nt"><div class="num">2</div><div><div class="tt">Reminds ahead of time</div><div class="dd">Re-book nudges and seasonal offers — before the client drifts to a competitor.</div></div></div>
@@ -392,7 +428,7 @@ h2{font-size:52px;line-height:1.06;font-weight:700;letter-spacing:-.01em}
       </div>
     </div>
   </div>
-  <div class="foot"><span class="hair"></span><span>automation · journeys · feedback</span><span>09 / 15</span></div>
+  <div class="foot"><span class="hair"></span><span>automation · journeys · feedback</span><span>09 / 16</span></div>
 </section>
 
 <!-- 10 FORECAST -->
@@ -426,7 +462,7 @@ h2{font-size:52px;line-height:1.06;font-weight:700;letter-spacing:-.01em}
       <div class="nt"><div class="num">3</div><div><div class="tt">Opportunities — don't miss</div><div class="dd">What you can't afford to miss, based on the trends.</div></div></div>
     </div>
   </div>
-  <div class="foot"><span class="hair"></span><span>history + social trends · risks &amp; opportunities</span><span>10 / 15</span></div>
+  <div class="foot"><span class="hair"></span><span>history + social trends · risks &amp; opportunities</span><span>10 / 16</span></div>
 </section>
 
 <!-- 11 ENGINE -->
@@ -440,18 +476,7 @@ h2{font-size:52px;line-height:1.06;font-weight:700;letter-spacing:-.01em}
     <h1 style="margin-top:30px">The AI explains every number.<br><span class="it gold">It never makes them up.</span></h1>
     <div class="lead">Every claim links to the raw row and the payment behind it. You see not just <span class="it">what</span> happened, but <span class="it">why</span> — and you can verify it.</div>
   </div>
-  <div class="foot"><span class="hair"></span><span>Every claim cites a metric</span><span>11 / 15</span></div>
-</section>
-
-<!-- 12 AXIOM CONCEPT -->
-<section class="slide axiom">
-  <div class="top"><div class="brand"><span class="tf"><i></i><i></i><i></i></span> AXIOM</div><div class="kicker">Axiom</div></div>
-  <div class="body">
-    <div class="eyebrow">Why "AXIOM"</div>
-    <div class="def">An axiom is a self-evident <span class="q">truth</span> that needs no proof.</div>
-    <div class="turn">We make your <b>profit</b> one.</div>
-  </div>
-  <div class="foot"><span class="hair"></span><span style="display:inline-flex;align-items:center;gap:8px"><span class="tf" style="font-size:15px"><i></i><i></i><i></i></span> Therefore</span><span>12 / 15</span></div>
+  <div class="foot"><span class="hair"></span><span>Every claim cites a metric</span><span>11 / 16</span></div>
 </section>
 
 <!-- 13 AUDIENCE -->
@@ -465,7 +490,7 @@ h2{font-size:52px;line-height:1.06;font-weight:700;letter-spacing:-.01em}
       <div class="card"><div class="tag">White-label</div><div class="t">Agencies</div><div class="d">Senior-strategist answers for every client — under your brand, at scale. Client-ready reports instead of manual Looker.</div></div>
     </div>
   </div>
-  <div class="foot"><span class="hair"></span><span>AXIOM · Revenue OS</span><span>13 / 15</span></div>
+  <div class="foot"><span class="hair"></span><span>AXIOM · Revenue OS</span><span>13 / 16</span></div>
 </section>
 
 <!-- 14 OUTCOME -->
@@ -480,20 +505,26 @@ h2{font-size:52px;line-height:1.06;font-weight:700;letter-spacing:-.01em}
       <div class="otile"><div class="t">One source of truth</div><div class="d">Instead of ten tabs and conflicting exports.</div></div>
     </div>
   </div>
-  <div class="foot"><span class="hair"></span><span>AXIOM · Revenue OS</span><span>14 / 15</span></div>
+  <div class="foot"><span class="hair"></span><span>AXIOM · Revenue OS</span><span>14 / 16</span></div>
 </section>
 
 <!-- 15 CLOSE -->
-<section class="slide close">
+<section class="slide axiom close">
   <div class="top"><div class="brand"><span class="tf"><i></i><i></i><i></i></span> AXIOM</div><div class="kicker" style="display:inline-flex;align-items:center;gap:8px"><span class="tf" style="font-size:15px"><i></i><i></i><i></i></span> Therefore</div></div>
   <div class="body">
-    <h1>Make your profit<br><span class="it">self-evident.</span></h1>
-    <div class="cta">AXIOM · Revenue OS &nbsp;—&nbsp; what works, what leaks, what's next</div>
+    <div class="eyebrow">Why "AXIOM"</div>
+    <div class="def">An axiom is a self-evident <span class="q">truth</span> that needs no proof.</div>
+    <div class="turn">We make your <b>profit</b> one.</div>
+    <div class="cta" style="margin-top:34px">AXIOM · Revenue OS &nbsp;—&nbsp; a pilot on your own data</div>
   </div>
-  <div class="foot"><span class="hair"></span><span>AXIOM</span><span>15 / 15</span></div>
+  <div class="foot"><span class="hair"></span><span>AXIOM</span><span>16 / 16</span></div>
   <div class="wm"><span class="tf"><i></i><i></i><i></i></span></div>
 </section>
 
 </div>
+<script>
+(function(){var s=document.querySelectorAll('.slide'),t=s.length;function p(n){return n<10?'0'+n:''+n;}
+s.forEach(function(el,i){var f=el.querySelector('.foot');if(f){var sp=f.querySelectorAll('span');var l=sp[sp.length-1];if(l)l.textContent=p(i+1)+' / '+t;}var k=el.querySelector('.kicker');if(k&&k.children.length===0)k.textContent=k.textContent.replace(/^\s*\d+\s*—\s*/,'');});})();
+</script>
 </body>
 </html>

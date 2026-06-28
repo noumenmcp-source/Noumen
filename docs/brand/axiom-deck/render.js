@@ -16,7 +16,7 @@ const SHELL = '/Users/a1/Library/Caches/ms-playwright/chromium_headless_shell-12
   });
 
   const n = await page.locator('.slide').count();
-  for (const i of [5]) {
+  for (const i of [3, 10]) {
     await page.locator('.slide').nth(i).screenshot({ path: dir + '/v_' + String(i + 1).padStart(2, '0') + '.png' });
   }
   console.log('slides=' + n);
