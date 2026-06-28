@@ -57,7 +57,7 @@ export function normalize(
 
   return {
     platform,
-    author: typeof raw.author === "string" ? raw.author : "",
+    // ADR-1: author intentionally dropped — no third-party personal profiles.
     text: typeof raw.text === "string" ? raw.text : "",
     url,
     ts: typeof raw.ts === "string" && raw.ts ? raw.ts : new Date(0).toISOString(),

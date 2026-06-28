@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@cdp-us/automation": "workspace:*",
+    "@cdp-us/billing": "workspace:*",
     "@cdp-us/consent": "workspace:*",
     "@cdp-us/contracts": "workspace:*",
     "@cdp-us/core-cdp": "workspace:*",

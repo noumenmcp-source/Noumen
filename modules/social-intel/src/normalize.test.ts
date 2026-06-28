@@ -18,7 +18,6 @@ describe("normalize", () => {
     const signal = normalize(fixture);
     expect(signal).toEqual({
       platform: "reddit",
-      author: "u/buyer42",
       text: "Whats the price? Thinking about whether to buy this.",
       url: "https://reddit.com/r/saas/comments/abc/def",
       ts: "2026-06-01T12:00:00.000Z",
@@ -65,8 +64,13 @@ describe("normalize", () => {
   });
 
   it("normalizeAll maps a batch", () => {
-    const signals = normalizeAll([fixture, { ...fixture, author: "u/two" }]);
+    const signals = normalizeAll([
+      fixture,
+      { ...fixture, url: "https://reddit.com/r/saas/comments/abc/two" },
+    ]);
     expect(signals).toHaveLength(2);
-    expect(signals[1].author).toBe("u/two");
+    expect(signals[1].url).toBe("https://reddit.com/r/saas/comments/abc/two");
+    // ADR-1: no `author` field is carried on a Signal.
+    expect("author" in signals[1]).toBe(false);
   });
 });

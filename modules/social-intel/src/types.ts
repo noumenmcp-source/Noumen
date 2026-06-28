@@ -37,8 +37,12 @@ export interface SocialQuery {
  */
 export interface RawSocialItem {
   platform?: string;
-  author?: string;
-  /** The post/comment body. */
+  /**
+   * The post/comment body. ADR-1: we do NOT model a third-party `author` field
+   * here — social-intel never builds personal profiles of non-customers. Any
+   * provider-supplied author is absorbed by the index signature and dropped on
+   * normalization.
+   */
   text?: string;
   /** Public permalink to the source item. REQUIRED by `normalize`. */
   url?: string;
@@ -69,7 +73,6 @@ export interface Engagement {
  */
 export interface Signal {
   platform: SocialPlatform;
-  author: string;
   text: string;
   /** Public source URL — guaranteed present. */
   url: string;

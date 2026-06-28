@@ -14,7 +14,9 @@ import {
   ProfileService,
   type ProfileStore,
 } from "@cdp-us/core-cdp";
+import { InMemoryUsageMeter, type UsageMeter } from "@cdp-us/billing";
 import { registerData } from "./routes/data.js";
+import { registerExport } from "./routes/export.js";
 import {
   DbIngestStore,
   InMemoryIngestStore,
@@ -24,6 +26,10 @@ import { registerHealth } from "./routes/health.js";
 import { registerIngest } from "./routes/ingest.js";
 import { registerModules } from "./routes/modules.js";
 import { registerSignup } from "./routes/signup.js";
+import {
+  InMemorySubscriptionStore,
+  type SubscriptionStore,
+} from "./subscription.js";
 import {
   DbTenantStore,
   InMemoryTenantStore,
@@ -37,6 +43,8 @@ export async function buildServer(
     tenantStore?: TenantStore;
     tokenStore?: TokenStore;
     profileStore?: ProfileStore;
+    subscriptionStore?: SubscriptionStore;
+    usageMeter?: UsageMeter;
     rateLimit?: { max: number; timeWindow: number | string } | false;
   } = {},
 ) {
@@ -45,6 +53,9 @@ export async function buildServer(
   const ingestStore = opts.ingestStore ?? createDefaultIngestStore();
   const tokenStore = opts.tokenStore ?? createDefaultTokenStore();
   const profileStore = opts.profileStore ?? createDefaultProfileStore();
+  const subscriptionStore =
+    opts.subscriptionStore ?? new InMemorySubscriptionStore();
+  const usageMeter = opts.usageMeter ?? new InMemoryUsageMeter();
   const profileService = new ProfileService(profileStore);
   await app.register(cors, {
     origin: true,
@@ -59,10 +70,18 @@ export async function buildServer(
     });
   }
   registerHealth(app);
-  registerModules(app, tenantStore, tokenStore);
+  registerModules(app, tenantStore, tokenStore, subscriptionStore);
   registerSignup(app, tenantStore, tokenStore);
-  registerIngest(app, ingestStore, tenantStore, profileService);
+  registerIngest(
+    app,
+    ingestStore,
+    tenantStore,
+    profileService,
+    subscriptionStore,
+    usageMeter,
+  );
   registerData(app, profileStore, ingestStore, tokenStore);
+  registerExport(app, profileStore, ingestStore, tokenStore);
   return app;
 }
 
