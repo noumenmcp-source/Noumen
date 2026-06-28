@@ -11,6 +11,10 @@ const cards = [
   { href: "/activation/journeys", title: "Journeys", body: "Run a deterministic journey preview." },
   { href: "/activation/destinations", title: "Destinations", body: "Review supported reverse-ETL activation targets." },
   { href: "/activation/analytics", title: "Analytics", body: "Read funnel and retention activation signals." },
+  { href: "/funnels", title: "Funnels", body: "Build a conversion funnel and inspect per-step dropoff." },
+  { href: "/cohorts", title: "Cohorts", body: "Compute retention cohorts by day/week/month." },
+  { href: "/leads", title: "Lead Scoring", body: "Run a fit/engagement scoring model over profiles." },
+  { href: "/deliverability", title: "Deliverability", body: "Validate SPF/DMARC/DKIM and check suppression." },
 ] as const;
 
 export default function ActivationPage() {
