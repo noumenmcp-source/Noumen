@@ -14,6 +14,7 @@
     { "path": "../../packages/computed-traits" },
     { "path": "../../packages/copy" },
     { "path": "../../packages/playbook" },
+    { "path": "../../packages/sources" },
     { "path": "../../packages/data-export" },
     { "path": "../../packages/data-quality" },
     { "path": "../../packages/destinations" },

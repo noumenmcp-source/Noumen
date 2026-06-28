@@ -137,6 +137,9 @@ importers:
       '@cdp-us/social-intel':
         specifier: workspace:*
         version: link:../../modules/social-intel
+      '@cdp-us/sources':
+        specifier: workspace:*
+        version: link:../../packages/sources
       '@cdp-us/warehouse-sync':
         specifier: workspace:*
         version: link:../../packages/warehouse-sync
@@ -611,6 +614,22 @@ importers:
         version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
 
   packages/sdk-node:
+    devDependencies:
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)
+
+  packages/sources:
+    dependencies:
+      '@cdp-us/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@cdp-us/integrations':
+        specifier: workspace:*
+        version: link:../integrations
+      '@cdp-us/webhooks-inbound':
+        specifier: workspace:*
+        version: link:../webhooks-inbound
     devDependencies:
       vitest:
         specifier: ^2.1.8

@@ -9,6 +9,7 @@ import { createDb } from "@cdp-us/db";
 import { redactProfile, type DsarEraser, type DsarReaders, type Subject } from "@cdp-us/data-export";
 import type { Sender as DestinationSender } from "@cdp-us/destinations";
 import { InboundRegistry } from "@cdp-us/webhooks-inbound";
+import { builtinInboundProviders, resolveSourceSecret } from "@cdp-us/sources";
 import {
   DbTokenStore,
   InMemoryTokenStore,
@@ -49,6 +50,7 @@ import { registerSegments, type LifecycleStore } from "./routes/segments.js";
 import { registerChannelQuality } from "./routes/channel-quality.js";
 import { registerReport } from "./routes/report.js";
 import { registerImport } from "./routes/import.js";
+import { registerSources } from "./routes/sources.js";
 import { registerDataExport } from "./routes/data-export.js";
 import { registerDataQuality } from "./routes/data-quality.js";
 import { registerDestinations } from "./routes/destinations.js";
@@ -198,6 +200,7 @@ export async function buildServer(
   registerChannelQuality(app, { tenantStore, tokenStore, store: lifecycleStore });
   registerReport(app, { tenantStore, tokenStore, store: lifecycleStore });
   registerImport(app, { tenantStore, tokenStore, profileService });
+  registerSources(app, { tenantStore, tokenStore });
   registerCohorts(app, {
     tenantStore,
     tokenStore,
@@ -207,8 +210,8 @@ export async function buildServer(
   registerAbTesting(app, { tenantStore, tokenStore });
   registerForms(app, tenantStore, profileService, { resolveForm: () => null });
   registerWebhooksInbound(app, tenantStore, profileService, {
-    registry: new InboundRegistry(),
-    resolveSecret: () => undefined,
+    registry: new InboundRegistry(builtinInboundProviders()),
+    resolveSecret: (tenant, provider) => resolveSourceSecret(provider, { writeKey: tenant.writeKey, env: process.env }),
   });
   return app;
 }

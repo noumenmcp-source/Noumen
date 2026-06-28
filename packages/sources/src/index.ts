@@ -1,0 +1,160 @@
+import type { IngestEvent } from "@cdp-us/contracts";
+import { mapShopifyEvent, verifyShopifyHmac, mapDataLayerEvent } from "@cdp-us/integrations";
+import { verifyHmacSha256, type InboundProvider, type WebhookHeaders } from "@cdp-us/webhooks-inbound";
+
+/**
+ * The "collect from everywhere" backbone (AXIOM deck slide 5). A Source turns an
+ * external system into CDP ingest events. Two delivery modes are supported today
+ * without any third-party credentials:
+ *  - `webhook`  — the source POSTs signed JSON to /v1/tenants/:id/webhooks/:provider
+ *  - `upload`   — the operator uploads a file (CSV import route)
+ *  - `snippet`  — an on-site tag posts to /v1/track (GTM dataLayer)
+ */
+export type SourceMode = "webhook" | "upload" | "snippet";
+
+export type SourceCategory = "ecommerce" | "tag-manager" | "crm" | "ads" | "messaging" | "file" | "custom";
+
+/** @example const s: SourceDescriptor = { key: "shopify", name: "Shopify", category: "ecommerce", mode: "webhook", requiresSecret: true, description: "..." }; */
+export type SourceDescriptor = Readonly<{
+  key: string;
+  name: string;
+  category: SourceCategory;
+  mode: SourceMode;
+  /** Whether the source verifies an HMAC signature (needs a shared secret). */
+  requiresSecret: boolean;
+  description: string;
+}>;
+
+/**
+ * Catalog of sources the platform can ingest from. This is the list the console
+ * renders on the "Sources" screen; `mode: "webhook"` entries are backed by a live
+ * mapper in {@link builtinInboundProviders}.
+ */
+export const SOURCE_CATALOG: readonly SourceDescriptor[] = [
+  { key: "shopify", name: "Shopify", category: "ecommerce", mode: "webhook", requiresSecret: true, description: "Orders, checkouts and customers via Shopify webhooks." },
+  { key: "datalayer", name: "GTM dataLayer", category: "tag-manager", mode: "webhook", requiresSecret: true, description: "Server-side forwarding of Google Tag Manager dataLayer events." },
+  { key: "snippet", name: "On-site snippet", category: "tag-manager", mode: "snippet", requiresSecret: false, description: "Drop-in JS tag that posts consented events to /v1/track." },
+  { key: "segment", name: "Segment", category: "custom", mode: "webhook", requiresSecret: true, description: "Segment-shaped track/identify payloads from any Segment source." },
+  { key: "generic", name: "Generic webhook", category: "custom", mode: "webhook", requiresSecret: true, description: "Any system that can POST a signed CDP event or batch." },
+  { key: "csv", name: "CSV upload", category: "file", mode: "upload", requiresSecret: false, description: "Upload a CSV with an email column to create or merge profiles." },
+];
+
+/**
+ * Built-in inbound webhook providers, ready to register on the InboundRegistry.
+ * Each verifies an HMAC signature, then maps the payload to ingest events.
+ *
+ * @example new InboundRegistry(builtinInboundProviders());
+ */
+export function builtinInboundProviders(): readonly InboundProvider[] {
+  return [shopifyProvider(), datalayerProvider(), segmentProvider(), genericProvider()];
+}
+
+/** Keys of catalog entries that are live inbound webhook providers. */
+export function inboundProviderKeys(): readonly string[] {
+  return builtinInboundProviders().map((p) => p.provider);
+}
+
+/**
+ * Resolve the HMAC secret for a tenant+provider. Per-provider env override
+ * `SOURCE_SECRET_<PROVIDER>` wins; otherwise the tenant write key is the shared
+ * secret. Returns undefined when no secret is configured (route answers 404).
+ *
+ * @example resolveSourceSecret("shopify", { writeKey: "wk_1", env: process.env });
+ */
+export function resolveSourceSecret(provider: string, opts: { writeKey?: string; env?: Record<string, string | undefined> }): string | undefined {
+  const env = opts.env ?? {};
+  const override = env[`SOURCE_SECRET_${provider.toUpperCase()}`];
+  if (override && override.length > 0) return override;
+  return opts.writeKey && opts.writeKey.length > 0 ? opts.writeKey : undefined;
+}
+
+// ---- providers ----
+
+function shopifyProvider(): InboundProvider {
+  return {
+    provider: "shopify",
+    verify: (rawBody, headers, secret) => verifyShopifyHmac(rawBody, header(headers, "x-shopify-hmac-sha256") ?? "", secret),
+    map: (payload, headers) => mapShopifyEvent(header(headers, "x-shopify-topic") ?? "", payload),
+  };
+}
+
+function datalayerProvider(): InboundProvider {
+  return {
+    provider: "datalayer",
+    verify: (rawBody, headers, secret) => verifyHmacSha256(rawBody, header(headers, "x-cdp-signature"), secret),
+    map: (payload) => collect(payload).map(mapDataLayerEvent).filter((e): e is IngestEvent => e !== null),
+  };
+}
+
+function segmentProvider(): InboundProvider {
+  return {
+    provider: "segment",
+    verify: (rawBody, headers, secret) => verifyHmacSha256(rawBody, header(headers, "x-cdp-signature"), secret),
+    map: (payload) => collect(payload).map(mapSegment).filter((e): e is IngestEvent => e !== null),
+  };
+}
+
+function genericProvider(): InboundProvider {
+  return {
+    provider: "generic",
+    verify: (rawBody, headers, secret) => verifyHmacSha256(rawBody, header(headers, "x-cdp-signature"), secret),
+    map: (payload) => collect(payload).map(asIngestEvent).filter((e): e is IngestEvent => e !== null),
+  };
+}
+
+// ---- helpers ----
+
+/** A payload may be a single object or `{ events: [...] }`; normalize to an array. */
+function collect(payload: unknown): unknown[] {
+  const record = asRecord(payload);
+  if (record && Array.isArray(record.events)) return record.events;
+  if (Array.isArray(payload)) return payload;
+  return record ? [record] : [];
+}
+
+/** Map a Segment-shaped payload to a CDP ingest event. */
+function mapSegment(entry: unknown): IngestEvent | null {
+  const record = asRecord(entry);
+  if (!record) return null;
+  const anonymousId = str(record, "anonymousId") ?? str(record, "userId");
+  if (!anonymousId) return null;
+  const type = str(record, "type");
+  const userId = str(record, "userId");
+  if (type === "identify") {
+    return { type: "identify", anonymousId, userId, traits: asRecord(record.traits) ?? {}, ts: str(record, "timestamp") };
+  }
+  const event = str(record, "event");
+  if (!event) return null;
+  return { type: "track", anonymousId, event, properties: asRecord(record.properties) ?? {}, ts: str(record, "timestamp") };
+}
+
+/** Validate an already CDP-shaped event object. */
+function asIngestEvent(entry: unknown): IngestEvent | null {
+  const record = asRecord(entry);
+  if (!record) return null;
+  const type = str(record, "type");
+  const anonymousId = str(record, "anonymousId");
+  if (!anonymousId) return null;
+  if (type === "identify") {
+    return { type: "identify", anonymousId, userId: str(record, "userId"), traits: asRecord(record.traits) ?? {}, ts: str(record, "ts") };
+  }
+  if (type === "track") {
+    const event = str(record, "event");
+    if (!event) return null;
+    return { type: "track", anonymousId, event, properties: asRecord(record.properties) ?? {}, ts: str(record, "ts") };
+  }
+  return null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+function str(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function header(headers: WebhookHeaders, key: string): string | undefined {
+  return headers[key];
+}

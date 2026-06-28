@@ -7,8 +7,8 @@ export type WebhookHeaders = Readonly<Record<string, string | undefined>>;
 /** @example const verifier: WebhookVerifier = (raw, headers, secret) => verifyGithub(raw, headers["x-hub-signature-256"], secret); */
 export type WebhookVerifier = (rawBody: string, headers: WebhookHeaders, secret: string) => boolean;
 
-/** @example const mapper: WebhookMapper = (payload) => []; */
-export type WebhookMapper = (payload: unknown) => readonly IngestEvent[];
+/** @example const mapper: WebhookMapper = (payload, headers) => []; */
+export type WebhookMapper = (payload: unknown, headers: WebhookHeaders) => readonly IngestEvent[];
 
 /** @example const config: InboundProvider = { provider: "github", verify: () => true, map: () => [] }; */
 export type InboundProvider = Readonly<{ provider: string; verify: WebhookVerifier; map: WebhookMapper }>;
@@ -52,7 +52,7 @@ export class InboundRegistry {
   handle(providerKey: string, rawBody: string, headers: WebhookHeaders, secret: string): InboundResult {
     const provider = this.providers.get(providerKey);
     if (!provider || !provider.verify(rawBody, headers, secret)) return { verified: false, events: [] };
-    return { verified: true, events: provider.map(parsePayload(rawBody)) };
+    return { verified: true, events: provider.map(parsePayload(rawBody), headers) };
   }
 }
 

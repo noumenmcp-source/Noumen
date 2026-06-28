@@ -27,6 +27,7 @@
     "@cdp-us/notifications": "workspace:*",
     "@cdp-us/platform": "workspace:*",
     "@cdp-us/playbook": "workspace:*",
+    "@cdp-us/sources": "workspace:*",
     "@cdp-us/webhooks-inbound": "workspace:*",
     "@cdp-us/billing": "workspace:*",
     "@cdp-us/consent": "workspace:*",

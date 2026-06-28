@@ -1,0 +1,75 @@
+import { createHmac } from "node:crypto";
+import { describe, expect, it } from "vitest";
+import { InboundRegistry } from "@cdp-us/webhooks-inbound";
+import { SOURCE_CATALOG, builtinInboundProviders, inboundProviderKeys, resolveSourceSecret } from "./index.js";
+
+const SECRET = "shhh";
+
+function sign(rawBody: string): string {
+  return createHmac("sha256", SECRET).update(rawBody).digest("hex");
+}
+function shopifySign(rawBody: string): string {
+  return createHmac("sha256", SECRET).update(rawBody).digest("base64");
+}
+
+describe("source catalog", () => {
+  it("exposes a non-empty catalog with unique keys", () => {
+    expect(SOURCE_CATALOG.length).toBeGreaterThanOrEqual(6);
+    const keys = SOURCE_CATALOG.map((s) => s.key);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("every webhook source has a live inbound provider", () => {
+    const live = new Set(inboundProviderKeys());
+    for (const s of SOURCE_CATALOG.filter((s) => s.mode === "webhook")) {
+      expect(live.has(s.key)).toBe(true);
+    }
+  });
+});
+
+describe("resolveSourceSecret", () => {
+  it("prefers per-provider env override, falls back to write key", () => {
+    expect(resolveSourceSecret("shopify", { writeKey: "wk", env: { SOURCE_SECRET_SHOPIFY: "envsec" } })).toBe("envsec");
+    expect(resolveSourceSecret("shopify", { writeKey: "wk", env: {} })).toBe("wk");
+    expect(resolveSourceSecret("shopify", { env: {} })).toBeUndefined();
+  });
+});
+
+describe("builtin inbound providers", () => {
+  const registry = new InboundRegistry(builtinInboundProviders());
+
+  it("rejects an unsigned generic payload", () => {
+    const body = JSON.stringify({ type: "track", anonymousId: "a", event: "X" });
+    const res = registry.handle("generic", body, { "x-cdp-signature": "deadbeef" }, SECRET);
+    expect(res.verified).toBe(false);
+    expect(res.events).toHaveLength(0);
+  });
+
+  it("maps a signed generic batch of CDP events", () => {
+    const body = JSON.stringify({
+      events: [
+        { type: "identify", anonymousId: "a", traits: { email: "a@b.com" } },
+        { type: "track", anonymousId: "a", event: "Signed Up" },
+        { type: "track", anonymousId: "a" }, // dropped: no event name
+      ],
+    });
+    const res = registry.handle("generic", body, { "x-cdp-signature": sign(body) }, SECRET);
+    expect(res.verified).toBe(true);
+    expect(res.events).toHaveLength(2);
+    expect(res.events[0]).toMatchObject({ type: "identify", anonymousId: "a" });
+  });
+
+  it("maps a signed Segment track payload", () => {
+    const body = JSON.stringify({ type: "track", anonymousId: "seg1", event: "Order Completed", properties: { value: 99 } });
+    const res = registry.handle("segment", body, { "x-cdp-signature": sign(body) }, SECRET);
+    expect(res.verified).toBe(true);
+    expect(res.events[0]).toMatchObject({ type: "track", anonymousId: "seg1", event: "Order Completed" });
+  });
+
+  it("maps a Shopify orders/create webhook via topic header", () => {
+    const body = JSON.stringify({ id: 1, email: "buyer@shop.com", total_price: "42.00", currency: "USD", created_at: "2026-01-01T00:00:00Z" });
+    const res = registry.handle("shopify", body, { "x-shopify-hmac-sha256": shopifySign(body), "x-shopify-topic": "orders/create" }, SECRET);
+    expect(res.verified).toBe(true);
+    expect(res.events.some((e) => e.type === "track" && e.event === "Order Completed")).toBe(true);
+  });
+});

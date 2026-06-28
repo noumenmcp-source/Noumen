@@ -1,0 +1,16 @@
+{
+  "name": "@cdp-us/sources",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "scripts": { "build": "tsc -b", "test": "vitest run" },
+  "dependencies": {
+    "@cdp-us/contracts": "workspace:*",
+    "@cdp-us/integrations": "workspace:*",
+    "@cdp-us/webhooks-inbound": "workspace:*"
+  },
+  "devDependencies": { "vitest": "^2.1.8" }
+}
