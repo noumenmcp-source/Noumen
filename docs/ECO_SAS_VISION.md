@@ -101,10 +101,11 @@ Full cycle (source → unify → attribution → advice) on the smallest source 
 that sells itself.
 
 ### v1 scope (recommended)
-- **Connectors: Stripe + GA4 + Google Ads** (+ existing first-party).
-  - One Google OAuth ecosystem covers GA4 + Google Ads → minimal app-review
-    surface for v1. Stripe gives the revenue truth. **Defer Meta / LinkedIn /
-    SimilarWeb / CRM to v2.**
+- **Connectors (MVP, ~2–4 months): native** GA4 + Google Ads + Meta Ads +
+  Stripe/Shopify (revenue); **buy** SEO via **DataForSEO**.
+  - **Defer:** LinkedIn Ads, SimilarWeb API, own SERP parser.
+  - **ETL fallback (Airbyte/Singer)** for the long-tail connectors only — core
+    connectors stay native for UX / OAuth / support quality.
 - **Metric store: Postgres** (one tenant's daily campaign metrics is small).
   ClickHouse only when event-level attribution at scale forces it — see
   [the ClickHouse note](#clickhouse). Don't add it for v1.
@@ -124,14 +125,58 @@ that sells itself.
 - **M5** — AI advisor (grounded narrative) over the ROI table.
 - **M6** — Channel ROI UI + insights feed.
 
-### Open decisions (need a call)
-- **Connectors: build-vs-buy.** Native (full control, months) vs embedded ETL
-  (Airbyte/Singer-style) or a metrics API (Supermetrics) to pull ad data fast.
-  This is the biggest cost driver. *Recommendation: native for first-party +
-  Stripe + GA4 + Google Ads (manageable, owns the core); revisit buy when adding
-  the long tail (Meta/LinkedIn/TikTok/…).*
-- **Attribution model for v1:** last-non-direct (recommended) vs multi-touch now.
-- **AI provider for the advisor:** must be grounded; pick model + guardrails.
+### Decisions
+- **Connectors: build-vs-buy — RESOLVED.** Native for core (GA4, Google Ads,
+  Meta Ads, Stripe/Shopify), buy SEO via **DataForSEO**, Airbyte/Singer as the
+  ETL fallback for long-tail connectors only — core stays native for UX / OAuth /
+  support quality.
+- **Still open — attribution model v1:** last-non-direct (recommended) vs
+  multi-touch now.
+- **Still open — AI provider for the advisor:** must be grounded; pick model +
+  guardrails.
+
+## First product package (v1 offering)
+
+The sellable v1 that embodies the ROI-translator wedge:
+
+1. **Connectors:** Google Ads + Meta Ads + GA4 + Stripe / Shopify / HubSpot.
+2. **Metrics:** CAC, ROAS, payback, channel profitability.
+3. **"Why" narrative:** plain-language explanation, **citing the exact metrics**.
+4. **Monthly agency-ready report.**
+5. **SEO add-on (via DataForSEO):** keyword visibility + competitors +
+   plain-English explanation. The first upsell rung (pillar 3).
+
+## Business model targets
+
+- **NRR 100–115%** — via the SEO add-on, extra data sources, and white-label
+  (agency) clients (the explain→upsell flywheel).
+- **Gross margin 75–85%** — holds only if human support is not bloated; the AI
+  explanation layer must scale support, not replace it with headcount.
+- **CAC payback:** track separately for *self-serve SMB* vs *agency-led* — agency
+  channel should amortize CAC across many client seats.
+
+## Compliance posture (US)
+
+ECO SAS is a **service provider / processor, NOT a data broker** — it processes
+the client's customer data **on the client's instruction** and never sells or
+shares audiences to third parties. CPRA strengthened service-provider/contractor
+contractual obligations; we meet them by design.
+
+**Minimum compliance package:**
+- DPA + maintained subprocessor list;
+- data deletion / export (DSAR — already wired in the core);
+- customer-level access controls; audit logs (have it);
+- encryption at rest and in transit;
+- regional privacy notices;
+- **no cross-client modeling without explicit opt-in** (protects the processor
+  posture);
+- clear disclosure: *"AI explanations are generated from your connected data."*
+
+**Data-governance note — Google Ads retention (from 2026-06-01):** granular
+performance stats kept 37 months (daily/hourly/weekly), high-level 11 years
+(monthly/quarterly/yearly). This makes **owning our historical marketing-facts
+store genuinely valuable** (we can retain longer than the source) — but raises
+governance duties (retention windows, deletion on client offboarding).
 
 ## Module — SEO intelligence (wedge candidate / v2)
 
