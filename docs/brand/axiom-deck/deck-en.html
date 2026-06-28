@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AXIOM — Revenue OS</title>
+<style>
+@font-face{font-family:'Lora';src:url('fonts/Lora-Regular.ttf') format('truetype');font-weight:400;font-style:normal;font-display:block}
+@font-face{font-family:'Lora';src:url('fonts/Lora-Bold.ttf') format('truetype');font-weight:700;font-style:normal;font-display:block}
+@font-face{font-family:'Lora';src:url('fonts/Lora-Italic.ttf') format('truetype');font-weight:400;font-style:italic;font-display:block}
+@font-face{font-family:'Lora';src:url('fonts/Lora-BoldItalic.ttf') format('truetype');font-weight:700;font-style:italic;font-display:block}
+@font-face{font-family:'Geist Mono';src:url('fonts/GeistMono-Regular.ttf') format('truetype');font-weight:400;font-display:block}
+@font-face{font-family:'Geist Mono';src:url('fonts/GeistMono-Bold.ttf') format('truetype');font-weight:700;font-display:block}
+:root{
+  --bg:#16120B; --bg2:#1c1710;
+  --ink:#F2ECDF; --dim:rgba(242,236,223,.60); --faint:rgba(242,236,223,.34);
+  --gold:#C8A24C; --gold-dim:rgba(200,162,76,.55); --gold-soft:rgba(200,162,76,.12);
+  --line:rgba(242,236,223,.14); --clay:#C16B4E;
+  --app:#F4EEE2; --app-ink:#221b12; --app-dim:#7a6f5c; --app-faint:#9a8f7b;
+  --app-gold:#9a7b2e; --app-green:#3f7d4f; --app-red:#b3492f; --app-line:rgba(34,27,18,.12);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{background:#0d0a06}
+.deck{width:1280px;margin:0 auto}
+.slide{position:relative;width:1280px;height:720px;overflow:hidden;
+  background:
+    radial-gradient(120% 80% at 8% 0%, rgba(200,162,76,.09) 0%, rgba(200,162,76,0) 42%),
+    radial-gradient(90% 90% at 100% 110%, rgba(193,107,78,.07) 0%, rgba(193,107,78,0) 50%),
+    linear-gradient(160deg,var(--bg2) 0%,var(--bg) 60%);
+  color:var(--ink);font-family:'Lora',Georgia,serif;padding:80px 96px 72px;
+  display:flex;flex-direction:column;page-break-after:always;break-after:page}
+.slide:last-child{page-break-after:auto}
+.slide::after{content:"";position:absolute;inset:0;
+  background:radial-gradient(130% 120% at 50% 50%, rgba(0,0,0,0) 55%, rgba(0,0,0,.34) 100%);pointer-events:none}
+.mono{font-family:'Geist Mono',monospace}
+.eyebrow{font-family:'Geist Mono',monospace;font-size:15px;letter-spacing:.18em;text-transform:uppercase;color:#E2BD66;font-weight:700}
+.gold{color:var(--gold)} .clay{color:var(--clay)} .dim{color:var(--dim)} .it{font-style:italic}
+.tf{display:inline-grid;grid-template-columns:repeat(3,1fr);grid-template-rows:1fr 1fr;width:1.05em;height:.92em;vertical-align:middle;align-items:center;justify-items:center}
+.tf i{width:.155em;height:.155em;border-radius:50%;background:var(--gold);display:block}
+.tf i:nth-child(1){grid-column:2;grid-row:1}.tf i:nth-child(2){grid-column:1;grid-row:2}.tf i:nth-child(3){grid-column:3;grid-row:2}
+.top{display:flex;justify-content:space-between;align-items:center}
+.brand{display:flex;align-items:center;gap:12px;font-family:'Geist Mono',monospace;font-size:14px;letter-spacing:.22em;text-transform:uppercase;color:var(--ink)}
+.brand .tf{font-size:18px}
+.top .kicker{font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:.26em;text-transform:uppercase;color:var(--faint)}
+.body{flex:1;display:flex;flex-direction:column;justify-content:center}
+h1{font-size:74px;line-height:1.02;font-weight:700;letter-spacing:-.012em}
+h2{font-size:52px;line-height:1.06;font-weight:700;letter-spacing:-.01em}
+.lead{font-size:24px;line-height:1.5;color:var(--dim);max-width:880px;margin-top:24px}
+.foot{display:flex;justify-content:space-between;align-items:center;font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:.18em;color:var(--faint);text-transform:uppercase}
+.foot .hair{position:absolute;left:96px;right:96px;height:1px;background:var(--line);transform:translateY(-22px)}
+.wm{position:absolute;right:10px;bottom:-40px;line-height:1}
+.wm .tf{font-size:430px}.wm .tf i{background:rgba(200,162,76,.055)}
+.cover .latin{font-family:'Geist Mono',monospace;font-size:18px;letter-spacing:.4em;color:var(--gold-dim);text-transform:uppercase;margin-bottom:26px}
+.cover h1{font-size:150px;letter-spacing:-.02em;line-height:.9}
+.cover .tag{font-size:38px;font-style:italic;color:var(--ink);margin-top:30px;line-height:1.12}
+.cover .tag b{font-style:italic;color:var(--gold);font-weight:700}
+.cover .formula{margin-top:28px;font-family:'Geist Mono',monospace;font-size:14px;letter-spacing:.16em;color:var(--dim);text-transform:uppercase}
+.stat{display:flex;align-items:flex-start;gap:48px;margin-top:30px}
+.stat .big{font-size:150px;line-height:.86;font-weight:700;letter-spacing:-.02em}
+.stat .big.g{color:var(--gold)} .stat .pct{font-size:60px;vertical-align:super}
+.stat .cap{font-size:17px;color:var(--dim);line-height:1.4;margin-top:14px;max-width:240px}
+.stat .arrow{font-family:'Geist Mono';font-size:48px;color:var(--gold-dim);align-self:center;margin-top:-20px}
+.punch{margin-top:40px;font-size:27px;line-height:1.3;color:var(--ink);max-width:900px}
+.punch .it{color:var(--gold)}
+.cols{display:grid;gap:30px;margin-top:44px}
+.c3{grid-template-columns:repeat(3,1fr)}
+.col .h{font-family:'Geist Mono';font-size:13px;letter-spacing:.2em;text-transform:uppercase;color:var(--gold)}
+.col .d{font-size:17px;line-height:1.5;color:var(--dim);margin-top:14px}
+.demo{display:grid;grid-template-columns:1fr 360px;gap:48px;align-items:center;margin-top:30px}
+.mock{background:var(--app);border-radius:12px;overflow:hidden;box-shadow:0 40px 90px -30px rgba(0,0,0,.7);color:var(--app-ink)}
+.mock-bar{display:flex;align-items:center;gap:14px;padding:12px 16px;background:#e7e0d2;border-bottom:1px solid var(--app-line)}
+.mock-bar .dots{display:flex;gap:7px}
+.mock-bar .dots i{width:11px;height:11px;border-radius:50%;background:#c9beac;display:block}
+.mock-bar .url{font-family:'Geist Mono';font-size:12px;color:var(--app-dim);background:#f4efe4;border-radius:6px;padding:5px 14px}
+.mock-app{padding:26px 30px 30px}
+.mock-app .ahead{display:flex;justify-content:space-between;align-items:center;font-family:'Geist Mono';font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--app-faint)}
+.mock-app .ahead .biz{color:var(--app-ink);font-weight:700;letter-spacing:.1em}
+.mock-app .badge{font-family:'Geist Mono';font-size:11px;color:var(--app-green);background:rgba(63,125,79,.12);border-radius:20px;padding:5px 12px;letter-spacing:.04em}
+.mock-app h3{font-size:30px;font-weight:700;line-height:1.12;margin-top:20px;letter-spacing:-.01em}
+.mock-app h3 .g{color:var(--app-gold)}
+.mock-app .warn{color:var(--app-red);font-size:14px;margin-top:8px;font-weight:700}
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--app-line);border:1px solid var(--app-line);border-radius:8px;overflow:hidden;margin-top:22px}
+.tiles .t{background:var(--app);padding:14px 16px}
+.tiles .t .k{font-family:'Geist Mono';font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--app-faint)}
+.tiles .t .v{font-size:22px;font-weight:700;margin-top:6px}
+.tiles .t .v.g{color:var(--app-gold)} .tiles .t .v.green{color:var(--app-green)}
+.where{margin-top:24px}
+.where .wt{font-size:16px;font-weight:700}
+.where .wd{font-size:12px;color:var(--app-dim);margin-top:2px}
+.bar{display:flex;align-items:center;gap:14px;margin-top:13px;font-size:13px}
+.bar .nm{width:150px;color:var(--app-ink)}
+.bar .tr{flex:1;height:14px;background:rgba(34,27,18,.06);border-radius:3px;overflow:hidden}
+.bar .fl{height:100%;border-radius:3px}
+.bar .am{width:130px;text-align:right;font-family:'Geist Mono';font-size:12px;color:var(--app-dim)}
+.notes .nt{display:flex;gap:16px;margin-bottom:26px}
+.notes .num{flex:none;width:30px;height:30px;border-radius:50%;border:1px solid var(--gold-dim);color:var(--gold);font-family:'Geist Mono';font-size:13px;display:flex;align-items:center;justify-content:center}
+.notes .tt{font-size:19px;font-weight:700;line-height:1.2}
+.notes .dd{font-size:14px;color:var(--dim);line-height:1.45;margin-top:6px}
+.demo-h{font-size:40px;font-weight:700;line-height:1.05;letter-spacing:-.01em}
+.demo-sub{font-size:16px;color:var(--dim);margin-top:12px;line-height:1.5}
+.rows{margin-top:22px}
+.row2{display:grid;grid-template-columns:1fr auto auto;gap:18px;align-items:center;border:1px solid var(--app-line);border-radius:8px;padding:14px 18px;margin-bottom:10px}
+.row2 .nm{font-size:16px;font-weight:700}
+.row2 .nm small{display:block;font-family:'Geist Mono';font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--app-faint);font-weight:400;margin-top:3px}
+.row2 .why{font-family:'Geist Mono';font-size:11px;color:var(--app-dim);max-width:230px;text-align:right;line-height:1.4}
+.row2 .roas{font-size:24px;font-weight:700;text-align:right}
+.row2 .roas small{display:block;font-family:'Geist Mono';font-size:10px;font-weight:400;letter-spacing:.04em;margin-top:3px}
+.row2.win{border-left:3px solid var(--app-green)} .row2.win .roas{color:var(--app-green)} .row2.win .roas small{color:var(--app-green)}
+.row2.leak{border-left:3px solid var(--app-red)} .row2.leak .roas{color:var(--app-red)} .row2.leak .roas small{color:var(--app-red)}
+.todo{margin-top:18px}
+.todo .th{font-size:16px;font-weight:700}
+.todo .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:12px}
+.todo .card{background:#ece5d6;border-radius:8px;padding:14px 16px}
+.todo .card .ck{font-family:'Geist Mono';font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--app-faint)}
+.todo .card .ct{font-size:14px;font-weight:700;margin-top:8px;line-height:1.25}
+.demo.wide{grid-template-columns:360px 1fr}
+.aud{display:grid;grid-template-columns:1fr 1fr;gap:36px;margin-top:44px}
+.aud .card{border:1px solid var(--line);padding:28px 26px;border-top:2px solid var(--gold-dim)}
+.aud .tag{font-family:'Geist Mono';font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--gold)}
+.aud .t{font-size:24px;font-weight:700;margin-top:14px}
+.aud .d{font-size:15px;color:var(--dim);line-height:1.5;margin-top:12px}
+.otiles{display:grid;grid-template-columns:repeat(3,1fr);gap:26px;margin-top:46px}
+.otile{border-top:1px solid var(--line);padding-top:22px}
+.otile .t{font-size:22px;font-weight:700;line-height:1.2;color:var(--gold)}
+.otile .d{font-size:15px;color:var(--dim);line-height:1.5;margin-top:12px}
+.axiom .def{font-size:58px;line-height:1.14;font-weight:400;font-style:italic;max-width:1000px;margin-top:28px}
+.axiom .def .q{color:var(--gold)}
+.axiom .turn{font-size:34px;line-height:1.25;margin-top:36px;max-width:880px}
+.axiom .turn b{color:var(--gold);font-weight:700}
+.mock-app h4{font-size:14px;font-weight:700;margin-top:18px}
+.mchart{margin-top:10px}
+.mchart-leg{display:flex;gap:20px;font-family:'Geist Mono';font-size:10px;color:var(--app-dim);margin-top:6px}
+.mchart-leg i{display:inline-block;width:14px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}
+.krow{display:flex;justify-content:space-between;align-items:center;font-size:13.5px;padding:9px 0;border-bottom:1px solid var(--app-line)}
+.krow:last-child{border-bottom:none}
+.krow .d{font-family:'Geist Mono';font-size:12px}
+.up{color:var(--app-green)} .down{color:var(--app-red)}
+.srow{font-size:13.5px;padding:11px 0;border-bottom:1px solid var(--app-line);line-height:1.4}
+.srow:last-child{border-bottom:none}
+.srow b{font-weight:700}
+.srow .m{font-family:'Geist Mono';font-size:11px;color:var(--app-gold)}
+.tiles.t3{grid-template-columns:repeat(3,1fr)}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.chip{font-family:'Geist Mono';font-size:11px;color:var(--app-gold);border:1px solid var(--app-line);border-radius:20px;padding:5px 12px}
+.ppanel{background:rgba(63,125,79,.10);border-radius:8px;padding:12px 14px;font-family:'Geist Mono';font-size:12px;font-weight:700;color:var(--app-green);margin-top:14px;letter-spacing:.02em}
+.fb{background:#ece5d6;border-radius:8px;padding:12px 14px;font-size:13.5px;margin-top:12px;line-height:1.4}
+.fb .who{font-family:'Geist Mono';font-size:10px;color:var(--app-faint);text-transform:uppercase;letter-spacing:.08em;margin-top:5px}
+.ro{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px}
+.ro .c{border-radius:8px;padding:13px 15px;font-size:13px;line-height:1.4}
+.ro .risk{background:rgba(179,73,47,.10);border-left:3px solid var(--app-red)}
+.ro .opp{background:rgba(63,125,79,.10);border-left:3px solid var(--app-green)}
+.ro .k{font-family:'Geist Mono';font-size:10px;letter-spacing:.1em;text-transform:uppercase;margin-bottom:6px}
+.ro .risk .k{color:var(--app-red)} .ro .opp .k{color:var(--app-green)}
+.close .body{justify-content:center}
+.close h1{font-size:80px;line-height:1.05;max-width:1000px}
+.close h1 .it{color:var(--gold)}
+.close .cta{margin-top:38px;font-family:'Geist Mono';font-size:15px;letter-spacing:.18em;color:var(--dim);text-transform:uppercase}
+.fa{color:var(--gold-dim)}
+</style>
+</head>
+<body>
+<div class="deck">
+
+<!-- 1 COVER -->
+<section class="slide cover">
+  <div class="top"><div class="brand"><span class="tf"><i></i><i></i><i></i></span> AXIOM</div><div class="kicker">Revenue OS · revenue intelligence</div></div>
+  <div class="body">
+    <div class="latin">Revenue Operating System</div>
+    <h1>AXIOM</h1>
+    <div class="tag">makes your revenue <b>self-evident.</b></div>
+    <div class="formula">what makes money? &nbsp;·&nbsp; what wastes budget? &nbsp;·&nbsp; how to grow profit?</div>
+  </div>
+  <div class="foot"><span class="hair"></span><span>Pitch deck · 2026</span><span>01 / 15</span></div>
+  <div class="wm"><span class="tf"><i></i><i></i><i></i></span></div>
+</section>
+
+<!-- 2 PROBLEM -->
+<section class="slide">
+  <div class="top"><div class="brand"><span class="tf"><i></i><i></i><i></i></span> AXIOM</div><div class="kicker">01 — The problem</div></div>
+  <div class="body">
+    <div class="eyebrow">Most owners fly blind</div>
+    <div class="stat">
+      <div><div class="big g">95<span class="pct">%</span></div><div class="cap">believe they measure their marketing ROI</div></div>
+      <div class="arrow">→</div>
+      <div><div class="big">25<span class="pct">%</span></div><div class="cap">actually do it consistently</div></div>
+    </div>
+    <div class="punch">Marketing is a black box. You spend. Something happens. <span class="it">Nobody tells you why.</span></div>
+  </div>
+  <div class="foot"><span class="hair"></span><span>SMB survey · WhatConverts</span><span>02 / 15</span></div>
+</section>
+
+<!-- 3 PROMISE -->
+<section class="slide">
+  <div class="top"><div class="brand"><span class="tf"><i></i><i></i><i></i></span> AXIOM</div><div class="kicker">02 — What it is</div></div>
+  <div class="body">
+    <div class="eyebrow">The solution</div>
+    <h1 style="margin-top:18px">Marketing, translated<br>into <span class="gold">dollars.</span></h1>
+    <div class="cols c3">
+      <div class="col"><div class="h">Connects</div><div class="d">Google Ads, Meta, GA4, Stripe, Shopify, HubSpot — in minutes.</div></div>
+      <div class="col"><div class="h">Unifies</div><div class="d">Spend, revenue and rankings — one honest picture, by actual payments.</div></div>
+      <div class="col"><div class="h">Explains</div><div class="d">What happened, why, and what to do — in language an owner reads.</div></div>
+    </div>
+    <div class="punch" style="margin-top:34px;font-size:24px">Dashboards tell you what happened. <span class="it">AXIOM tells you what to do.</span></div>
+  </div>
+  <div class="foot"><span class="hair"></span><span>One picture · plain words</span><span>03 / 15</span></div>
+</section>
+
+<!-- 4 MONEY -->
+<section class="slide">
+  <div class="top"><div class="brand"><span class="tf"><i></i><i></i><i></i></span> AXIOM</div><div class="kicker">03 — See it live</div></div>
+  <div class="demo" style="flex:1">
+    <div class="mock">
+      <div class="mock-bar"><div class="dots"><i></i><i></i><i></i></div><div class="url">app.axiom.io / brew-co / money</div></div>
+      <div class="mock-app">
+        <div class="ahead"><span class="biz">Brew Co.</span><span class="badge">● Profitable · $3.30 per $1</span></div>
+        <h3>Spent <span class="g">$18,400</span> on marketing —<br>made <span class="g">$61,200</span> back.</h3>
+        <div class="warn">But one channel is quietly losing money — see Meta below <span class="mono">↓</span></div>
+        <div class="tiles">
+          <div class="t"><div class="k">Spent</div><div class="v">$18,400</div></div>
+          <div class="t"><div class="k">Made back</div><div class="v">$61,200</div></div>
+          <div class="t"><div class="k">Per $1</div><div class="v g">$3.30</div></div>
+          <div class="t"><div class="k">Kept</div><div class="v green">$42,800</div></div>
+        </div>
+        <div class="where">
+          <div class="wt">Where your money went</div>
+          <div class="wd">$18,400 ad budget, by channel</div>
+          <div class="bar"><div class="nm">Meta Ads</div><div class="tr"><div class="fl" style="width:45%;background:#b3492f"></div></div><div class="am">$8,200 · 45%</div></div>
+          <div class="bar"><div class="nm">Google Search</div><div class="tr"><div class="fl" style="width:27%;background:#caa14e"></div></div><div class="am">$5,000 · 27%</div></div>
+          <div class="bar"><div class="nm">Google Display</div><div class="tr"><div class="fl" style="width:16%;background:#caa14e"></div></div><div class="am">$3,000 · 16%</div></div>
+          <div class="bar"><div class="nm">Email</div><div class="tr"><div class="fl" style="width:7%;background:#3f7d4f"></div></div><div class="am">$1,200 · 7%</div></div>
+          <div class="bar"><div class="nm">Other</div><div class="tr"><div class="fl" style="width:5%;background:#b9ad97"></div></div><div class="am">$1,000 · 5%</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <div class="demo-h">What you<br>see first.</div>
+      <div class="demo-sub" style="margin-bottom:30px">A real screen — no analyst required.</div>
+      <div class="nt"><div class="num">1</div><div><div class="tt">The bottom line, one sentence</div><div class="dd">"Spent $18,400, made $61,200." Words, not a chart to decode.</div></div></div>
+      <div class="nt"><div class="num">2</div><div><div class="tt">Profit, not vanity metrics</div><div class="dd">Four numbers an owner cares about: spent, made back, per $1, kept.</div></div></div>
+      <div class="nt"><div class="num">3</div><div><div class="tt">Where the money goes</div><div class="dd">Budget by channel, biggest first — Meta eats 45% at a glance.</div></div></div>
+    </div>
+  </div>
+  <div class="foot"><span class="hair"></span><span>Reconciled with Stripe · by actual payments</span><span>04 / 15</span></div>
+</section>
+
+<!-- 5 WORKS/LEAKS -->
+<section class="slide">
+  <div class="top"><div class="brand"><span class="tf"><i></i><i></i><i></i></span> AXIOM</div><div class="kicker">04 — Works · leaks · do</div></div>
+  <div class="demo wide" style="flex:1">
+    <div class="notes">
+      <div class="demo-h" style="font-size:34px;line-height:1.1">What works,<br>what leaks,<br><span class="gold">what to do<br>to grow profit.</span></div>
+      <div class="demo-sub" style="margin-bottom:28px">The translator at work.</div>
+      <div class="nt"><div class="num">1</div><div><div class="tt">Green earns, red leaks</div><div class="dd">Sorted best to worst — by return per $1. No guessing.</div></div></div>
+      <div class="nt"><div class="num">2</div><div><div class="tt">The "why", in plain words</div><div class="dd">"Spent 34% more, sales fell 25%." With numbers, never invented.</div></div></div>
+      <div class="nt"><div class="num">3</div><div><div class="tt">What to do, in order</div><div class="dd">Stop the leak · double down · easy win. Each tied to the data.</div></div></div>
+    </div>
+    <div class="mock">
+      <div class="mock-bar"><div class="dots"><i></i><i></i><i></i></div><div class="url">app.axiom.io / brew-co / money</div></div>
+      <div class="mock-app">
+        <h3 style="font-size:22px;margin-top:0">What's working — and what's leaking money</h3>
+        <div class="rows">
+          <div class="row2 win"><div class="nm">Email<small>hidden winner</small></div><div class="why">$3.10 per $1, cheap and reliable — you're under-using it.</div><div class="roas">×3.1<small>earning</small></div></div>
+          <div class="row2 win"><div class="nm">Google Search<small>best channel</small></div><div class="why">Every $1 comes back fourfold. Cheapest place to grow.</div><div class="roas">×4.0<small>earning</small></div></div>
+          <div class="row2 leak"><div class="nm">Meta Ads<small>losing money</small></div><div class="why">Spent 34% more, sales fell 25%. The offer stopped working.</div><div class="roas">×0.6<small>leaking</small></div></div>
+        </div>
+        <div class="todo">
+          <div class="th">What to do next</div>
+          <div class="cards">
+            <div class="card"><div class="ck">01 · stop the leak</div><div class="ct">Pause cold Meta before scaling it</div></div>
+            <div class="card"><div class="ck">02 · double down</div><div class="ct">Move budget to Email & brand search</div></div>
+            <div class="card"><div class="ck">03 · easy win</div><div class="ct">More email — near-free profit</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span class="hair"></span><span>Grounded in data · no invented advice</span><span>05 / 15</span></div>
+</section>
+
+<!-- 6 SEO -->
+<section class="slide">
+  <div class="top"><div class="brand"><span class="tf"><i></i><i></i><i></i></span> AXIOM</div><div class="kicker">05 — SEO</div></div>
+  <div class="demo" style="flex:1">
+    <div class="mock">
+      <div class="mock-bar"><div class="dots"><i></i><i></i><i></i></div><div class="url">app.axiom.io / brew-co / seo</div></div>
+      <div class="mock-app">
+        <div class="ahead"><span class="biz">Brew Co.</span><span class="badge">● 38% of leads · $0 per click</span></div>
+        <h3 style="font-size:24px">Search brings <span class="g">38% of leads</span> at no cost per click.</h3>
+        <div class="warn">But a competitor is pulling ahead on your money keywords.</div>
+        <h4>Visibility: you vs competitor</h4>
+        <div class="mchart">
+          <svg viewBox="0 0 320 104" style="width:100%;height:100px" preserveAspectRatio="none">
+            <polyline fill="none" stroke="#b3492f" stroke-width="2.5" points="0,62 64,54 128,44 192,33 256,25 320,17"/>
+            <polyline fill="none" stroke="#3f7d4f" stroke-width="2.5" points="0,90 64,86 128,79 192,71 256,63 320,55"/>
+          </svg>
+          <div class="mchart-leg"><span><i style="background:#3f7d4f"></i>you — climbing, 34%</span><span><i style="background:#b3492f"></i>competitor — 48%, pulling ahead</span></div>
+        </div>
+        <h4>Keywords on the move</h4>
+        <div class="krow"><span>wholesale coffee beans</span><span class="d up">↑ #14 → #6</span></div>
+        <div class="krow"><span>coffee shop near me</span><span class="d up">↑ #9 → #3</span></div>
+        <div class="krow"><span>coffee to go price</span><span class="d down">↓ #4 → #9</span></div>
+      </div>
+    </div>
+    <div class="notes">
+      <div class="demo-h">Organic traffic —<br>finally clear.</div>
+      <div class="demo-sub" style="margin-bottom:28px">Visibility and competitors — no SEO degree.</div>
+      <div class="nt"><div class="num">1</div><div><div class="tt">You vs competitors</div><div class="dd">Visibility month over month — who's pulling ahead on the money keywords.</div></div></div>
+      <div class="nt"><div class="num">2</div><div><div class="tt">Keywords on the move</div><div class="dd">What's rising, what's falling — and how many customers that is.</div></div></div>
+      <div class="nt"><div class="num">3</div><div><div class="tt">Tied to ROI</div><div class="dd">Closing the SEO gap is cheaper than buying the same traffic with ads.</div></div></div>
+    </div>
+  </div>
+  <div class="foot"><span class="hair"></span><span>Google Search Console · DataForSEO</span><span>06 / 15</span></div>
+</section>
+
+<!-- 7 EMAIL -->
+<section class="slide">
+  <div class="top"><div class="brand"><span class="tf"><i></i><i></i><i></i></span> AXIOM</div><div class="kicker">06 — Email</div></div>
+  <div class="demo wide" style="flex:1">
+    <div class="notes">
+      <div class="demo-h">Email that wins<br>customers back.</div>
+      <div class="demo-sub" style="margin-bottom:28px">Personal, by purchase history — not a blast.</div>
+      <div class="nt"><div class="num">1</div><div><div class="tt">Personal offers</div><div class="dd">Each customer gets their own, by purchases and behavior. Not a list-wide blast.</div></div></div>
+      <div class="nt"><div class="num">2</div><div><div class="tt">Less churn</div><div class="dd">Dormant customers won back in time — before they're gone for good.</div></div></div>
+      <div class="nt"><div class="num">3</div><div><div class="tt">Higher order value</div><div class="dd">Upsell and cross-sell by history — at the right moment.</div></div></div>
+    </div>
+    <div class="mock">
+      <div class="mock-bar"><div class="dots"><i></i><i></i><i></i></div><div class="url">app.axiom.io / brew-co / email</div></div>
+      <div class="mock-app">
+        <h3 style="font-size:22px;margin-top:0">Campaigns this month</h3>
+        <div class="tiles t3">
+          <div class="t"><div class="k">Churn</div><div class="v green">−24%</div></div>
+          <div class="t"><div class="k">Avg order</div><div class="v g">+18%</div></div>
+          <div class="t"><div class="k">Dormant won back</div><div class="v">312</div></div>
+        </div>
+        <h4>Who got what</h4>
+        <div class="srow"><b>Dormant 90 days</b> → 15% off their category <span class="m">· won back 312</span></div>
+        <div class="srow"><b>VIP by spend</b> → early access + upsell <span class="m">· AOV +22%</span></div>
+        <div class="srow"><b>Abandoned cart</b> → reminder in 2h <span class="m">· +9% revenue</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span class="hair"></span><span>Segments + triggers · by purchase history</span><span>07 / 15</span></div>
+</section>
+
+<!-- 8 SOCIAL -->
+<section class="slide">
+  <div class="top"><div class="brand"><span class="tf"><i></i><i></i><i></i></span> AXIOM</div><div class="kicker">07 — Social intel</div></div>
+  <div class="demo" style="flex:1">
+    <div class="mock">
+      <div class="mock-bar"><div class="dots"><i></i><i></i><i></i></div><div class="url">app.axiom.io / brew-co / social</div></div>
+      <div class="mock-app">
+        <div class="ahead"><span class="biz">Brew Co.</span><span class="badge">● Reddit · X · TikTok · YouTube</span></div>
+        <h3 style="font-size:24px">See demand <span class="g">before</span> you spend on ads.</h3>
+        <h4>Trends across your audience &amp; geo</h4>
+        <div class="krow"><span>"cold brew"</span><span class="d up">↑ +38% mentions</span></div>
+        <div class="krow"><span>"oat milk"</span><span class="d up">↑ +52%</span></div>
+        <div class="krow"><span>"coffee subscription"</span><span class="d up">↑ +21%</span></div>
+        <h4>Hypotheses to test</h4>
+        <div class="chips"><span class="chip">offer: subscription</span><span class="chip">SKU: oat milk</span><span class="chip">format: poll in stories</span></div>
+      </div>
+    </div>
+    <div class="notes">
+      <div class="demo-h">Social as<br>demand recon.</div>
+      <div class="demo-sub" style="margin-bottom:28px">Test hypotheses by listening, not by budget.</div>
+      <div class="nt"><div class="num">1</div><div><div class="tt">Demand recon</div><div class="dd">What people actually want — before you spend on ads.</div></div></div>
+      <div class="nt"><div class="num">2</div><div><div class="tt">Fast hypothesis testing</div><div class="dd">Listen across Reddit, X, TikTok, YouTube instead of burning test budget.</div></div></div>
+      <div class="nt"><div class="num">3</div><div><div class="tt">Trends &amp; sentiment</div><div class="dd">Across your audience and geo — what's rising right now.</div></div></div>
+    </div>
+  </div>
+  <div class="foot"><span class="hair"></span><span>social-intel · Reddit · X · TikTok · YouTube</span><span>08 / 15</span></div>
+</section>
+
+<!-- 9 BOOKING -->
+<section class="slide">
+  <div class="top"><div class="brand"><span class="tf"><i></i><i></i><i></i></span> AXIOM</div><div class="kicker">08 — Booking</div></div>
+  <div class="demo wide" style="flex:1">
+    <div class="notes">
+      <div class="demo-h">Booking with a brand<br>manager's memory.</div>
+      <div class="demo-sub" style="margin-bottom:28px">Seasonality, client history, proactive touches.</div>
+      <div class="nt"><div class="num">1</div><div><div class="tt">Booking + client context</div><div class="dd">Knows seasonality and history — who came, when, and for what.</div></div></div>
+      <div class="nt"><div class="num">2</div><div><div class="tt">Reminds ahead of time</div><div class="dd">Re-book nudges and seasonal offers — before the client drifts to a competitor.</div></div></div>
+      <div class="nt"><div class="num">3</div><div><div class="tt">Feedback after service</div><div class="dd">Asks for a review in messages — like a real brand manager.</div></div></div>
+    </div>
+    <div class="mock">
+      <div class="mock-bar"><div class="dots"><i></i><i></i><i></i></div><div class="url">app.axiom.io / brew-co / bookings</div></div>
+      <div class="mock-app">
+        <h3 style="font-size:22px;margin-top:0">Bookings &amp; proactive touches</h3>
+        <div class="ppanel">● Reminders sent to 142 clients · seasonal offer</div>
+        <h4>Running on autopilot</h4>
+        <div class="srow"><b>Seasonality + history</b> → personal reminder <span class="m">· +64 bookings</span></div>
+        <div class="srow"><b>Slow window Mon–Wed</b> → special offer <span class="m">· +18% utilization</span></div>
+        <div class="fb">"Thanks, everything was great!"<div class="who">Auto feedback request · rated 5.0 · 1h after the visit</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span class="hair"></span><span>automation · journeys · feedback</span><span>09 / 15</span></div>
+</section>
+
+<!-- 10 FORECAST -->
+<section class="slide">
+  <div class="top"><div class="brand"><span class="tf"><i></i><i></i><i></i></span> AXIOM</div><div class="kicker">09 — Forecast</div></div>
+  <div class="demo" style="flex:1">
+    <div class="mock">
+      <div class="mock-bar"><div class="dots"><i></i><i></i><i></i></div><div class="url">app.axiom.io / brew-co / forecast</div></div>
+      <div class="mock-app">
+        <div class="ahead"><span class="biz">Brew Co.</span><span class="badge">● 3-month forecast</span></div>
+        <h3 style="font-size:24px">A forecast adjusted<br>for demand trends.</h3>
+        <div class="mchart">
+          <svg viewBox="0 0 320 100" style="width:100%;height:96px" preserveAspectRatio="none">
+            <line x1="200" y1="6" x2="200" y2="92" stroke="rgba(34,27,18,.20)" stroke-width="1" stroke-dasharray="2 3"/>
+            <polyline fill="none" stroke="#9a7b2e" stroke-width="2.5" points="0,76 53,66 106,68 160,50 200,54"/>
+            <polyline fill="none" stroke="#9a7b2e" stroke-width="2.5" stroke-dasharray="5 4" points="200,54 253,42 306,32 320,28"/>
+          </svg>
+          <div class="mchart-leg"><span><i style="background:#9a7b2e"></i>past seasons</span><span><i style="background:#9a7b2e;opacity:.45"></i>forecast + trends</span></div>
+        </div>
+        <div class="ro">
+          <div class="c risk"><div class="k">▼ Risk — to mitigate</div>Latte demand dipping on social — peak season at risk.</div>
+          <div class="c opp"><div class="k">▲ Opportunity — don't miss</div>Cold brew is trending — move before competitors do.</div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <div class="demo-h">Sees trends<br>before you do.</div>
+      <div class="demo-sub" style="margin-bottom:28px">Past seasons + demand shift from social, by audience &amp; geo.</div>
+      <div class="nt"><div class="num">1</div><div><div class="tt">Seasonal forecast</div><div class="dd">Based on prior years — adjusted for momentum and demand trends.</div></div></div>
+      <div class="nt"><div class="num">2</div><div><div class="tt">Risks — early</div><div class="dd">Flagged before they hit. Time to act ahead of them.</div></div></div>
+      <div class="nt"><div class="num">3</div><div><div class="tt">Opportunities — don't miss</div><div class="dd">What you can't afford to miss, based on the trends.</div></div></div>
+    </div>
+  </div>
+  <div class="foot"><span class="hair"></span><span>history + social trends · risks &amp; opportunities</span><span>10 / 15</span></div>
+</section>
+
+<!-- 11 ENGINE -->
+<section class="slide">
+  <div class="top"><div class="brand"><span class="tf"><i></i><i></i><i></i></span> AXIOM</div><div class="kicker">10 — The engine</div></div>
+  <div class="body">
+    <div class="eyebrow">How it works</div>
+    <div class="formula mono" style="margin-top:30px;font-size:15px;letter-spacing:.14em;color:var(--dim);text-transform:uppercase">
+      YOUR DATA <span class="fa">→</span> METRICS <span class="fa">→</span> EVIDENCE <span class="fa">→</span> ANSWER <span class="fa">→</span> ACTION
+    </div>
+    <h1 style="margin-top:30px">The AI explains every number.<br><span class="it gold">It never makes them up.</span></h1>
+    <div class="lead">Every claim links to the raw row and the payment behind it. You see not just <span class="it">what</span> happened, but <span class="it">why</span> — and you can verify it.</div>
+  </div>
+  <div class="foot"><span class="hair"></span><span>Every claim cites a metric</span><span>11 / 15</span></div>
+</section>
+
+<!-- 12 AXIOM CONCEPT -->
+<section class="slide axiom">
+  <div class="top"><div class="brand"><span class="tf"><i></i><i></i><i></i></span> AXIOM</div><div class="kicker">Axiom</div></div>
+  <div class="body">
+    <div class="eyebrow">Why "AXIOM"</div>
+    <div class="def">An axiom is a self-evident <span class="q">truth</span> that needs no proof.</div>
+    <div class="turn">We make your <b>profit</b> one.</div>
+  </div>
+  <div class="foot"><span class="hair"></span><span style="display:inline-flex;align-items:center;gap:8px"><span class="tf" style="font-size:15px"><i></i><i></i><i></i></span> Therefore</span><span>12 / 15</span></div>
+</section>
+
+<!-- 13 AUDIENCE -->
+<section class="slide">
+  <div class="top"><div class="brand"><span class="tf"><i></i><i></i><i></i></span> AXIOM</div><div class="kicker">11 — Who it's for</div></div>
+  <div class="body">
+    <div class="eyebrow">Who it's for · two paths</div>
+    <h2 style="margin-top:18px">One engine — two go-to-markets</h2>
+    <div class="aud">
+      <div class="card"><div class="tag">Direct</div><div class="t">SMB · founders · growth teams</div><div class="d">Know exactly where your money works — without hiring an analyst. One source of truth and ranked actions, end of the channel debate.</div></div>
+      <div class="card"><div class="tag">White-label</div><div class="t">Agencies</div><div class="d">Senior-strategist answers for every client — under your brand, at scale. Client-ready reports instead of manual Looker.</div></div>
+    </div>
+  </div>
+  <div class="foot"><span class="hair"></span><span>AXIOM · Revenue OS</span><span>13 / 15</span></div>
+</section>
+
+<!-- 14 OUTCOME -->
+<section class="slide">
+  <div class="top"><div class="brand"><span class="tf"><i></i><i></i><i></i></span> AXIOM</div><div class="kicker">12 — The result</div></div>
+  <div class="body">
+    <div class="eyebrow">What changes</div>
+    <h2 style="margin-top:18px">Less wasted budget.<br>More decisions that move profit.</h2>
+    <div class="otiles">
+      <div class="otile"><div class="t">Every $ with a clear ROI</div><div class="d">Return per channel by actual payments, not an "average" result.</div></div>
+      <div class="otile"><div class="t">Decisions in minutes</div><div class="d">Not weeks of manual reports. Ranked actions, with proof.</div></div>
+      <div class="otile"><div class="t">One source of truth</div><div class="d">Instead of ten tabs and conflicting exports.</div></div>
+    </div>
+  </div>
+  <div class="foot"><span class="hair"></span><span>AXIOM · Revenue OS</span><span>14 / 15</span></div>
+</section>
+
+<!-- 15 CLOSE -->
+<section class="slide close">
+  <div class="top"><div class="brand"><span class="tf"><i></i><i></i><i></i></span> AXIOM</div><div class="kicker" style="display:inline-flex;align-items:center;gap:8px"><span class="tf" style="font-size:15px"><i></i><i></i><i></i></span> Therefore</div></div>
+  <div class="body">
+    <h1>Make your profit<br><span class="it">self-evident.</span></h1>
+    <div class="cta">AXIOM · Revenue OS &nbsp;—&nbsp; what works, what leaks, what's next</div>
+  </div>
+  <div class="foot"><span class="hair"></span><span>AXIOM</span><span>15 / 15</span></div>
+  <div class="wm"><span class="tf"><i></i><i></i><i></i></span></div>
+</section>
+
+</div>
+</body>
+</html>
