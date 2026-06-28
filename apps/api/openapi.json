@@ -1,0 +1,1269 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "CDP-US API",
+    "version": "0.1.0"
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerToken": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    },
+    "schemas": {
+      "Tenant": {
+        "type": "object",
+        "properties": {
+          "tenantId": {
+            "type": "string"
+          },
+          "companyName": {
+            "type": "string"
+          },
+          "plan": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Owner": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "role": {
+            "type": "string"
+          }
+        }
+      },
+      "Module": {
+        "type": "object",
+        "properties": {
+          "moduleKey": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "requiredPlan": {
+            "type": "string"
+          }
+        }
+      },
+      "Profile": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string"
+          },
+          "anonymousId": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "traits": {
+            "type": "object"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Event": {
+        "type": "object",
+        "properties": {
+          "eventId": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "anonymousId": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "properties": {
+            "type": "object"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ConsentRecord": {
+        "type": "object",
+        "properties": {
+          "recordId": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "bannerChoice": {
+            "type": "string"
+          },
+          "gpc": {
+            "type": "boolean"
+          },
+          "capturedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CampaignResult": {
+        "type": "object",
+        "properties": {
+          "campaignId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "queued": {
+            "type": "integer"
+          },
+          "trigger": {
+            "type": "string"
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/v1/signup": {
+      "post": {
+        "summary": "Self-serve tenant signup",
+        "operationId": "signup",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "companyName",
+                  "ownerEmail"
+                ],
+                "properties": {
+                  "companyName": {
+                    "type": "string"
+                  },
+                  "ownerEmail": {
+                    "type": "string",
+                    "format": "email"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Tenant created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "tenant": {
+                      "$ref": "#/components/schemas/Tenant"
+                    },
+                    "owner": {
+                      "$ref": "#/components/schemas/Owner"
+                    },
+                    "apiToken": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/modules": {
+      "get": {
+        "summary": "List upsell module manifests",
+        "operationId": "listModules",
+        "responses": {
+          "200": {
+            "description": "List of available modules",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "modules": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Module"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tenants/{tenantId}/modules/{moduleKey}": {
+      "post": {
+        "summary": "Enable a module for a tenant",
+        "operationId": "enableModule",
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "moduleKey",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Module enabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "moduleKey": {
+                      "type": "string"
+                    },
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "enabledAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown module",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Plan upgrade required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/track": {
+      "post": {
+        "summary": "Ingest events",
+        "operationId": "trackEvents",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "writeKey",
+                  "events"
+                ],
+                "properties": {
+                  "writeKey": {
+                    "type": "string"
+                  },
+                  "events": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string"
+                        },
+                        "anonymousId": {
+                          "type": "string"
+                        },
+                        "userId": {
+                          "type": "string"
+                        },
+                        "properties": {
+                          "type": "object"
+                        },
+                        "timestamp": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Events processed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "stored": {
+                      "type": "integer"
+                    },
+                    "suppressed": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unknown write key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Billing limit reached",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tenants/{tenantId}/profiles": {
+      "get": {
+        "summary": "List profiles for a tenant",
+        "operationId": "listProfiles",
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of profiles",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "profiles": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Profile"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tenants/{tenantId}/events": {
+      "get": {
+        "summary": "List events for a tenant",
+        "operationId": "listEvents",
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "anonymousId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of events",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "events": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Event"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tenants/{tenantId}/segments/query": {
+      "post": {
+        "summary": "Query a segment by rule",
+        "operationId": "querySegment",
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "rule"
+                ],
+                "properties": {
+                  "rule": {
+                    "type": "object",
+                    "properties": {
+                      "field": {
+                        "type": "string"
+                      },
+                      "operator": {
+                        "type": "string"
+                      },
+                      "value": {}
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Segment query results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "count": {
+                      "type": "integer"
+                    },
+                    "members": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Profile"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid rule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tenants/{tenantId}/export": {
+      "get": {
+        "summary": "Export tenant data as NDJSON",
+        "operationId": "exportTenantData",
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "NDJSON stream of tenant data",
+            "content": {
+              "application/x-ndjson": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/consent": {
+      "post": {
+        "summary": "Capture consent",
+        "operationId": "captureConsent",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "writeKey",
+                  "subject",
+                  "bannerChoice"
+                ],
+                "properties": {
+                  "writeKey": {
+                    "type": "string"
+                  },
+                  "subject": {
+                    "type": "string"
+                  },
+                  "bannerChoice": {
+                    "type": "string"
+                  },
+                  "gpc": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Consent captured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "state": {
+                      "type": "string"
+                    },
+                    "record": {
+                      "$ref": "#/components/schemas/ConsentRecord"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tenants/{tenantId}/consent/{subject}": {
+      "get": {
+        "summary": "Get consent state for a subject",
+        "operationId": "getConsent",
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "subject",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Consent state and records",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string"
+                    },
+                    "records": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ConsentRecord"
+                      }
+                    },
+                    "verified": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Subject not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tenants/{tenantId}/email/campaigns": {
+      "post": {
+        "summary": "Create an email campaign",
+        "operationId": "createEmailCampaign",
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "trigger",
+                  "from",
+                  "brandName",
+                  "canSpam"
+                ],
+                "properties": {
+                  "trigger": {
+                    "type": "string"
+                  },
+                  "from": {
+                    "type": "string",
+                    "format": "email"
+                  },
+                  "brandName": {
+                    "type": "string"
+                  },
+                  "canSpam": {
+                    "type": "object",
+                    "properties": {
+                      "physicalAddress": {
+                        "type": "string"
+                      },
+                      "unsubscribeUrl": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Campaign created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Plan upgrade required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tenants/{tenantId}/automation/scenarios": {
+      "post": {
+        "summary": "Create an automation scenario",
+        "operationId": "createAutomationScenario",
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "steps"
+                ],
+                "properties": {
+                  "steps": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string"
+                        },
+                        "config": {
+                          "type": "object"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Automation scenario created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "step": {
+                            "type": "integer"
+                          },
+                          "status": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid steps",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Plan upgrade required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tenants/{tenantId}/social-intel/analyze": {
+      "post": {
+        "summary": "Analyze social intelligence signals",
+        "operationId": "analyzeSocialIntel",
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "signals"
+                ],
+                "properties": {
+                  "signals": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "source": {
+                          "type": "string"
+                        },
+                        "content": {
+                          "type": "string"
+                        },
+                        "timestamp": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Social intelligence analysis results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "topics": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "score": {
+                      "type": "number",
+                      "format": "float"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid signals",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Plan upgrade required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/health": {
+      "get": {
+        "summary": "Liveness check",
+        "operationId": "healthCheck",
+        "responses": {
+          "200": {
+            "description": "Service is healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
