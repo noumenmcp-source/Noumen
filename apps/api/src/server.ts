@@ -23,6 +23,7 @@ import { registerData } from "./routes/data.js";
 import { registerEmail } from "./routes/email.js";
 import { registerExport } from "./routes/export.js";
 import { registerSegments } from "./routes/segments.js";
+import { registerSocialIntel } from "./routes/social-intel.js";
 import {
   DbIngestStore,
   InMemoryIngestStore,
@@ -103,6 +104,7 @@ export async function buildServer(
     emailSender,
   );
   registerAutomation(app, tokenStore, subscriptionStore, consentService);
+  registerSocialIntel(app, tokenStore, subscriptionStore);
   return app;
 }
 

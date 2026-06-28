@@ -30,7 +30,7 @@
 `GET /v1/tenants/:id/{profiles,events}` · `POST /v1/tenants/:id/segments/query` ·
 `GET /v1/tenants/:id/export` · `POST /v1/consent` · `GET /v1/tenants/:id/consent/:subject` ·
 `POST /v1/tenants/:id/email/campaigns` · `POST /v1/tenants/:id/automation/scenarios` ·
-`GET /v1/health`
+`POST /v1/tenants/:id/social-intel/analyze` · `GET /v1/health`
 
 ## Ближайшие шаги (наибольший прирост %)
 1. **Консоль** (`apps/console`, Next.js) — сделать данные видимыми (UI 0→40).
