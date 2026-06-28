@@ -184,7 +184,7 @@ export async function buildServer(
   registerDeliverability(app, { tenantStore, tokenStore, store: suppressionStore });
   const lifecycleStore: LifecycleStore = {
     loadProfiles: async (tenantId) =>
-      (await profileStore.listByTenant(tenantId)).map((p) => ({ id: p.id, anonymousId: p.anonymousId })),
+      (await profileStore.listByTenant(tenantId)).map((p) => ({ id: p.id, anonymousId: p.anonymousId, email: p.email })),
     loadEvents: async (tenantId) => (await ingestStore.listByTenant(tenantId)).map(toIngestEvent),
   };
   registerSegments(app, { tenantStore, tokenStore, store: lifecycleStore });

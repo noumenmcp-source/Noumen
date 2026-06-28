@@ -12,11 +12,11 @@ function ev(anonymousId: string, event: string, daysAgo: number, value?: number)
 }
 
 const PROFILES: readonly LifecycleProfile[] = [
-  { id: "p_vip", anonymousId: "a_vip" },
-  { id: "p_dormant", anonymousId: "a_dorm" },
-  { id: "p_new", anonymousId: "a_new" },
-  { id: "p_active", anonymousId: "a_active" },
-  { id: "p_junk", anonymousId: "a_junk" },
+  { id: "p_vip", anonymousId: "a_vip", email: "vip@acme.test" },
+  { id: "p_dormant", anonymousId: "a_dorm", email: "dorm@acme.test" },
+  { id: "p_new", anonymousId: "a_new", email: "new@acme.test" },
+  { id: "p_active", anonymousId: "a_active", email: "active@acme.test" },
+  { id: "p_junk", anonymousId: "a_junk", email: "junk@acme.test" },
 ];
 const EVENTS: readonly IngestEvent[] = [
   ev("a_vip", "Order Completed", 2, 100),
@@ -70,6 +70,32 @@ describe("lifecycle segments route", () => {
       channel: "email",
       audienceSize: 1,
     });
+  });
+
+  it("exports a lifecycle segment as CSV", async () => {
+    const { app, token } = await setup(tenant());
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/tenants/t1/segments/lifecycle/dormant/export",
+      headers: auth(token),
+    });
+    await app.close();
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toContain("text/csv");
+    expect(res.headers["content-disposition"]).toContain("lifecycle-dormant.csv");
+    const lines = res.body.trim().split("\r\n");
+    expect(lines[0]).toBe("profile_id,email,anonymous_id,lifecycle_stage");
+    expect(lines).toContain("p_dormant,dorm@acme.test,a_dorm,dormant");
+    expect(lines).toHaveLength(2); // header + the single dormant profile
+  });
+
+  it("rejects an unknown lifecycle stage in export (400)", async () => {
+    const { app, token } = await setup(tenant());
+    const res = await app.inject({ method: "GET", url: "/v1/tenants/t1/segments/lifecycle/bogus/export", headers: auth(token) });
+    await app.close();
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ error: "unknown_stage" });
   });
 
   it("playbook enforces auth + own-tenant", async () => {
