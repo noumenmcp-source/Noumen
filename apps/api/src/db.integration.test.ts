@@ -9,6 +9,9 @@ import { DbIngestStore, toStoredIngestEvent } from "./ingest-store.js";
 import { DbTokenStore } from "./auth.js";
 import { DbSubscriptionStore } from "./subscription.js";
 import { DbUsageMeter } from "./usage-store.js";
+import { ConsentLedger } from "@cdp-us/consent";
+import { ConsentService } from "./consent-service.js";
+import { DbConsentSink } from "./consent-sink.js";
 
 const url = process.env.DATABASE_URL;
 const run = describe.skipIf(!url);
@@ -180,5 +183,30 @@ run("db integration (real Postgres)", () => {
     // Negative/zero deltas are ignored.
     await meter.record(tenant.id, "eventsPerMonth", -5);
     expect(await meter.current(tenant.id, "eventsPerMonth")).toBe(7);
+  });
+
+  it("consent ledger persists and a fresh service hydrates + verifies", async () => {
+    const { tenant } = await tenantStore.createTenantAccount({
+      name: `Integration Test ${randomUUID()}`,
+      ownerEmail: `owner-${randomUUID()}@example.com`,
+    });
+    const subject = `subj_${randomUUID()}`;
+    // Stable keys so signatures still verify across the simulated restart.
+    const keys = new ConsentLedger().exportKeys();
+
+    const svc1 = new ConsentService({ keys, sink: new DbConsentSink(db) });
+    await svc1.record({ tenantId: tenant.id, subject, bannerChoice: { analyticsOptOut: true } });
+    await svc1.record({ tenantId: tenant.id, subject, gpc: true });
+
+    // Simulate a process restart: brand-new service, same keys, hydrate from DB.
+    const svc2 = new ConsentService({ keys, sink: new DbConsentSink(db) });
+    await svc2.hydrate();
+
+    expect(svc2.history(tenant.id, subject)).toHaveLength(2);
+    expect(svc2.stateFor(tenant.id, subject)).toMatchObject({
+      sale_or_share: false,
+      gpc: true,
+    });
+    expect(svc2.verify(tenant.id, subject)).toBe(true);
   });
 });

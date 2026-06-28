@@ -16,7 +16,9 @@ import {
 } from "@cdp-us/core-cdp";
 import { InMemoryUsageMeter, type UsageMeter } from "@cdp-us/billing";
 import { FakeSender, ResendSender, type EmailSender } from "@cdp-us/email";
+import type { LedgerKeys } from "@cdp-us/consent";
 import { ConsentService } from "./consent-service.js";
+import { DbConsentSink } from "./consent-sink.js";
 import { registerAutomation } from "./routes/automation.js";
 import { registerConsent } from "./routes/consent.js";
 import { registerData } from "./routes/data.js";
@@ -67,7 +69,8 @@ export async function buildServer(
   const subscriptionStore =
     opts.subscriptionStore ?? createDefaultSubscriptionStore();
   const usageMeter = opts.usageMeter ?? createDefaultUsageMeter();
-  const consentService = new ConsentService();
+  const consentService = createDefaultConsentService();
+  await consentService.hydrate();
   const emailSender = opts.emailSender ?? createDefaultEmailSender();
   const profileService = new ProfileService(profileStore);
   await app.register(cors, {
@@ -134,6 +137,29 @@ function createDefaultTokenStore(): TokenStore {
     return new DbTokenStore(createDb(connectionString));
   }
   return new InMemoryTokenStore();
+}
+
+/**
+ * Stable ledger keys (PEM) from env so signed consent records still verify
+ * after a restart. Supports literal `\n` escapes in the env value. Without
+ * them a fresh keypair is generated (fine for ephemeral in-memory dev).
+ */
+function ledgerKeysFromEnv(): LedgerKeys | undefined {
+  const privateKeyPem = process.env.CONSENT_LEDGER_PRIVATE_KEY_PEM?.replace(/\\n/g, "\n");
+  const publicKeyPem = process.env.CONSENT_LEDGER_PUBLIC_KEY_PEM?.replace(/\\n/g, "\n");
+  return privateKeyPem && publicKeyPem ? { privateKeyPem, publicKeyPem } : undefined;
+}
+
+function createDefaultConsentService(): ConsentService {
+  const connectionString = process.env.DATABASE_URL;
+  const keys = ledgerKeysFromEnv();
+  if (connectionString) {
+    return new ConsentService({
+      keys,
+      sink: new DbConsentSink(createDb(connectionString)),
+    });
+  }
+  return new ConsentService({ keys });
 }
 
 function createDefaultSubscriptionStore(): SubscriptionStore {

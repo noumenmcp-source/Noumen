@@ -39,7 +39,7 @@ export function registerConsent(
     const tenant = await tenantStore.resolveTenant(body.writeKey);
     if (!tenant) return reply.code(401).send({ error: "unknown_write_key" });
 
-    const record = consent.record({
+    const record = await consent.record({
       tenantId: tenant.id,
       subject: body.subject,
       bannerChoice: body.bannerChoice,
