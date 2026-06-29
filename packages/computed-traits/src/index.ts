@@ -72,12 +72,16 @@ export type LifecycleOptions = Readonly<{
   thresholds?: Partial<LifecycleThresholds>;
   purchaseEvent?: string;
   valueProperty?: string;
+  /** When the profile was first seen (e.g. Profile.createdAt). Used as the
+   * tenure anchor when the profile has no events yet — a freshly imported
+   * profile is "new", not "junk", until it ages past `newDays`. */
+  firstSeen?: string;
 }>;
 
 /**
  * Classify a profile into one lifecycle stage from its event history.
  * Deterministic, threshold-driven (no ML): activity recency + RFM + tenure.
- * Priority: empty→junk, lost, dormant, vip, new, junk, else active.
+ * Priority: empty→new|junk (by tenure), lost, dormant, vip, new, junk, else active.
  *
  * @example classifyLifecycle(events, { now: "2026-06-10T00:00:00.000Z" }).stage; // => "vip"
  */
@@ -95,7 +99,8 @@ export function classifyLifecycle(
   const lastTs = latestTs(events);
   const firstTs = earliestTs(events);
   const recencyDays = lastTs ? daysBetween(lastTs, opts.now) : null;
-  const tenureDays = firstTs ? daysBetween(firstTs, opts.now) : null;
+  const tenureAnchor = firstTs ?? opts.firstSeen ?? null;
+  const tenureDays = tenureAnchor ? daysBetween(tenureAnchor, opts.now) : null;
   const signals: LifecycleSignals = {
     recencyDays,
     tenureDays,
@@ -107,9 +112,11 @@ export function classifyLifecycle(
 }
 
 function pickLifecycleStage(t: LifecycleThresholds, s: LifecycleSignals): LifecycleStage {
-  if (s.totalEvents === 0) return "junk";
   const recency = s.recencyDays ?? Number.POSITIVE_INFINITY;
   const tenure = s.tenureDays ?? Number.POSITIVE_INFINITY;
+  // No activity yet: a recently-seen profile (e.g. just imported) is "new";
+  // it only decays to "junk" once it ages past the new-tenure window.
+  if (s.totalEvents === 0) return tenure <= t.newDays ? "new" : "junk";
   if (recency >= t.lostDays) return "lost";
   if (recency >= t.dormantDays) return "dormant";
   if (s.purchases >= t.vipPurchases && s.score >= t.vipScore) return "vip";

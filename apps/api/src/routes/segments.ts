@@ -11,7 +11,7 @@ import { authenticate, roleSatisfies, type TokenStore } from "../auth.js";
 import type { TenantStore } from "../tenant.js";
 
 /** Minimal profile shape the classifier needs (id + join key + export field). */
-export type LifecycleProfile = Readonly<{ id: string; anonymousId?: string; email?: string }>;
+export type LifecycleProfile = Readonly<{ id: string; anonymousId?: string; email?: string; createdAt?: string }>;
 
 export type LifecycleStore = Readonly<{
   loadProfiles(tenantId: string): Promise<readonly LifecycleProfile[]>;
@@ -145,7 +145,7 @@ async function lifecycleMembers(
   }
   return profiles.filter((profile) => {
     const profileEvents = profile.anonymousId ? eventsByAnon.get(profile.anonymousId) ?? [] : [];
-    return classifyLifecycle(profileEvents, { now }).stage === stage;
+    return classifyLifecycle(profileEvents, { now, firstSeen: profile.createdAt }).stage === stage;
   });
 }
 
@@ -178,7 +178,7 @@ export async function lifecycleDistribution(
   const samples = emptySamples();
   for (const profile of profiles) {
     const profileEvents = profile.anonymousId ? eventsByAnon.get(profile.anonymousId) ?? [] : [];
-    const { stage } = classifyLifecycle(profileEvents, { now });
+    const { stage } = classifyLifecycle(profileEvents, { now, firstSeen: profile.createdAt });
     stages[stage] += 1;
     if (samples[stage].length < 5) samples[stage].push(profile.id);
   }

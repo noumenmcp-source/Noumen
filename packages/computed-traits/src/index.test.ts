@@ -15,6 +15,16 @@ describe("classifyLifecycle", () => {
     expect(stage([])).toBe("junk");
   });
 
+  const daysAgoIso = (d: number) => new Date(Date.parse(NOW) - d * 86_400_000).toISOString();
+
+  it("new for a freshly-imported profile (no events, recent firstSeen)", () => {
+    expect(classifyLifecycle([], { now: NOW, firstSeen: daysAgoIso(5) }).stage).toBe("new");
+  });
+
+  it("junk for an aged import (no events, firstSeen past newDays)", () => {
+    expect(classifyLifecycle([], { now: NOW, firstSeen: daysAgoIso(120) }).stage).toBe("junk");
+  });
+
   it("new for a recent unconverted profile", () => {
     expect(stage([ev("Page Viewed", 10)])).toBe("new");
   });
