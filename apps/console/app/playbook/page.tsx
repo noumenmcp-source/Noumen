@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { readSession } from "../../src/session";
+import { ChartCard, HBars, StatTile, type HBar, type Tone } from "../../src/charts";
 import { Badge, EmptyState, ErrorState, Panel, Shell } from "../../src/ui";
+import { readSession } from "../../src/session";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8110";
 
@@ -19,144 +20,138 @@ interface Action {
   rationale: string;
 }
 
-interface PlaybookResponse {
+interface PlaybookData {
   ok: boolean;
   total: number;
   stages: Partial<Record<Stage, number>>;
   actions: Action[];
 }
 
+const STAGE_TONE: Record<Stage, Tone> = {
+  vip: "gold", active: "sage", dormant: "gold", lost: "rust", new: "sage", junk: "muted",
+};
 const CHANNEL_LABEL: Record<string, string> = {
-  email: "Email",
-  sms: "SMS",
-  task: "Rep task",
-  ad_audience: "Ad audience",
+  email: "Email", sms: "SMS", task: "Rep task", ad_audience: "Ad audience",
 };
 
-function num(v: unknown): number {
-  return typeof v === "number" && Number.isFinite(v) ? v : 0;
-}
+function impactTone(v: number): Tone { return v >= 5000 ? "gold" : v >= 2000 ? "sage" : "muted"; }
+const usd = (v: number) => `$${Math.round(v).toLocaleString()}`;
 
+function num(v: unknown): number { return typeof v === "number" && Number.isFinite(v) ? v : 0; }
 function asAction(v: unknown): Action | null {
   if (typeof v !== "object" || v === null) return null;
   const r = v as Record<string, unknown>;
   if (typeof r.key !== "string" || typeof r.title !== "string") return null;
   return {
-    key: r.key,
-    kind: typeof r.kind === "string" ? r.kind : "",
-    title: r.title,
-    stage: (typeof r.stage === "string" ? r.stage : "new") as Stage,
-    channel: typeof r.channel === "string" ? r.channel : "",
-    audienceSize: num(r.audienceSize),
-    impact: num(r.impact),
-    rationale: typeof r.rationale === "string" ? r.rationale : "",
+    key: r.key, kind: String(r.kind ?? ""), title: r.title,
+    stage: (String(r.stage ?? "new")) as Stage,
+    channel: String(r.channel ?? ""),
+    audienceSize: num(r.audienceSize), impact: num(r.impact),
+    rationale: String(r.rationale ?? ""),
   };
 }
 
 export default function PlaybookPage() {
-  const [data, setData] = useState<PlaybookResponse | null>(null);
+  const [data, setData] = useState<PlaybookData | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const session = readSession();
-    if (!session) {
-      setError("Sign in to load the playbook.");
-      setLoading(false);
-      return;
-    }
+    if (!session) { setError("Sign in first."); setLoading(false); return; }
     fetch(`${API_URL}/v1/tenants/${session.tenantId}/playbook`, {
-      headers: { authorization: `Bearer ${session.apiToken}` },
-      cache: "no-store",
+      headers: { authorization: `Bearer ${session.apiToken}` }, cache: "no-store",
     })
       .then(async (res) => {
-        if (res.status === 401 || res.status === 403) {
-          throw new Error("Forbidden — analyst role required.");
-        }
-        if (!res.ok) throw new Error(`Request failed (HTTP ${res.status})`);
-        const raw: unknown = await res.json();
-        const r = (typeof raw === "object" && raw !== null ? raw : {}) as Record<string, unknown>;
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const r = await res.json() as Record<string, unknown>;
         const actions = Array.isArray(r.actions)
           ? r.actions.map(asAction).filter((a): a is Action => a !== null)
           : [];
         setData({
           ok: r.ok === true,
           total: num(r.total),
-          stages: (typeof r.stages === "object" && r.stages !== null ? r.stages : {}) as Partial<Record<Stage, number>>,
+          stages: (r.stages ?? {}) as Partial<Record<Stage, number>>,
           actions,
         });
       })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Failed to load."))
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Failed."))
       .finally(() => setLoading(false));
   }, []);
 
-  const maxImpact = data ? Math.max(1, ...data.actions.map((a) => a.impact)) : 1;
+  if (loading) return <Shell><EmptyState title="Loading playbook…" body="Ranking revenue actions." /></Shell>;
+  if (error) return <Shell><ErrorState message={error} /></Shell>;
+  if (!data) return <Shell><EmptyState title="No data" body="Lifecycle segments are needed to generate actions." /></Shell>;
+
+  const { total, actions } = data;
+  const totalAudience = actions.reduce((s, a) => s + a.audienceSize, 0);
+  const topImpact = actions.reduce((m, a) => Math.max(m, a.impact), 0);
+  const sorted = [...actions].sort((a, b) => b.impact - a.impact);
+
+  const impactBars: HBar[] = sorted.map((a) => ({
+    label: a.title.length > 38 ? a.title.slice(0, 38) + "…" : a.title,
+    value: a.impact,
+    tone: impactTone(a.impact),
+    caption: `${a.audienceSize.toLocaleString()} people · ${a.stage} · ${CHANNEL_LABEL[a.channel] ?? a.channel}`,
+  }));
 
   return (
     <Shell>
-      <div className="grid gap-5">
-        <div>
-          <h1 className="text-2xl font-semibold">Money this week</h1>
-          <p className="mt-1 text-sm text-ink/70">
-            Ranked revenue actions over your live base — rules pick the move, you pick what to ship.
-          </p>
-        </div>
+      <div className="mb-6">
+        <p className="label text-muted">Revenue playbook</p>
+        <h1 className="mt-1 font-serif text-3xl font-bold leading-tight text-ink">Money this week.</h1>
+      </div>
 
-        {error ? <ErrorState message={error} /> : null}
-        {loading ? <p className="text-sm text-ink/60">Loading…</p> : null}
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatTile label="Base size" value={total.toLocaleString()} hint="unified profiles" tone="ink" />
+        <StatTile label="Actions ready" value={String(actions.length)} hint="ranked by revenue impact" tone="rust" />
+        <StatTile label="Total audience" value={totalAudience.toLocaleString()} hint="addressable this week" tone="gold" />
+        <StatTile label="Top impact" value={usd(topImpact)} hint="if action #1 converts" tone="sage" />
+      </div>
 
-        {data && data.total > 0 ? (
-          <p className="text-sm text-ink/70">
-            {data.total.toLocaleString()} profiles ·{" "}
-            {Object.entries(data.stages)
-              .filter(([, n]) => num(n) > 0)
-              .map(([s, n]) => `${num(n).toLocaleString()} ${s}`)
-              .join(" · ")}
-          </p>
-        ) : null}
+      {impactBars.length > 0 && (
+        <ChartCard title="Revenue impact ranking" subtitle="Ranked by estimated recovery — rules pick the move, you pick what to ship" className="mb-6">
+          <HBars bars={impactBars} format={usd} />
+        </ChartCard>
+      )}
 
-        {data && data.actions.length > 0 ? (
-          <div className="grid gap-3">
-            {data.actions.map((a, i) => (
-              <Panel key={a.key}>
-                <div className="flex items-start justify-between gap-4">
-                  <div className="grid gap-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-mono text-ink/40">#{i + 1}</span>
-                      <h2 className="font-semibold">{a.title}</h2>
-                    </div>
-                    <p className="text-sm text-ink/70">{a.rationale}</p>
-                    <div className="mt-1 flex flex-wrap items-center gap-2">
-                      <Badge tone="ok">{CHANNEL_LABEL[a.channel] ?? a.channel}</Badge>
-                      <Badge tone="neutral">{a.stage}</Badge>
-                      <span className="text-sm text-ink/60">
-                        {a.audienceSize.toLocaleString()} people
-                      </span>
-                    </div>
+      {sorted.length > 0 ? (
+        <div className="grid gap-3 lg:grid-cols-2">
+          {sorted.map((a, i) => (
+            <Panel key={a.key}>
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-xs text-muted">#{i + 1}</span>
+                    <h2 className="font-semibold text-ink">{a.title}</h2>
                   </div>
-                  <div className="w-32 shrink-0 text-right">
-                    <div className="text-xs text-ink/50">impact</div>
-                    <div className="text-lg font-semibold tabular-nums">
-                      {Math.round(a.impact).toLocaleString()}
-                    </div>
-                    <div className="mt-1 h-1.5 w-full rounded bg-field">
-                      <div
-                        className="h-1.5 rounded bg-accent"
-                        style={{ width: `${Math.max(4, (a.impact / maxImpact) * 100)}%` }}
-                      />
-                    </div>
+                  <p className="mt-1 text-sm text-muted">{a.rationale}</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <Badge tone={STAGE_TONE[a.stage] as "gold" | "sage" | "rust" | "muted"}>{a.stage}</Badge>
+                    <Badge tone="ok">{CHANNEL_LABEL[a.channel] ?? a.channel}</Badge>
+                    <span className="text-xs text-muted">{a.audienceSize.toLocaleString()} people</span>
                   </div>
                 </div>
-              </Panel>
-            ))}
-          </div>
-        ) : !loading && !error ? (
-          <EmptyState
-            title="No actions yet"
-            body="Once your base has lifecycle stages with members, ranked actions appear here."
-          />
-        ) : null}
-      </div>
+                <div className="shrink-0 text-right">
+                  <p className="font-mono text-[10px] text-muted">impact</p>
+                  <p className="font-serif text-xl font-bold text-ink">{usd(a.impact)}</p>
+                </div>
+              </div>
+              <div className="mt-3 h-1 overflow-hidden rounded-full bg-cream">
+                <div
+                  className="h-full rounded-full transition-all"
+                  style={{
+                    width: `${Math.max(4, topImpact ? (a.impact / topImpact) * 100 : 0)}%`,
+                    background: `var(--color-${impactTone(a.impact)}, #c9a84c)`,
+                  }}
+                />
+              </div>
+            </Panel>
+          ))}
+        </div>
+      ) : (
+        <EmptyState title="No actions yet" body="Once lifecycle stages have members, ranked actions appear here." />
+      )}
     </Shell>
   );
 }
