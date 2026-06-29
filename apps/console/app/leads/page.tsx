@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { readSession } from "../../src/session";
-import { Badge, Button, EmptyState, ErrorState, Field, Panel, Shell } from "../../src/ui";
+import { Button, EmptyState, ErrorState, Field, Panel, Shell } from "../../src/ui";
+import { ChartCard, StatTile, VBars } from "../../src/charts";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8110";
 
@@ -137,6 +138,34 @@ export default function LeadScoringPage() {
     }
   }
 
+  const scores = results.map((r) => r.score ?? 0);
+  const maxScore = scores.length > 0 ? Math.max(...scores) : 0;
+  const minScore = scores.length > 0 ? Math.min(...scores) : 0;
+  const avgScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+  const hotThreshold = avgScore + (maxScore - avgScore) * 0.5;
+  const hotLeads = scores.filter((s) => s >= hotThreshold).length;
+
+  // 8-bucket histogram of the score distribution.
+  const BUCKETS = 8;
+  const histogram: { label: string; value: number }[] = [];
+  if (scores.length > 0 && maxScore > minScore) {
+    const width = (maxScore - minScore) / BUCKETS;
+    const counts = new Array(BUCKETS).fill(0);
+    for (const s of scores) {
+      const idx = Math.min(BUCKETS - 1, Math.floor((s - minScore) / width));
+      counts[idx]++;
+    }
+    for (let i = 0; i < BUCKETS; i++) {
+      histogram.push({ label: Math.round(minScore + width * i).toString(), value: counts[i] });
+    }
+  }
+
+  function scoreColor(s: number): string {
+    if (maxScore <= minScore) return "#7a6e60";
+    const r = (s - minScore) / (maxScore - minScore);
+    return r >= 0.66 ? "#4a7c59" : r >= 0.33 ? "#c9a84c" : "#7a6e60";
+  }
+
   return (
     <Shell>
       <div className="grid gap-5">
@@ -223,32 +252,59 @@ export default function LeadScoringPage() {
           {loading ? "Scoring…" : "Score leads"}
         </Button>
 
-        {count > 0 && (
-          <div className="flex items-center gap-2">
-            <span className="text-sm">Scored</span>
-            <Badge tone="ok">{count}</Badge>
-          </div>
-        )}
-
         {results.length > 0 ? (
-          <Panel>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-line">
-                  <th className="text-left py-2">ID</th>
-                  <th className="text-left py-2">Score</th>
-                </tr>
-              </thead>
-              <tbody>
-                {results.map((r, i) => (
-                  <tr key={i} className="border-b border-line">
-                    <td className="py-2">{r.id ?? "—"}</td>
-                    <td className="py-2">{r.score ?? "—"}</td>
+          <>
+            <div className="grid gap-4 sm:grid-cols-4">
+              <StatTile label="Scored" value={count.toLocaleString()} tone="ink" />
+              <StatTile label="Avg score" value={avgScore.toFixed(1)} tone="muted" />
+              <StatTile label="Top score" value={maxScore.toLocaleString()} tone="sage" />
+              <StatTile
+                label="Hot leads"
+                value={hotLeads.toLocaleString()}
+                tone="gold"
+                hint={`score ≥ ${Math.round(hotThreshold)}`}
+              />
+            </div>
+
+            {histogram.length > 0 ? (
+              <ChartCard title="Score distribution" subtitle="Leads per score band">
+                <VBars bars={histogram} tone="gold" height={160} format={(v) => v.toLocaleString()} />
+              </ChartCard>
+            ) : null}
+
+            <Panel>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-line">
+                    <th className="text-left py-2">ID</th>
+                    <th className="text-right py-2">Score</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </Panel>
+                </thead>
+                <tbody>
+                  {results.slice(0, 100).map((r, i) => (
+                    <tr key={i} className="border-b border-line">
+                      <td className="py-2 font-mono text-xs">{r.id ?? "—"}</td>
+                      <td className="py-2 text-right tabular-nums">
+                        {r.score !== undefined ? (
+                          <span
+                            className="inline-block min-w-[3rem] rounded px-2 py-0.5 font-medium text-white"
+                            style={{ background: scoreColor(r.score) }}
+                          >
+                            {r.score}
+                          </span>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {results.length > 100 ? (
+                <p className="mt-2 font-mono text-xs text-muted">Showing top 100 of {results.length.toLocaleString()}.</p>
+              ) : null}
+            </Panel>
+          </>
         ) : count === 0 && !loading && !error ? (
           <EmptyState title="No results" body="Run scoring to see leads." />
         ) : null}

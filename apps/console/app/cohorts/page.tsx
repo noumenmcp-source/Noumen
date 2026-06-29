@@ -3,6 +3,16 @@
 import { useState } from "react";
 import { readSession } from "../../src/session";
 import { Badge, Button, EmptyState, ErrorState, Panel, Shell } from "../../src/ui";
+import { AreaTrend, ChartCard, StatTile } from "../../src/charts";
+
+/** Linear interpolation between cream (low) and sage (high) for a 0..1 ratio. */
+function heatColor(ratio: number): string {
+  const r = Math.max(0, Math.min(1, ratio));
+  const from = [245, 240, 230]; // cream
+  const to = [74, 124, 89]; // sage #4a7c59
+  const ch = from.map((f, i) => Math.round(f + (to[i]! - f) * r));
+  return `rgb(${ch[0]}, ${ch[1]}, ${ch[2]})`;
+}
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8110";
 
@@ -113,6 +123,28 @@ export default function RetentionCohortsPage() {
   const rows: CohortRow[] =
     result && Array.isArray(result.cohorts) ? result.cohorts : [];
 
+  const parsedRows = rows.map(getRowCells);
+  const periodCount = parsedRows.reduce((m, r) => Math.max(m, r.cells.length), 0);
+
+  // Average retention per period, expressed as % of each cohort's period-0 size.
+  const avgRetention: { x: string; y: number }[] = [];
+  for (let p = 0; p < periodCount; p++) {
+    let sum = 0;
+    let n = 0;
+    for (const r of parsedRows) {
+      const base = r.cells[0];
+      const cur = r.cells[p];
+      if (typeof base === "number" && base > 0 && typeof cur === "number") {
+        sum += (cur / base) * 100;
+        n++;
+      }
+    }
+    if (n > 0) avgRetention.push({ x: `P${p}`, y: sum / n });
+  }
+
+  const firstPeriodRetention = avgRetention[1]?.y ?? 0;
+  const finalRetention = avgRetention[avgRetention.length - 1]?.y ?? 0;
+
   return (
     <Shell>
       <div className="grid gap-5">
@@ -169,6 +201,28 @@ export default function RetentionCohortsPage() {
             {rows.length === 0 ? (
               <EmptyState title="No cohort data" body="Try different parameters." />
             ) : (
+              <div className="grid gap-5">
+              <div className="grid gap-4 sm:grid-cols-3">
+                <StatTile label="Cohorts" value={parsedRows.length.toLocaleString()} tone="ink" />
+                <StatTile
+                  label="Period-1 retention"
+                  value={`${firstPeriodRetention.toFixed(1)}%`}
+                  tone="gold"
+                />
+                <StatTile
+                  label="Final retention"
+                  value={`${finalRetention.toFixed(1)}%`}
+                  tone={finalRetention < 20 ? "rust" : "sage"}
+                  hint={`after ${avgRetention.length - 1} periods`}
+                />
+              </div>
+
+              {avgRetention.length >= 2 ? (
+                <ChartCard title="Average retention curve" subtitle="Mean % of each cohort retained per period">
+                  <AreaTrend points={avgRetention} tone="sage" format={(v) => `${v.toFixed(0)}%`} />
+                </ChartCard>
+              ) : null}
+
               <div className="overflow-x-auto">
                 <table className="w-full text-sm border border-line">
                   <thead>
@@ -191,24 +245,36 @@ export default function RetentionCohortsPage() {
                   <tbody>
                     {rows.map((row, idx) => {
                       const { label, cells } = getRowCells(row);
+                      const base = cells[0];
                       return (
                         <tr key={idx} className="border-b border-line last:border-b-0">
                           <td className="px-3 py-2 text-left text-ink">
                             {label || `Row ${idx + 1}`}
                           </td>
-                          {cells.map((v, ci) => (
-                            <td
-                              key={ci}
-                              className="px-3 py-2 text-right text-ink tabular-nums"
-                            >
-                              {typeof v === "number" ? v : String(v)}
-                            </td>
-                          ))}
+                          {cells.map((v, ci) => {
+                            const ratio =
+                              typeof base === "number" && base > 0 && typeof v === "number"
+                                ? v / base
+                                : 0;
+                            return (
+                              <td
+                                key={ci}
+                                className="px-3 py-2 text-right tabular-nums"
+                                style={{
+                                  background: heatColor(ratio),
+                                  color: ratio > 0.55 ? "#fff" : "#1c1510",
+                                }}
+                              >
+                                {typeof v === "number" ? v : String(v)}
+                              </td>
+                            );
+                          })}
                         </tr>
                       );
                     })}
                   </tbody>
                 </table>
+              </div>
               </div>
             )}
 

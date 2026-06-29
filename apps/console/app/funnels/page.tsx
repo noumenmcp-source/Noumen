@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { readSession } from "../../src/session";
 import { Button, EmptyState, ErrorState, Field, Panel, Shell } from "../../src/ui";
+import { ChartCard, HBars, StatTile, VBars, type HBar } from "../../src/charts";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8110";
 
@@ -126,6 +127,23 @@ export default function FunnelsPage() {
     }
   }
 
+  const entered = resultTableRows[0]?.count ?? 0;
+  const completed = resultTableRows[resultTableRows.length - 1]?.count ?? 0;
+  const overallConversion = entered > 0 ? completed / entered : 0;
+
+  const dropoffBars: HBar[] = [];
+  for (let i = 1; i < resultTableRows.length; i++) {
+    const prev = resultTableRows[i - 1]!.count;
+    const curr = resultTableRows[i]!.count;
+    const lostPct = prev > 0 ? ((prev - curr) / prev) * 100 : 0;
+    dropoffBars.push({
+      label: `${resultTableRows[i - 1]!.name} → ${resultTableRows[i]!.name}`,
+      value: Math.max(0, lostPct),
+      tone: lostPct > 50 ? "rust" : lostPct > 25 ? "gold" : "sage",
+      caption: `${(prev - curr).toLocaleString()} lost`,
+    });
+  }
+
   return (
     <Shell>
       <div className="grid gap-5">
@@ -173,39 +191,41 @@ export default function FunnelsPage() {
 
         {error ? <ErrorState message={error} /> : null}
 
-        {result && !error ? (
-          <Panel>
-            <div className="grid gap-4">
-              {resultTableRows.length > 0 ? (
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-line">
-                      <th className="py-2 pr-4">Step</th>
-                      <th className="py-2">Count</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {resultTableRows.map((row, i) => (
-                      <tr key={i} className="border-b border-line">
-                        <td className="py-2 pr-4">{row.name}</td>
-                        <td className="py-2">{row.count}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : (
-                <pre className="bg-field p-3 rounded text-sm overflow-auto">
-                  {JSON.stringify(result.result, null, 2)}
-                </pre>
-              )}
-
-              <div>
-                <h3 className="font-semibold mb-1">Dropoff</h3>
-                <pre className="bg-field p-3 rounded text-sm overflow-auto">
-                  {JSON.stringify(result.dropoff, null, 2)}
-                </pre>
-              </div>
+        {result && !error && resultTableRows.length > 0 ? (
+          <>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <StatTile label="Entered" value={entered.toLocaleString()} tone="ink" />
+              <StatTile label="Completed" value={completed.toLocaleString()} tone="sage" />
+              <StatTile
+                label="Overall conversion"
+                value={`${(overallConversion * 100).toFixed(1)}%`}
+                tone="gold"
+                hint={`${resultTableRows.length} steps`}
+              />
             </div>
+
+            <ChartCard title="Funnel" subtitle="Profiles reaching each step">
+              <VBars
+                bars={resultTableRows.map((r) => ({ label: r.name, value: r.count }))}
+                tone="gold"
+                height={180}
+                format={(v) => v.toLocaleString()}
+              />
+            </ChartCard>
+
+            {dropoffBars.length > 0 ? (
+              <ChartCard title="Step-to-step dropoff" subtitle="Share lost between consecutive steps">
+                <HBars bars={dropoffBars} format={(v) => `${v.toFixed(1)}%`} />
+              </ChartCard>
+            ) : null}
+          </>
+        ) : null}
+
+        {result && !error && resultTableRows.length === 0 ? (
+          <Panel>
+            <pre className="bg-field p-3 rounded text-sm overflow-auto">
+              {JSON.stringify(result.result, null, 2)}
+            </pre>
           </Panel>
         ) : null}
 
