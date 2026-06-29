@@ -5,14 +5,27 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        ink: "#10201b",
-        field: "#f5f7f4",
-        line: "#d9e1d8",
-        accent: "#1f7a5a",
-        warn: "#a85b16",
+        // AXIOM brand palette
+        ink:   "#1c1510",   // primary text, dark header bg
+        cream: "#f5f0e8",   // app background
+        panel: "#faf7f2",   // card/panel bg
+        line:  "#e0d8cc",   // borders
+        muted: "#7a6e60",   // secondary text, labels
+        gold:  "#c9a84c",   // money, VIP, accents
+        sage:  "#4a7c59",   // positive signals, good channel
+        rust:  "#c4683a",   // bad channel, losses
+        // legacy aliases (so existing components don't break)
+        field:  "#f5f0e8",
+        accent: "#4a7c59",
+        warn:   "#c4683a",
+      },
+      fontFamily: {
+        serif: ["Lora", "Georgia", "serif"],
+        mono:  ["'Geist Mono'", "ui-monospace", "monospace"],
       },
       boxShadow: {
-        panel: "0 1px 2px rgba(16, 32, 27, 0.08)",
+        panel: "0 1px 3px rgba(28, 21, 16, 0.08)",
+        card:  "0 2px 8px rgba(28, 21, 16, 0.06)",
       },
     },
   },

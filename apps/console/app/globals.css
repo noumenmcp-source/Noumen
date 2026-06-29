@@ -12,28 +12,47 @@
 
 body {
   margin: 0;
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #f5f0e8;
+  color: #1c1510;
   letter-spacing: 0;
 }
 
 @layer components {
+  /* Panels — warm white cards */
   .panel {
-    @apply rounded-md border border-line bg-white p-5 shadow-panel;
+    @apply rounded-lg border border-line bg-panel p-5 shadow-panel;
   }
 
+  /* Primary button — sage green */
   .btn {
-    @apply inline-flex min-h-10 items-center justify-center rounded-md bg-accent px-4 text-sm font-semibold text-white transition hover:bg-[#176547] focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex min-h-10 items-center justify-center rounded-md bg-sage px-4 text-sm font-semibold text-white transition hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-sage focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .btn-secondary {
-    @apply inline-flex min-h-10 items-center justify-center rounded-md border border-line bg-white px-4 text-sm font-semibold text-ink transition hover:bg-field focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2;
+    @apply inline-flex min-h-10 items-center justify-center rounded-md border border-line bg-panel px-4 text-sm font-semibold text-ink transition hover:bg-cream focus:outline-none focus:ring-2 focus:ring-sage focus:ring-offset-2;
   }
 
   .input {
-    @apply min-h-10 rounded-md border border-line bg-white px-3 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent/20;
+    @apply min-h-10 rounded-md border border-line bg-panel px-3 text-sm outline-none focus:border-sage focus:ring-2 focus:ring-sage/20;
   }
 
+  /* Nav link — for dark header */
   .navlink {
-    @apply rounded-md px-3 py-2 text-ink/70 hover:bg-field hover:text-ink focus:outline-none focus:ring-2 focus:ring-accent;
+    @apply rounded px-3 py-1.5 text-xs font-medium uppercase tracking-widest text-white/50 transition hover:text-white focus:outline-none;
+  }
+
+  .navlink-active {
+    @apply text-gold;
+  }
+
+  /* Mono label — AXIOM UI micro-label */
+  .label {
+    @apply font-mono text-[10px] font-medium uppercase tracking-[0.12em];
+  }
+
+  /* Signal tag pill */
+  .pill {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-line px-3 py-1 font-mono text-xs text-muted;
   }
 }
