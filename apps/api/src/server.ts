@@ -37,6 +37,7 @@ import {
 } from "@cdp-us/automation";
 import { registerEmail } from "./routes/email.js";
 import { registerConsent } from "./routes/consent.js";
+import { registerConsentLedger } from "./routes/consent-ledger.js";
 import { isAllowed, hydrateConsent, setConsentBackend, setConsentLedger } from "./consent.js";
 import { DbConsentStore } from "./consent-store.js";
 import { ConsentLedger } from "@cdp-us/consent";
@@ -119,10 +120,12 @@ export async function buildServer(
   // Durable consent: persist writes and rehydrate the in-process gate on boot.
   // Also append every change to the tamper-evident hash-chained ledger.
   const consentConnectionString = process.env.DATABASE_URL;
+  let consentLedgerService: ConsentLedgerService | undefined;
   if (consentConnectionString) {
     const consentDb = createDb(consentConnectionString);
     setConsentBackend(new DbConsentStore(consentDb));
-    setConsentLedger(new ConsentLedgerService(createConsentLedger(), new DbConsentLedgerStore(consentDb)));
+    consentLedgerService = new ConsentLedgerService(createConsentLedger(), new DbConsentLedgerStore(consentDb));
+    setConsentLedger(consentLedgerService);
     await hydrateConsent();
   } else {
     setConsentBackend(undefined);
@@ -157,6 +160,7 @@ export async function buildServer(
     usageMeter,
   });
   registerConsent(app, tenantStore);
+  registerConsentLedger(app, { tenantStore, tokenStore, service: consentLedgerService });
   registerIntel(app, tenantStore, tokenStore, { collectors });
   registerAutomations(app, tenantStore, tokenStore, {
     social: socialAdapter,
