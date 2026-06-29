@@ -12,6 +12,8 @@ export type EnrichmentProvider = Readonly<{ source: string; lookup(key: Enrichme
 /** @example const opts: EnrichmentOptions = { preferExisting: true, includeSensitive: false }; */
 export type EnrichmentOptions = Readonly<{ preferExisting?: boolean; includeSensitive?: boolean }>;
 
+export { createIpinfoProvider, type IpinfoOptions } from "./ipinfo.js";
+
 const FREE_MAIL = new Set(["gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "icloud.com", "aol.com", "proton.me"]);
 
 /** @example const domain = deriveDomain(profile); */
