@@ -72,4 +72,27 @@ describe("builtin inbound providers", () => {
     expect(res.verified).toBe(true);
     expect(res.events.some((e) => e.type === "track" && e.event === "Order Completed")).toBe(true);
   });
+
+  it("maps a signed HubSpot subscription batch", () => {
+    const body = JSON.stringify([
+      { subscriptionType: "contact.creation", objectId: 501, occurredAt: 1781000000000 },
+      { subscriptionType: "contact.propertyChange", objectId: 501, propertyName: "lifecyclestage", propertyValue: "customer" },
+      { subscriptionType: "contact.deletion", objectId: 502 },
+      { subscriptionType: "contact.propertyChange", objectId: 503 }, // dropped: no propertyName
+      { subscriptionType: "contact.creation" }, // dropped: no objectId
+    ]);
+    const res = registry.handle("hubspot", body, { "x-cdp-signature": sign(body) }, SECRET);
+    expect(res.verified).toBe(true);
+    expect(res.events).toHaveLength(3);
+    expect(res.events[0]).toMatchObject({ type: "identify", anonymousId: "hubspot:501", userId: "hubspot:501" });
+    expect(res.events[1]).toMatchObject({ type: "identify", anonymousId: "hubspot:501", traits: { lifecyclestage: "customer" } });
+    expect(res.events[2]).toMatchObject({ type: "track", anonymousId: "hubspot:502", event: "contact.deletion" });
+  });
+
+  it("rejects an unsigned HubSpot payload", () => {
+    const body = JSON.stringify([{ subscriptionType: "contact.creation", objectId: 1 }]);
+    const res = registry.handle("hubspot", body, { "x-cdp-signature": "nope" }, SECRET);
+    expect(res.verified).toBe(false);
+    expect(res.events).toHaveLength(0);
+  });
 });

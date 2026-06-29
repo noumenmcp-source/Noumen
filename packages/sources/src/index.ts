@@ -35,6 +35,7 @@ export const SOURCE_CATALOG: readonly SourceDescriptor[] = [
   { key: "datalayer", name: "GTM dataLayer", category: "tag-manager", mode: "webhook", requiresSecret: true, description: "Server-side forwarding of Google Tag Manager dataLayer events." },
   { key: "snippet", name: "On-site snippet", category: "tag-manager", mode: "snippet", requiresSecret: false, description: "Drop-in JS tag that posts consented events to /v1/track." },
   { key: "segment", name: "Segment", category: "custom", mode: "webhook", requiresSecret: true, description: "Segment-shaped track/identify payloads from any Segment source." },
+  { key: "hubspot", name: "HubSpot", category: "crm", mode: "webhook", requiresSecret: true, description: "Contact creations and property changes via HubSpot webhooks." },
   { key: "generic", name: "Generic webhook", category: "custom", mode: "webhook", requiresSecret: true, description: "Any system that can POST a signed CDP event or batch." },
   { key: "csv", name: "CSV upload", category: "file", mode: "upload", requiresSecret: false, description: "Upload a CSV with an email column to create or merge profiles." },
 ];
@@ -46,7 +47,7 @@ export const SOURCE_CATALOG: readonly SourceDescriptor[] = [
  * @example new InboundRegistry(builtinInboundProviders());
  */
 export function builtinInboundProviders(): readonly InboundProvider[] {
-  return [shopifyProvider(), datalayerProvider(), segmentProvider(), genericProvider()];
+  return [shopifyProvider(), datalayerProvider(), segmentProvider(), genericProvider(), hubspotProvider()];
 }
 
 /** Keys of catalog entries that are live inbound webhook providers. */
@@ -102,6 +103,14 @@ function genericProvider(): InboundProvider {
   };
 }
 
+function hubspotProvider(): InboundProvider {
+  return {
+    provider: "hubspot",
+    verify: (rawBody, headers, secret) => verifyHmacSha256(rawBody, header(headers, "x-cdp-signature"), secret),
+    map: (payload) => mapHubspot(payload),
+  };
+}
+
 // ---- helpers ----
 
 /** A payload may be a single object or `{ events: [...] }`; normalize to an array. */
@@ -144,6 +153,45 @@ function asIngestEvent(entry: unknown): IngestEvent | null {
     return { type: "track", anonymousId, event, properties: asRecord(record.properties) ?? {}, ts: str(record, "ts") };
   }
   return null;
+}
+
+/** Map a HubSpot webhook payload (array of subscription events) to ingest events. */
+function mapHubspot(payload: unknown): IngestEvent[] {
+  const events: IngestEvent[] = [];
+  for (const entry of collect(payload)) {
+    const record = asRecord(entry);
+    if (!record) continue;
+    const objectId = hubspotObjectId(record);
+    if (!objectId) continue;
+    const anonymousId = `hubspot:${objectId}`;
+    const ts = hubspotTs(record);
+    const subscriptionType = str(record, "subscriptionType") ?? "hubspot.event";
+
+    if (subscriptionType === "contact.creation") {
+      events.push({ type: "identify", anonymousId, userId: anonymousId, traits: { hubspotObjectId: objectId, source: "hubspot" }, ...(ts ? { ts } : {}) });
+      continue;
+    }
+    if (subscriptionType === "contact.propertyChange") {
+      const propertyName = str(record, "propertyName");
+      if (!propertyName) continue;
+      events.push({ type: "identify", anonymousId, traits: { [propertyName]: record.propertyValue ?? null, source: "hubspot" }, ...(ts ? { ts } : {}) });
+      continue;
+    }
+    events.push({ type: "track", anonymousId, event: subscriptionType, properties: { source: "hubspot" }, ...(ts ? { ts } : {}) });
+  }
+  return events;
+}
+
+/** HubSpot sends `objectId` as a number; accept string too and normalize. */
+function hubspotObjectId(record: Record<string, unknown>): string | undefined {
+  const raw = record.objectId;
+  if (typeof raw === "number" && Number.isFinite(raw)) return String(raw);
+  return str(record, "objectId");
+}
+
+function hubspotTs(record: Record<string, unknown>): string | undefined {
+  const raw = record.occurredAt;
+  return typeof raw === "number" && Number.isFinite(raw) ? new Date(raw).toISOString() : undefined;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
