@@ -37,6 +37,8 @@ export const SOURCE_CATALOG: readonly SourceDescriptor[] = [
   { key: "segment", name: "Segment", category: "custom", mode: "webhook", requiresSecret: true, description: "Segment-shaped track/identify payloads from any Segment source." },
   { key: "hubspot", name: "HubSpot", category: "crm", mode: "webhook", requiresSecret: true, description: "Contact creations and property changes via HubSpot webhooks." },
   { key: "stripe", name: "Stripe", category: "ecommerce", mode: "webhook", requiresSecret: true, description: "Payments and subscription lifecycle via Stripe webhooks." },
+  { key: "calendly", name: "Calendly", category: "crm", mode: "webhook", requiresSecret: true, description: "Meetings booked and canceled via Calendly webhooks." },
+  { key: "intercom", name: "Intercom", category: "crm", mode: "webhook", requiresSecret: true, description: "Contact and user events via Intercom webhooks." },
   { key: "generic", name: "Generic webhook", category: "custom", mode: "webhook", requiresSecret: true, description: "Any system that can POST a signed CDP event or batch." },
   { key: "csv", name: "CSV upload", category: "file", mode: "upload", requiresSecret: false, description: "Upload a CSV with an email column to create or merge profiles." },
 ];
@@ -48,7 +50,7 @@ export const SOURCE_CATALOG: readonly SourceDescriptor[] = [
  * @example new InboundRegistry(builtinInboundProviders());
  */
 export function builtinInboundProviders(): readonly InboundProvider[] {
-  return [shopifyProvider(), datalayerProvider(), segmentProvider(), genericProvider(), hubspotProvider(), stripeProvider()];
+  return [shopifyProvider(), datalayerProvider(), segmentProvider(), genericProvider(), hubspotProvider(), stripeProvider(), calendlyProvider(), intercomProvider()];
 }
 
 /** Keys of catalog entries that are live inbound webhook providers. */
@@ -117,6 +119,22 @@ function stripeProvider(): InboundProvider {
     provider: "stripe",
     verify: (rawBody, headers, secret) => verifyStripe(rawBody, header(headers, "stripe-signature"), secret),
     map: (payload) => mapStripe(payload),
+  };
+}
+
+function calendlyProvider(): InboundProvider {
+  return {
+    provider: "calendly",
+    verify: (rawBody, headers, secret) => verifyHmacSha256(rawBody, header(headers, "x-cdp-signature"), secret),
+    map: (payload) => mapCalendly(payload),
+  };
+}
+
+function intercomProvider(): InboundProvider {
+  return {
+    provider: "intercom",
+    verify: (rawBody, headers, secret) => verifyHmacSha256(rawBody, header(headers, "x-cdp-signature"), secret),
+    map: (payload) => mapIntercom(payload),
   };
 }
 
@@ -261,6 +279,46 @@ function mapStripe(payload: unknown): IngestEvent[] {
   }
 
   return [{ type: "track", anonymousId, event, properties, ...(ts ? { ts } : {}) }];
+}
+
+/** Map a Calendly webhook (invitee.created/canceled) to a meeting track event. */
+function mapCalendly(payload: unknown): IngestEvent[] {
+  const events: IngestEvent[] = [];
+  const record = asRecord(payload);
+  if (!record) return events;
+  const eventType = str(record, "event");
+  if (!eventType) return events;
+  const inner = asRecord(record.payload) ?? {};
+  const email = str(inner, "email");
+  if (!email) return events;
+  const ts = str(record, "created_at");
+  const name = str(inner, "name");
+  const properties = { source: "calendly", ...(name ? { name } : {}) };
+  const event = eventType === "invitee.created" ? "Meeting Booked" : eventType === "invitee.canceled" ? "Meeting Canceled" : eventType;
+  events.push({ type: "track", anonymousId: email, event, properties, ...(ts ? { ts } : {}) });
+  return events;
+}
+
+/** Map an Intercom notification (contact/user → identify, else track). */
+function mapIntercom(payload: unknown): IngestEvent[] {
+  const events: IngestEvent[] = [];
+  const record = asRecord(payload);
+  if (!record) return events;
+  const topic = str(record, "topic") ?? "intercom.event";
+  const item = asRecord(asRecord(record.data)?.item) ?? {};
+  const id = str(item, "id");
+  const email = str(item, "email");
+  const anonymousId = id ? `intercom:${id}` : email;
+  if (!anonymousId) return events;
+  const ts = typeof record.created_at === "number" && Number.isFinite(record.created_at) ? new Date(record.created_at * 1000).toISOString() : undefined;
+  if (topic.startsWith("contact.") || topic.startsWith("user.")) {
+    const name = str(item, "name");
+    const traits = { source: "intercom", ...(email ? { email } : {}), ...(name ? { name } : {}) };
+    events.push({ type: "identify", anonymousId, traits, ...(ts ? { ts } : {}) });
+  } else {
+    events.push({ type: "track", anonymousId, event: topic, properties: { source: "intercom" }, ...(ts ? { ts } : {}) });
+  }
+  return events;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

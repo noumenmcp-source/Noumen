@@ -127,4 +127,41 @@ describe("builtin inbound providers", () => {
     expect(bad.verified).toBe(false);
     expect(bad.events).toHaveLength(0);
   });
+
+  it("maps a signed Calendly invitee.created to Meeting Booked", () => {
+    const body = JSON.stringify({
+      event: "invitee.created",
+      created_at: "2026-06-30T10:00:00.000Z",
+      payload: { email: "guest@acme.test", name: "Guest" },
+    });
+    const res = registry.handle("calendly", body, { "x-cdp-signature": sign(body) }, SECRET);
+    expect(res.verified).toBe(true);
+    expect(res.events[0]).toMatchObject({
+      type: "track",
+      anonymousId: "guest@acme.test",
+      event: "Meeting Booked",
+      properties: { source: "calendly", name: "Guest" },
+    });
+    expect(res.events[0]?.ts).toBe("2026-06-30T10:00:00.000Z");
+  });
+
+  it("maps a signed Intercom contact.created to identify (and rejects a bad sig)", () => {
+    const body = JSON.stringify({
+      topic: "contact.created",
+      created_at: 1781000000,
+      data: { item: { id: "ic_1", email: "lead@acme.test", name: "Lead" } },
+    });
+    const ok = registry.handle("intercom", body, { "x-cdp-signature": sign(body) }, SECRET);
+    expect(ok.verified).toBe(true);
+    expect(ok.events[0]).toMatchObject({
+      type: "identify",
+      anonymousId: "intercom:ic_1",
+      traits: { source: "intercom", email: "lead@acme.test", name: "Lead" },
+    });
+    expect(ok.events[0]?.ts).toBe(new Date(1781000000 * 1000).toISOString());
+
+    const bad = registry.handle("intercom", body, { "x-cdp-signature": "nope" }, SECRET);
+    expect(bad.verified).toBe(false);
+    expect(bad.events).toHaveLength(0);
+  });
 });
