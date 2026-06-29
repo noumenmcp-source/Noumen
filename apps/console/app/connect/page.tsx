@@ -21,17 +21,19 @@ interface Source {
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8110";
 
 export default function ConnectPage() {
-  const [session] = useState<Session | null>(() => readSession());
+  const [session, setSession] = useState<Session | null>(null);
   const [sources, setSources] = useState<Source[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!session?.tenantId) {
+    const s = readSession();
+    setSession(s);
+    if (!s?.tenantId) {
       setLoading(false);
       return;
     }
-    fetch(`${API_URL}/v1/tenants/${session.tenantId}/sources`)
+    fetch(`${API_URL}/v1/tenants/${s.tenantId}/sources`)
       .then((r) => {
         if (!r.ok) throw new Error("Failed to fetch sources");
         return r.json();
@@ -39,7 +41,7 @@ export default function ConnectPage() {
       .then((data) => setSources(data.sources ?? []))
       .catch((err) => setError(err instanceof Error ? err.message : "Unknown error"))
       .finally(() => setLoading(false));
-  }, [session?.tenantId]);
+  }, []);
 
   const connectedCount = sources.filter((s) => s.connected).length;
   const pendingCount = sources.length - connectedCount;
