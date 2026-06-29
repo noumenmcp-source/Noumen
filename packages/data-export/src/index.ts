@@ -36,3 +36,9 @@ export {
   type AdAudienceRow,
   type AdAudienceCsvOptions,
 } from "./ad-audiences.js";
+export {
+  buildBrandedReport,
+  type BrandConfig,
+  type BrandedReportData,
+  type ReportStage,
+} from "./branded-report.js";

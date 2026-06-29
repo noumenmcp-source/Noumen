@@ -54,6 +54,26 @@ describe("base audit report route", () => {
     expect((await missing.app.inject({ method: "GET", url: "/v1/tenants/t1/report/base-audit", headers: auth(missing.token) })).statusCode).toBe(404);
     await missing.app.close();
   });
+
+  it("renders a white-label branded HTML report (default + override brand)", async () => {
+    const { app, token } = await setup(tenant());
+
+    const dflt = await app.inject({ method: "GET", url: "/v1/tenants/t1/report/branded", headers: auth(token) });
+    expect(dflt.statusCode).toBe(200);
+    expect(dflt.headers["content-type"]).toContain("text/html");
+    expect(dflt.body).toContain("<!doctype html>");
+    expect(dflt.body).toContain("Acme"); // default brand = tenant name
+    expect(dflt.body).toContain("Powered by AXIOM");
+
+    const override = await app.inject({
+      method: "GET",
+      url: "/v1/tenants/t1/report/branded?brand=Partner%20Co&accent=%23336699",
+      headers: auth(token),
+    });
+    await app.close();
+    expect(override.body).toContain("Partner Co");
+    expect(override.body).toContain("#336699");
+  });
 });
 
 async function setup(t: Tenant | undefined, role: "analyst" | "viewer" = "analyst") {

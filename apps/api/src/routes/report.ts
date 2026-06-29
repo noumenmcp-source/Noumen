@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type { IngestEvent } from "@cdp-us/contracts";
 import { classifyLifecycle, LIFECYCLE_STAGES, type LifecycleStage } from "@cdp-us/computed-traits";
 import { generatePlaybook } from "@cdp-us/playbook";
+import { buildBrandedReport, type ReportStage } from "@cdp-us/data-export";
 import { authenticate, roleSatisfies, type TokenStore } from "../auth.js";
 import type { TenantStore } from "../tenant.js";
 import { lifecycleDistribution, type LifecycleProfile, type LifecycleStore } from "./segments.js";
@@ -59,6 +60,56 @@ export function registerReport(app: FastifyInstance, deps: ReportDeps): void {
       });
     } catch {
       return reply.code(502).send({ error: "base_audit_failed" });
+    }
+  });
+
+  // White-label branded report: print-ready HTML an agency hands to its client.
+  // Brand fields come from the query (?brand=&accent=&logo=); default brand = tenant name.
+  app.get("/v1/tenants/:tenantId/report/branded", async (req, reply) => {
+    const { tenantId } = req.params as { tenantId: string };
+
+    const principal = await authenticate(req, deps.tokenStore);
+    if (!principal) return reply.code(401).send({ error: "unauthorized" });
+    if (principal.tenantId !== tenantId || !roleSatisfies(principal.role, "analyst")) {
+      return reply.code(403).send({ error: "forbidden" });
+    }
+    const tenant = await deps.tenantStore.getTenant(tenantId);
+    if (!tenant) return reply.code(404).send({ error: "unknown_tenant" });
+
+    const now = deps.now?.() ?? new Date().toISOString();
+    try {
+      const [base, events] = await Promise.all([
+        lifecycleDistribution(deps.store, tenantId, now),
+        deps.store.loadEvents(tenantId),
+      ]);
+      const total = base.total;
+      const stages: ReportStage[] = LIFECYCLE_STAGES.map((s) => {
+        const count = base.stages[s] ?? 0;
+        return { label: s, count, pct: total > 0 ? (count / total) * 100 : 0 };
+      });
+      const trend = revenueTrend(events, now, 12);
+      const revenue = trend.reduce((sum, t) => sum + t.revenue, 0);
+      const orders = trend.reduce((sum, t) => sum + t.orders, 0);
+
+      const query = req.query as { brand?: string; accent?: string; logo?: string };
+      const html = buildBrandedReport(
+        { name: query.brand?.trim() || tenant.name, accentColor: query.accent, logoUrl: query.logo },
+        {
+          generatedAt: now,
+          totalProfiles: total,
+          stages,
+          highlights: [
+            { label: "Revenue (12mo)", value: `$${revenue.toLocaleString("en-US")}` },
+            { label: "Orders (12mo)", value: orders.toLocaleString("en-US") },
+          ],
+        },
+      );
+      return reply
+        .header("content-type", "text/html; charset=utf-8")
+        .header("content-disposition", `inline; filename="audience-report.html"`)
+        .send(html);
+    } catch {
+      return reply.code(502).send({ error: "branded_report_failed" });
     }
   });
 }
