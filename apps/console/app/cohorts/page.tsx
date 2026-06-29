@@ -213,7 +213,7 @@ export default function RetentionCohortsPage() {
                   label="Final retention"
                   value={`${finalRetention.toFixed(1)}%`}
                   tone={finalRetention < 20 ? "rust" : "sage"}
-                  hint={`after ${avgRetention.length - 1} periods`}
+                  hint={avgRetention.length > 1 ? `after ${avgRetention.length - 1} periods` : undefined}
                 />
               </div>
 
