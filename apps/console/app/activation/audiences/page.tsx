@@ -6,6 +6,7 @@ import { evaluateAudience } from "../../../src/api";
 import { readSession } from "../../../src/session";
 import type { AudienceResult, Session } from "../../../src/types";
 import { Button, EmptyState, ErrorState, Field, Panel, Shell } from "../../../src/ui";
+import { StatTile } from "../../../src/charts";
 
 export default function AudiencesPage() {
   const [session, setSession] = useState<Session | null>(null);
@@ -38,7 +39,29 @@ export default function AudiencesPage() {
           <Field label="Equals" value={equals} onChange={setEquals} />
           <Button disabled={!session} onClick={() => void submit()}>Evaluate</Button>
         </Panel>
-        {result ? <Panel><p className="font-semibold">Size {result.size}</p><p className="mt-2 text-sm text-ink/70">Sample IDs: {result.sampleIds.join(", ") || "none"}</p></Panel> : null}
+        {result ? (
+          <>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <StatTile label="Audience size" value={result.size.toLocaleString()} tone="gold" />
+              <StatTile label="Sample shown" value={result.sampleIds.length.toLocaleString()} tone="ink" />
+              {result.overlap ? (
+                <StatTile label="In both segments" value={result.overlap.both.toLocaleString()} tone="sage" />
+              ) : null}
+            </div>
+            <Panel>
+              <h2 className="font-semibold">Sample members</h2>
+              {result.sampleIds.length > 0 ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {result.sampleIds.map((id) => (
+                    <span key={id} className="rounded border border-line bg-field px-2 py-0.5 font-mono text-xs text-ink/80">{id}</span>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-2 text-sm text-ink/60">No members matched this rule.</p>
+              )}
+            </Panel>
+          </>
+        ) : null}
       </div>
     </Shell>
   );

@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { readSession } from "../../../src/session";
 import type { Session } from "../../../src/types";
 import { Badge, EmptyState, Panel, Shell } from "../../../src/ui";
+import { StatTile } from "../../../src/charts";
 
 const destinations: readonly { readonly key: string; readonly label: string; readonly requiresConsent?: string }[] = [
   { key: "salesforce", label: "Salesforce", requiresConsent: "marketing_email" },
@@ -23,6 +24,11 @@ export default function DestinationsPage() {
         <Link className="text-sm text-accent" href="/activation">Activation</Link>
         <h1 className="text-2xl font-semibold">Destinations</h1>
         {!session ? <EmptyState title="No session" body="Sign in to review tenant destinations." /> : null}
+        <div className="grid gap-4 sm:grid-cols-3">
+          <StatTile label="Destinations" value={destinations.length.toString()} tone="ink" />
+          <StatTile label="Consent-gated" value={destinations.filter((d) => d.requiresConsent).length.toString()} tone="gold" />
+          <StatTile label="Operational" value={destinations.filter((d) => !d.requiresConsent).length.toString()} tone="sage" />
+        </div>
         <div className="grid gap-3 md:grid-cols-2">
           {destinations.map((item) => <Panel key={item.key}><div className="flex items-center justify-between gap-3"><h2 className="font-semibold">{item.label}</h2>{item.requiresConsent ? <Badge tone="warm">{item.requiresConsent}</Badge> : <Badge>operational</Badge>}</div><p className="mt-2 text-sm text-ink/70">Sync configuration is wired by the integrator for this destination.</p></Panel>)}
         </div>
