@@ -5,6 +5,7 @@ import { ApiError, dsarRequest } from "../../src/api";
 import { readSession } from "../../src/session";
 import type { DsarKind } from "../../src/types";
 import { Badge, Button, EmptyState, ErrorState, Field, Panel, Shell } from "../../src/ui";
+import { StatTile } from "../../src/charts";
 
 const KINDS: { readonly value: DsarKind; readonly label: string }[] = [
   { value: "access", label: "Access (export everything we hold)" },
@@ -84,7 +85,14 @@ export default function CompliancePage() {
 
         {consent.length > 0 ? (
           <Panel>
-            <h2 className="font-semibold">Recorded consent</h2>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="font-semibold">Recorded consent</h2>
+              <StatTile
+                label="Granted"
+                value={`${consent.filter((c) => c.value).length}/${consent.length}`}
+                tone={consent.every((c) => c.value) ? "sage" : consent.some((c) => c.value) ? "gold" : "rust"}
+              />
+            </div>
             <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
               {consent.map((c) => (
                 <div key={c.field} className="flex items-center gap-2">

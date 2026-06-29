@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { readSession } from "../../src/session";
 import { Badge, Button, EmptyState, ErrorState, Field, Panel, Shell } from "../../src/ui";
+import { StatTile } from "../../src/charts";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8110";
 
@@ -93,6 +94,17 @@ export default function DeliverabilityPage() {
           <Field label="DKIM selectors (comma-separated)" value={dkim} onChange={setDkim} />
           <Button onClick={runCheck} disabled={checking}>{checking ? "Checking…" : "Check records"}</Button>
           {checkError ? <ErrorState message={checkError} /> : null}
+          {report ? (() => {
+            const bools = Object.values(report).filter((v) => typeof v === "boolean") as boolean[];
+            const passed = bools.filter(Boolean).length;
+            return bools.length > 0 ? (
+              <StatTile
+                label="Auth records valid"
+                value={`${passed}/${bools.length}`}
+                tone={passed === bools.length ? "sage" : passed === 0 ? "rust" : "gold"}
+              />
+            ) : null;
+          })() : null}
           {report ? (
             <dl className="grid gap-2 text-sm sm:grid-cols-2">
               {Object.entries(report).map(([k, v]) => (

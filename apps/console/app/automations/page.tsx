@@ -5,18 +5,19 @@ import { ApiError, runAutomation } from "../../src/api";
 import { readSession } from "../../src/session";
 import type { AutomationRunResult, AutomationStep } from "../../src/types";
 import { Badge, Button, EmptyState, ErrorState, Field, Panel, Shell } from "../../src/ui";
+import { ChartCard, DonutChart, StatTile, type DonutSlice, type Tone } from "../../src/charts";
 
 type Kind = AutomationStep["kind"];
+
+const OUTCOME_TONE: Record<string, Tone> = {
+  sent: "sage", posted: "sage", waited: "muted", skipped: "rust",
+};
 
 function gateMessage(status: number): string {
   if (status === 403) return "Forbidden — the automation module is not enabled for this tenant, or your role lacks admin rights. Enable it under Modules.";
   if (status === 402) return "Plan limit reached or automation not entitled on your plan.";
   return "Scenario run failed.";
 }
-
-const STATUS_TONE: Record<string, "ok" | "warm" | "neutral"> = {
-  sent: "ok", posted: "ok", waited: "neutral", skipped: "warm",
-};
 
 export default function AutomationsPage() {
   const [steps, setSteps] = useState<AutomationStep[]>([]);
@@ -121,13 +122,31 @@ export default function AutomationsPage() {
         {error ? <ErrorState message={error} /> : null}
 
         {result ? (
-          <Panel>
-            <h2 className="font-semibold">Run summary</h2>
-            <div className="mt-3 flex flex-wrap gap-2 text-xs">
-              {(["sent", "posted", "waited", "skipped"] as const).map((k) => (
-                <Badge key={k} tone={STATUS_TONE[k]}>{k}: {result.summary[k]}</Badge>
-              ))}
+          <>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <StatTile
+                label="Delivered"
+                value={(result.summary.sent + result.summary.posted).toLocaleString()}
+                tone="sage"
+              />
+              <StatTile label="Skipped" value={result.summary.skipped.toLocaleString()} tone="rust" />
+              <StatTile label="Total steps" value={result.results.length.toLocaleString()} tone="ink" />
             </div>
+
+            <ChartCard title="Step outcomes">
+              <DonutChart
+                slices={
+                  (["sent", "posted", "waited", "skipped"] as const)
+                    .map((k) => ({ label: k, value: result.summary[k], tone: OUTCOME_TONE[k]! }))
+                    .filter((s) => s.value > 0) as DonutSlice[]
+                }
+                centerValue={result.results.length.toString()}
+                centerLabel="steps"
+              />
+            </ChartCard>
+
+            <Panel>
+            <h2 className="font-semibold">Step detail</h2>
             <ol className="mt-3 grid gap-1 text-sm">
               {result.results.map((r) => (
                 <li key={r.index} className="rounded border border-line px-3 py-2 text-xs">
@@ -136,7 +155,8 @@ export default function AutomationsPage() {
                 </li>
               ))}
             </ol>
-          </Panel>
+            </Panel>
+          </>
         ) : null}
 
         {!result && !error && !loading && steps.length === 0 ? (

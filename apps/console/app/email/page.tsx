@@ -5,6 +5,7 @@ import { ApiError, runEmailCampaign } from "../../src/api";
 import { readSession } from "../../src/session";
 import { EMAIL_TRIGGERS, type CampaignResult, type EmailTrigger } from "../../src/types";
 import { Badge, Button, EmptyState, ErrorState, Field, Panel, Shell } from "../../src/ui";
+import { ChartCard, DonutChart, StatTile, type DonutSlice } from "../../src/charts";
 
 function gateMessage(status: number): string {
   if (status === 402) return "Plan limit reached, or the email module is not entitled on your plan. Enable it under Modules / upgrade your plan.";
@@ -86,14 +87,31 @@ export default function EmailPage() {
         {error ? <ErrorState message={error} /> : null}
 
         {result ? (
-          <Panel>
-            <h2 className="font-semibold text-emerald-700">Campaign complete</h2>
-            <dl className="mt-3 grid grid-cols-3 gap-4 text-center text-sm">
-              <div><dt className="text-ink/60">Selected</dt><dd className="text-2xl font-bold">{result.selected}</dd></div>
-              <div><dt className="text-ink/60">Sent</dt><dd className="text-2xl font-bold">{result.sent}</dd></div>
-              <div><dt className="text-ink/60">Skipped (no consent)</dt><dd className="text-2xl font-bold">{result.skippedNoConsent}</dd></div>
-            </dl>
-          </Panel>
+          <>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <StatTile label="Selected" value={result.selected.toLocaleString()} tone="ink" />
+              <StatTile label="Sent" value={result.sent.toLocaleString()} tone="sage" />
+              <StatTile
+                label="Skipped (no consent)"
+                value={result.skippedNoConsent.toLocaleString()}
+                tone="rust"
+                hint={result.selected > 0 ? `${((result.sent / result.selected) * 100).toFixed(0)}% reach` : undefined}
+              />
+            </div>
+
+            {result.selected > 0 ? (
+              <ChartCard title="Consent reach" subtitle="Sent vs suppressed for lack of marketing consent">
+                <DonutChart
+                  slices={[
+                    { label: "Sent", value: result.sent, tone: "sage" },
+                    { label: "No consent", value: result.skippedNoConsent, tone: "rust" },
+                  ].filter((s) => s.value > 0) as DonutSlice[]}
+                  centerValue={`${((result.sent / result.selected) * 100).toFixed(0)}%`}
+                  centerLabel="reached"
+                />
+              </ChartCard>
+            ) : null}
+          </>
         ) : null}
 
         {!result && !error && !loading ? (
