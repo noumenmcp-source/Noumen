@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { readSession } from "../../src/session";
+import { StatTile } from "../../src/charts";
 import { EmptyState, ErrorState, Shell } from "../../src/ui";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8110";
@@ -124,6 +125,13 @@ export default function TodayPage() {
 
       {audit ? (
         <div className="grid gap-6">
+          <div className="grid gap-4 sm:grid-cols-4">
+            <StatTile label="Total profiles" value={audit.total.toLocaleString()} />
+            <StatTile label="Actions today" value={audit.actions.length.toString()} tone="gold" />
+            <StatTile label="VIP customers" value={(audit.stages.vip ?? 0).toLocaleString()} tone="sage" />
+            <StatTile label="At-risk" value={((audit.stages.dormant ?? 0) + (audit.stages.lost ?? 0)).toLocaleString()} tone="rust" />
+          </div>
+
           <div className="flex flex-wrap items-center gap-2">
             {STAGE_ORDER.map((s) => <StageChip key={s} stage={s} count={audit.stages[s] ?? 0} />)}
             <span className="ml-auto font-mono text-xs text-muted">{audit.total.toLocaleString()} total</span>
