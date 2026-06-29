@@ -34,7 +34,7 @@ describe("executeDeletion", () => {
     ]));
 
     expect(eraser.anonymizeProfile).toHaveBeenCalledWith("t1", "p1");
-    expect(eraser.deleteEvents).toHaveBeenCalledWith("t1", SUBJECT);
+    expect(eraser.deleteEvents).toHaveBeenCalledWith("t1", SUBJECT, undefined); // no holds → delete all
     expect(result).toMatchObject({ anonymizedProfiles: 1, deletedEvents: 5, retained: [] });
   });
 
@@ -49,16 +49,29 @@ describe("executeDeletion", () => {
     expect(result.retained).toHaveLength(1);
   });
 
-  it("retains ALL events when any event target is held (no partial delete)", async () => {
-    const eraser = fakeEraser();
+  it("fine-grained: deletes un-held events, retains held names by passing them to the eraser", async () => {
+    const eraser = fakeEraser(1);
     const result = await executeDeletion(eraser, plan([
-      { type: "event", key: "track:A:t1", action: "delete", legalHold: false },
-      { type: "event", key: "track:Purchase:t2", action: "retain", legalHold: true, reason: "tax" },
+      { type: "event", key: "track:A:t1", name: "A", action: "delete", legalHold: false },
+      { type: "event", key: "track:Purchase:t2", name: "Purchase", action: "retain", legalHold: true, reason: "tax" },
     ]));
 
-    expect(eraser.deleteEvents).not.toHaveBeenCalled();
-    expect(result.deletedEvents).toBe(0);
+    // The deletable event still triggers deletion, but the held name is retained.
+    expect(eraser.deleteEvents).toHaveBeenCalledWith("t1", SUBJECT, ["Purchase"]);
+    expect(result.deletedEvents).toBe(1);
     expect(result.retained.map((t) => t.key)).toEqual(["track:Purchase:t2"]);
+  });
+
+  it("retains all events (no eraser call) when every event target is held", async () => {
+    const eraser = fakeEraser();
+    const result = await executeDeletion(eraser, plan([
+      { type: "event", key: "track:Purchase:t1", name: "Purchase", action: "retain", legalHold: true, reason: "tax" },
+      { type: "event", key: "track:Purchase:t2", name: "Purchase", action: "retain", legalHold: true, reason: "tax" },
+    ]));
+
+    expect(eraser.deleteEvents).not.toHaveBeenCalled(); // nothing deletable
+    expect(result.deletedEvents).toBe(0);
+    expect(result.retained).toHaveLength(2);
   });
 
   it("skips event deletion when there are no events", async () => {

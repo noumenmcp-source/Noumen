@@ -348,11 +348,11 @@ function createDsarEraser(profileStore: ProfileStore, ingestStore: IngestStore):
         updatedAt: new Date().toISOString(),
       });
     },
-    deleteEvents: async (tenantId, subject) => {
+    deleteEvents: async (tenantId, subject, retainEventNames) => {
       const profile = findSubjectProfile(await profileStore.listByTenant(tenantId), subject);
       const anonymousId = subject.anonymousId ?? profile?.anonymousId;
       if (!anonymousId) return 0;
-      return ingestStore.deleteByAnonymousId(tenantId, anonymousId);
+      return ingestStore.deleteByAnonymousId(tenantId, anonymousId, retainEventNames);
     },
   };
 }

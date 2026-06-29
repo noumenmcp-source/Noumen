@@ -32,13 +32,14 @@ describe("data-export DSAR domain", () => {
   });
 
   it("plans deletion without putting legal-hold targets in deletableTargets", async () => {
+    // Event holds match by event NAME (e.g. retain every "Purchase Completed").
     const legalRequest: DsarRequest = {
       ...request,
-      legalHolds: [{ target: "event", key: "track:Purchase Completed:2026-05-31T10:00:00.000Z", reason: "Transaction retention" }],
+      legalHolds: [{ target: "event", key: "Purchase Completed", reason: "Transaction retention" }],
     };
 
     const plan = await planDeletion(fakeReaders(profile(), events(), consent()), legalRequest);
-    const held = plan.targets.find((target) => target.key === "track:Purchase Completed:2026-05-31T10:00:00.000Z");
+    const held = plan.targets.find((target) => target.type === "event" && target.name === "Purchase Completed");
 
     expect(held).toMatchObject({ action: "retain", legalHold: true, reason: "Transaction retention" });
     expect(plan.deletableTargets).not.toContainEqual(held);

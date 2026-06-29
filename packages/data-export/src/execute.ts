@@ -11,8 +11,12 @@ import type { DeletionPlan, DeletionTarget, Subject } from "./types.js";
 export interface DsarEraser {
   /** Redact direct identifiers on a profile in place (CCPA de-identification). */
   anonymizeProfile(tenantId: TenantId, profileId: string): Promise<void>;
-  /** Hard-delete all events for a subject; returns the number removed. */
-  deleteEvents(tenantId: TenantId, subject: Subject): Promise<number>;
+  /**
+   * Hard-delete a subject's events; returns the number removed. When
+   * `retainEventNames` is given, events whose name is in that set are kept
+   * (fine-grained legal hold); omit it to delete every event.
+   */
+  deleteEvents(tenantId: TenantId, subject: Subject, retainEventNames?: readonly string[]): Promise<number>;
 }
 
 /** @example const result = await executeDeletion(eraser, plan); */
@@ -27,10 +31,10 @@ export type DeletionResult = Readonly<{
 
 /**
  * Execute a deletion plan: anonymize profiles and hard-delete events for the
- * subject, honoring legal holds. Profiles and events under a legal hold are
- * never touched. Event deletion is all-or-nothing per subject: if *any* event
- * target is held, all events are retained (fine-grained per-event deletion under
- * a partial hold is intentionally not attempted — retaining is the safe choice).
+ * subject, honoring legal holds. Profiles under a legal hold are never touched.
+ * Event deletion is fine-grained: events whose name is under a legal hold are
+ * retained, every other event is deleted. A hold with no key retains all events
+ * of that subject (it matches every event name).
  *
  * @example const result = await executeDeletion(eraser, await planDeletion(readers, request));
  */
@@ -41,10 +45,18 @@ export async function executeDeletion(
   // Delete events BEFORE anonymizing profiles: the eraser resolves a subject's
   // events via its (still-intact) profile, which anonymization would scrub.
   const eventTargets = plan.targets.filter((target) => target.type === "event");
-  const anyEventHeld = eventTargets.some((target) => target.legalHold);
+  const heldNames = [
+    ...new Set(eventTargets.filter((t) => t.legalHold && t.name).map((t) => t.name as string)),
+  ];
+  const hasDeletableEvent = eventTargets.some((t) => !t.legalHold);
   let deletedEvents = 0;
-  if (eventTargets.length > 0 && !anyEventHeld) {
-    deletedEvents = await eraser.deleteEvents(plan.tenantId, plan.subject);
+  if (hasDeletableEvent) {
+    // Pass the retained names so the eraser keeps held events and deletes the rest.
+    deletedEvents = await eraser.deleteEvents(
+      plan.tenantId,
+      plan.subject,
+      heldNames.length > 0 ? heldNames : undefined,
+    );
   }
 
   let anonymizedProfiles = 0;

@@ -45,7 +45,7 @@ describe("data export route", () => {
       result: { anonymizedProfiles: 1, deletedEvents: 2 },
     });
     expect(anonymizeProfile).toHaveBeenCalledWith("t1", "p1");
-    expect(deleteEvents).toHaveBeenCalledWith("t1", { email: "buyer@example.com" });
+    expect(deleteEvents).toHaveBeenCalledWith("t1", { email: "buyer@example.com" }, undefined); // no legal holds → delete all
   });
 
   it("emits an audit entry for each DSAR action", async () => {

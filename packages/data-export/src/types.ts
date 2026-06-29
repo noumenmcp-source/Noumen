@@ -58,6 +58,8 @@ export type LegalHold = Readonly<{ target: DeletionTargetType; key?: string; rea
 export type DeletionTarget = Readonly<{
   type: DeletionTargetType;
   key: string;
+  /** For event targets: the event name a legal hold matches on ("identify" for identify events). */
+  name?: string;
   action: "delete" | "anonymize" | "retain";
   legalHold: boolean;
   reason?: string;

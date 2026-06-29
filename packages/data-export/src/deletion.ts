@@ -25,7 +25,16 @@ function profileTargets(profile: Profile | null, request: DsarRequest): readonly
 }
 
 function eventTargets(events: readonly IngestEvent[], request: DsarRequest): readonly DeletionTarget[] {
-  return events.map((event, index) => target("event", eventKey(event, index), "delete", request.legalHolds));
+  // Event legal holds match by event NAME (e.g. retain all "Order Completed" for
+  // transaction retention), not by the synthetic per-event key.
+  return events.map((event, index) => {
+    const name = eventName(event);
+    const key = eventKey(event, index);
+    const hold = (request.legalHolds ?? []).find((item) => item.target === "event" && (!item.key || item.key === name));
+    return hold
+      ? { type: "event" as const, key, name, action: "retain" as const, legalHold: true, reason: hold.reason }
+      : { type: "event" as const, key, name, action: "delete" as const, legalHold: false };
+  });
 }
 
 function derivedTarget(request: DsarRequest): DeletionTarget {
@@ -42,9 +51,12 @@ function target(
   return hold ? { type, key, action: "retain", legalHold: true, reason: hold.reason } : { type, key, action, legalHold: false };
 }
 
+function eventName(event: IngestEvent): string {
+  return event.type === "track" ? event.event : "identify";
+}
+
 function eventKey(event: IngestEvent, index: number): string {
-  const name = event.type === "track" ? event.event : "identify";
-  return `${event.type}:${name}:${event.ts ?? index}`;
+  return `${event.type}:${eventName(event)}:${event.ts ?? index}`;
 }
 
 function subjectKey(request: DsarRequest): string {
