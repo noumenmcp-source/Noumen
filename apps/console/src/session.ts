@@ -10,12 +10,22 @@ export function saveSession(session: Session): void {
   localStorage.setItem(KEY, JSON.stringify(session));
 }
 
+/** Public demo session, if this build was configured with a demo tenant.
+ * Lets the promo stand open without a login. The token is read-only-grade
+ * (scoped to the demo tenant) and intentionally shipped in the public bundle. */
+function demoSession(): Session | null {
+  const tenantId = process.env.NEXT_PUBLIC_DEMO_TENANT;
+  const apiToken = process.env.NEXT_PUBLIC_DEMO_TOKEN;
+  if (!tenantId || !apiToken) return null;
+  return { apiToken, tenant: null, tenantId };
+}
+
 /** Read the current API-token session.
  * @example const session = readSession()
  */
 export function readSession(): Session | null {
   const raw = localStorage.getItem(KEY);
-  if (!raw) return null;
+  if (!raw) return demoSession();
   try {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     const tenant = asTenant(parsed.tenant);
