@@ -7,6 +7,7 @@ import {
 } from "@cdp-us/computed-traits";
 import { generatePlaybook } from "@cdp-us/playbook";
 import { draftCopy, validateCopy } from "@cdp-us/copy";
+import { buildAdAudienceCsv } from "@cdp-us/data-export";
 import { authenticate, roleSatisfies, type TokenStore } from "../auth.js";
 import type { TenantStore } from "../tenant.js";
 
@@ -114,6 +115,16 @@ export function registerSegments(app: FastifyInstance, deps: SegmentsDeps): void
       const format = ((req.query as { format?: string }).format ?? "csv").toLowerCase();
       const rows = exportable.map((m) => [m.id, m.email ?? "", m.anonymousId ?? "", stage]);
       const header = ["profile_id", "email", "anonymous_id", "lifecycle_stage"];
+
+      if (format === "meta-audience" || format === "google-audience") {
+        // Hashed-identifier audience for ad platforms (suppressed emails already excluded).
+        const platform = format === "meta-audience" ? "meta" : "google";
+        const audienceCsv = buildAdAudienceCsv(exportable.map((m) => ({ email: m.email })), platform);
+        return reply
+          .header("content-type", "text/csv; charset=utf-8")
+          .header("content-disposition", `attachment; filename="${platform}-audience-${stage}.csv"`)
+          .send(audienceCsv);
+      }
 
       if (format === "xlsx") {
         const buf = await toXlsx(header, rows, `Lifecycle ${stage}`);

@@ -26,3 +26,13 @@ export type {
   Subject,
 } from "./types.js";
 export { ACCESS_REPORT_SCHEMA_VERSION } from "./types.js";
+export {
+  buildAdAudienceCsv,
+  hashEmail,
+  hashPhone,
+  normalizeEmail,
+  normalizePhone,
+  type AdPlatform,
+  type AdAudienceRow,
+  type AdAudienceCsvOptions,
+} from "./ad-audiences.js";

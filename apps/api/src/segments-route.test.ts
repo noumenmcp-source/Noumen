@@ -112,6 +112,24 @@ describe("lifecycle segments route", () => {
     expect(all.body).toContain("p_dormant");
   });
 
+  it("exports a hashed Meta Custom Audience when ?format=meta-audience", async () => {
+    const { app, token } = await setup(tenant());
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/tenants/t1/segments/lifecycle/dormant/export?format=meta-audience",
+      headers: auth(token),
+    });
+    await app.close();
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toContain("text/csv");
+    expect(res.headers["content-disposition"]).toContain("meta-audience-dormant.csv");
+    const lines = res.body.trim().split("\n");
+    expect(lines[0]).toBe("email"); // hashed identifiers only, no raw PII
+    expect(lines).toContain("fbc7c4a0142bfe8232275580938705cec127787a156a8eab5ea9126614df1264");
+    expect(res.body).not.toContain("dorm@acme.test");
+  });
+
   it("exports a lifecycle segment as XLSX when ?format=xlsx", async () => {
     const { app, token } = await setup(tenant());
     const res = await app.inject({
