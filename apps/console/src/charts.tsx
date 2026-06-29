@@ -186,6 +186,65 @@ export function AreaTrend(props: {
   );
 }
 
+// ─── MiniSpark — tiny inline sparkline ────────────────────────────────────────
+
+export function MiniSpark(props: { readonly values: readonly number[]; readonly tone?: Tone; readonly width?: number; readonly height?: number }) {
+  const tone = props.tone ?? "sage";
+  const w = props.width ?? 64;
+  const h = props.height ?? 22;
+  const vs = props.values;
+  if (vs.length < 2) return null;
+  const max = Math.max(...vs, 1);
+  const min = Math.min(...vs, 0);
+  const span = max - min || 1;
+  const step = w / (vs.length - 1);
+  const path = vs.map((v, i) => `${i === 0 ? "M" : "L"}${(i * step).toFixed(1)} ${(h - ((v - min) / span) * h).toFixed(1)}`).join(" ");
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="overflow-visible">
+      <path d={path} fill="none" stroke={TONE[tone]} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+// ─── ServiceWidget — capability tile for the "every service" grid ─────────────
+
+export function ServiceWidget(props: {
+  readonly name: string;
+  readonly tone: Tone;
+  readonly metric: string;
+  readonly caption: string;
+  readonly status?: "live" | "ready" | "synced";
+  readonly spark?: readonly number[];
+  readonly bars?: readonly { label: string; value: number; tone: Tone }[];
+}) {
+  return (
+    <div className="flex flex-col rounded-lg border border-line bg-panel p-4 shadow-card">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full" style={{ background: TONE[props.tone] }} />
+          <span className="label text-muted">{props.name}</span>
+        </span>
+        {props.status ? (
+          <span className="flex items-center gap-1 font-mono text-[9px] uppercase tracking-widest text-sage">
+            <span className="h-1 w-1 rounded-full bg-sage" />{props.status}
+          </span>
+        ) : null}
+      </div>
+      <p className="font-serif text-2xl font-bold leading-none text-ink">{props.metric}</p>
+      <p className="mt-1.5 text-xs leading-snug text-muted">{props.caption}</p>
+      {props.spark ? <div className="mt-3"><MiniSpark values={props.spark} tone={props.tone} width={120} height={24} /></div> : null}
+      {props.bars ? (
+        <div className="mt-3 flex items-end gap-1" style={{ height: 32 }}>
+          {props.bars.map((b) => {
+            const max = Math.max(...props.bars!.map((x) => x.value), 1);
+            return <div key={b.label} title={b.label} className="flex-1 rounded-sm" style={{ height: `${Math.max(8, (b.value / max) * 100)}%`, background: TONE[b.tone] }} />;
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 // ─── ChartCard — titled container ─────────────────────────────────────────────
 
 export function ChartCard(props: {
