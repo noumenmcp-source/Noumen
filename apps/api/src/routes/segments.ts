@@ -111,10 +111,19 @@ export function registerSegments(app: FastifyInstance, deps: SegmentsDeps): void
                 members.map(async (m) => ((m.email && (await deps.suppression!.isSuppressed(m.email))) ? null : m)),
               )
             ).filter((m): m is LifecycleProfile => m !== null);
-      const csv = toCsv(
-        ["profile_id", "email", "anonymous_id", "lifecycle_stage"],
-        exportable.map((m) => [m.id, m.email ?? "", m.anonymousId ?? "", stage]),
-      );
+      const format = ((req.query as { format?: string }).format ?? "csv").toLowerCase();
+      const rows = exportable.map((m) => [m.id, m.email ?? "", m.anonymousId ?? "", stage]);
+      const header = ["profile_id", "email", "anonymous_id", "lifecycle_stage"];
+
+      if (format === "xlsx") {
+        const buf = await toXlsx(header, rows, `Lifecycle ${stage}`);
+        return reply
+          .header("content-type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+          .header("content-disposition", `attachment; filename="lifecycle-${stage}.xlsx"`)
+          .send(buf);
+      }
+
+      const csv = toCsv(header, rows);
       return reply
         .header("content-type", "text/csv; charset=utf-8")
         .header("content-disposition", `attachment; filename="lifecycle-${stage}.csv"`)
@@ -147,6 +156,15 @@ async function lifecycleMembers(
     const profileEvents = profile.anonymousId ? eventsByAnon.get(profile.anonymousId) ?? [] : [];
     return classifyLifecycle(profileEvents, { now, firstSeen: profile.createdAt }).stage === stage;
   });
+}
+
+/** XLSX workbook buffer from a header row + data rows. */
+async function toXlsx(header: readonly string[], rows: readonly (readonly string[])[], sheetName = "Export"): Promise<Buffer> {
+  const XLSX = (await import("xlsx")) as typeof import("xlsx");
+  const ws = XLSX.utils.aoa_to_sheet([[...header], ...rows.map((r) => [...r])]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  return Buffer.from(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Uint8Array);
 }
 
 /** Minimal RFC-4180 CSV (quote fields containing comma/quote/newline). */

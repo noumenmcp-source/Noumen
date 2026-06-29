@@ -112,6 +112,23 @@ describe("lifecycle segments route", () => {
     expect(all.body).toContain("p_dormant");
   });
 
+  it("exports a lifecycle segment as XLSX when ?format=xlsx", async () => {
+    const { app, token } = await setup(tenant());
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/tenants/t1/segments/lifecycle/dormant/export?format=xlsx",
+      headers: auth(token),
+    });
+    await app.close();
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toContain("spreadsheetml");
+    expect(res.headers["content-disposition"]).toContain("lifecycle-dormant.xlsx");
+    // XLSX magic bytes: PK (ZIP)
+    expect(res.rawPayload[0]).toBe(0x50);
+    expect(res.rawPayload[1]).toBe(0x4b);
+  });
+
   it("rejects an unknown lifecycle stage in export (400)", async () => {
     const { app, token } = await setup(tenant());
     const res = await app.inject({ method: "GET", url: "/v1/tenants/t1/segments/lifecycle/bogus/export", headers: auth(token) });

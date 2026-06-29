@@ -46,9 +46,11 @@
     "@fastify/rate-limit": "^10.2.2",
     "drizzle-orm": "^0.36.4",
     "fastify": "^5.1.0",
+    "xlsx": "^0.18.5",
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@types/xlsx": "^0.0.36",
     "vitest": "^2.1.8"
   }
 }
