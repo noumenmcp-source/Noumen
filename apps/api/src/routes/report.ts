@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import type { IngestEvent } from "@cdp-us/contracts";
 import { generatePlaybook } from "@cdp-us/playbook";
 import { authenticate, roleSatisfies, type TokenStore } from "../auth.js";
 import type { TenantStore } from "../tenant.js";
@@ -34,11 +35,15 @@ export function registerReport(app: FastifyInstance, deps: ReportDeps): void {
 
     const now = deps.now?.() ?? new Date().toISOString();
     try {
-      const [base, channels] = await Promise.all([
+      const [base, channels, events, profiles] = await Promise.all([
         lifecycleDistribution(deps.store, tenantId, now),
         computeChannelQuality(deps.store, tenantId, now),
+        deps.store.loadEvents(tenantId),
+        deps.store.loadProfiles(tenantId),
       ]);
       const playbook = generatePlaybook({ stages: base.stages });
+      const trend = revenueTrend(events, now, 12);
+      const topProfiles = topRevenueProfiles(events, profiles, 8);
       return reply.send({
         ok: true,
         tenantId,
@@ -46,9 +51,66 @@ export function registerReport(app: FastifyInstance, deps: ReportDeps): void {
         base: { total: base.total, stages: base.stages, samples: base.samples },
         channels,
         playbook,
+        trend,
+        topProfiles,
       });
     } catch {
       return reply.code(502).send({ error: "base_audit_failed" });
     }
   });
+}
+
+/** Monthly revenue + order count over the trailing `months`, oldest→newest. */
+export function revenueTrend(
+  events: readonly IngestEvent[],
+  now: string,
+  months: number,
+): readonly { month: string; revenue: number; orders: number }[] {
+  const nowDate = new Date(now);
+  const buckets = new Map<string, { revenue: number; orders: number }>();
+  // seed the trailing window so empty months still render as zeros
+  for (let i = months - 1; i >= 0; i--) {
+    const d = new Date(Date.UTC(nowDate.getUTCFullYear(), nowDate.getUTCMonth() - i, 1));
+    buckets.set(monthKey(d), { revenue: 0, orders: 0 });
+  }
+  for (const event of events) {
+    if (event.type !== "track" || event.event !== "Order Completed" || !event.ts) continue;
+    const key = monthKey(new Date(event.ts));
+    const bucket = buckets.get(key);
+    if (!bucket) continue; // outside the window
+    const value = Number((event.properties as Record<string, unknown>).value);
+    bucket.revenue += Number.isFinite(value) ? value : 0;
+    bucket.orders += 1;
+  }
+  return [...buckets.entries()].map(([month, b]) => ({ month, revenue: Math.round(b.revenue), orders: b.orders }));
+}
+
+/** Top customers by lifetime revenue, joined to a display email. */
+export function topRevenueProfiles(
+  events: readonly IngestEvent[],
+  profiles: readonly { id: string; anonymousId?: string; email?: string }[],
+  limit: number,
+): readonly { id: string; email: string; revenue: number; orders: number }[] {
+  const byAnon = new Map<string, { revenue: number; orders: number }>();
+  for (const event of events) {
+    if (event.type !== "track" || event.event !== "Order Completed") continue;
+    const agg = byAnon.get(event.anonymousId) ?? { revenue: 0, orders: 0 };
+    const value = Number((event.properties as Record<string, unknown>).value);
+    agg.revenue += Number.isFinite(value) ? value : 0;
+    agg.orders += 1;
+    byAnon.set(event.anonymousId, agg);
+  }
+  return profiles
+    .map((p) => {
+      const agg = p.anonymousId ? byAnon.get(p.anonymousId) : undefined;
+      return { id: p.id, email: p.email ?? "—", revenue: Math.round(agg?.revenue ?? 0), orders: agg?.orders ?? 0 };
+    })
+    .filter((r) => r.revenue > 0)
+    .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, limit);
+}
+
+/** YYYY-MM key in UTC. */
+function monthKey(d: Date): string {
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }

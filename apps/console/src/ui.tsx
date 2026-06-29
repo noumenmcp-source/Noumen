@@ -88,7 +88,7 @@ function LogoMark() {
 }
 
 const NAV_ITEMS = [
-  "Today", "Playbook", "Lifecycle", "Channels",
+  "Today", "Overview", "Playbook", "Lifecycle", "Channels",
   "Profiles", "Activation", "Email", "Automations",
   "Compliance", "Modules", "Connect",
 ] as const;
