@@ -31,5 +31,6 @@ export { Orchestrator, TCPA_PURPOSE } from "./orchestrator.js";
 
 export { createTelegramMessenger, type TelegramOptions } from "./telegram.js";
 export { createTwilioSms, type TwilioOptions } from "./twilio.js";
+export { createWhatsappMessenger, type WhatsappOptions } from "./whatsapp.js";
 
 export { automationManifest } from "./manifest.js";
