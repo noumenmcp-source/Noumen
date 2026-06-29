@@ -18,8 +18,18 @@ const DEFAULT_ALLOW: Record<ConsentPurpose, boolean> = {
   messaging_tcpa: false,
 };
 
+/**
+ * Best-effort evidence sink for the tamper-evident consent ledger. Kept minimal
+ * so the gate stays decoupled from storage/crypto. A failure here NEVER blocks a
+ * consent write — the gate is the critical path, the ledger is the audit trail.
+ */
+export interface ConsentLedgerSink {
+  record(input: { tenantId: string; subject: string; state: ConsentState; source: string }): Promise<unknown>;
+}
+
 const overrides = new Map<string, Partial<Record<ConsentPurpose, boolean>>>();
 let backend: ConsentStore | undefined;
+let ledger: ConsentLedgerSink | undefined;
 
 function key(tenantId: string, subject: string): string {
   return `${tenantId}:${subject}`;
@@ -28,6 +38,11 @@ function key(tenantId: string, subject: string): string {
 /** Wire (or clear) the durable consent backend. Idempotent. */
 export function setConsentBackend(store: ConsentStore | undefined): void {
   backend = store;
+}
+
+/** Wire (or clear) the evidence ledger sink. Idempotent. */
+export function setConsentLedger(sink: ConsentLedgerSink | undefined): void {
+  ledger = sink;
 }
 
 /** Load all persisted consent into the in-process cache (call on boot). */
@@ -64,11 +79,19 @@ export async function applyConsentState(
   };
   overrides.set(key(tenantId, subject), snapshot);
   await backend?.put(tenantId, subject, snapshot, "banner");
+  if (ledger) {
+    try {
+      await ledger.record({ tenantId, subject, state, source: "banner" });
+    } catch {
+      // Evidence trail is best-effort; never block the consent write on it.
+    }
+  }
 }
 
 export function resetConsentOverrides(): void {
   overrides.clear();
   backend = undefined;
+  ledger = undefined;
 }
 
 export function isAllowed(

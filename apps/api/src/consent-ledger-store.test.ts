@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import type { ConsentState } from "@cdp-us/contracts";
 import { ConsentLedger, GENESIS_HASH } from "@cdp-us/consent";
 import { ConsentLedgerService, InMemoryConsentLedgerStore } from "./consent-ledger-store.js";
+import { applyConsentState, resetConsentOverrides, setConsentLedger } from "./consent.js";
 
 const TENANT = "t_1";
 const SUBJECT = "anon_1";
@@ -63,5 +64,29 @@ describe("ConsentLedgerService", () => {
     expect(b1.prevHash).toBe(GENESIS_HASH);
     await expect(svc.verify(TENANT, "anon_a")).resolves.toEqual({ ok: true });
     await expect(svc.verify(TENANT, "anon_b")).resolves.toEqual({ ok: true });
+  });
+});
+
+describe("consent gate → ledger wiring", () => {
+  afterEach(() => resetConsentOverrides());
+
+  it("appends a verifiable chain on each applyConsentState", async () => {
+    const store = new InMemoryConsentLedgerStore();
+    const svc = new ConsentLedgerService(new ConsentLedger({ now: clock() }), store);
+    setConsentLedger(svc);
+
+    await applyConsentState(TENANT, SUBJECT, state(true));
+    await applyConsentState(TENANT, SUBJECT, state(false));
+
+    const chain = await store.chain(TENANT, SUBJECT);
+    expect(chain).toHaveLength(2);
+    expect(chain[0]?.prevHash).toBe(GENESIS_HASH);
+    expect(chain[1]?.prevHash).toBe(chain[0]?.hash);
+    await expect(svc.verify(TENANT, SUBJECT)).resolves.toEqual({ ok: true });
+  });
+
+  it("never throws from applyConsentState when the ledger sink fails", async () => {
+    setConsentLedger({ record: async () => { throw new Error("ledger down"); } });
+    await expect(applyConsentState(TENANT, SUBJECT, state(true))).resolves.toBeUndefined();
   });
 });

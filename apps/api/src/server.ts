@@ -37,8 +37,10 @@ import {
 } from "@cdp-us/automation";
 import { registerEmail } from "./routes/email.js";
 import { registerConsent } from "./routes/consent.js";
-import { isAllowed, hydrateConsent, setConsentBackend } from "./consent.js";
+import { isAllowed, hydrateConsent, setConsentBackend, setConsentLedger } from "./consent.js";
 import { DbConsentStore } from "./consent-store.js";
+import { ConsentLedger } from "@cdp-us/consent";
+import { ConsentLedgerService, DbConsentLedgerStore } from "./consent-ledger-store.js";
 import { registerIntel, type CollectorRegistry } from "./routes/intel.js";
 import { registerAutomations } from "./routes/automations.js";
 import { registerAnalytics } from "./routes/analytics.js";
@@ -115,12 +117,16 @@ export async function buildServer(
   const usageMeter = opts.usageMeter ?? createDefaultUsageMeter();
 
   // Durable consent: persist writes and rehydrate the in-process gate on boot.
+  // Also append every change to the tamper-evident hash-chained ledger.
   const consentConnectionString = process.env.DATABASE_URL;
   if (consentConnectionString) {
-    setConsentBackend(new DbConsentStore(createDb(consentConnectionString)));
+    const consentDb = createDb(consentConnectionString);
+    setConsentBackend(new DbConsentStore(consentDb));
+    setConsentLedger(new ConsentLedgerService(createConsentLedger(), new DbConsentLedgerStore(consentDb)));
     await hydrateConsent();
   } else {
     setConsentBackend(undefined);
+    setConsentLedger(undefined);
   }
   // No social providers are wired by default: intel returns 503 per platform
   // until a collector (with the tenant's provider creds) is injected.
@@ -215,6 +221,21 @@ export async function buildServer(
     resolveSecret: (tenant, provider) => resolveSourceSecret(provider, { writeKey: tenant.writeKey, env: process.env }),
   });
   return app;
+}
+
+/**
+ * Build the consent ledger's signing key. In production set a stable Ed25519
+ * pair via CONSENT_LEDGER_PRIVATE_KEY_PEM + CONSENT_LEDGER_PUBLIC_KEY_PEM so the
+ * chain stays verifiable across restarts; otherwise a fresh (ephemeral) pair is
+ * generated — fine for dev, but verification won't survive a restart.
+ */
+function createConsentLedger(): ConsentLedger {
+  const privateKeyPem = process.env.CONSENT_LEDGER_PRIVATE_KEY_PEM;
+  const publicKeyPem = process.env.CONSENT_LEDGER_PUBLIC_KEY_PEM;
+  if (privateKeyPem && publicKeyPem) {
+    return new ConsentLedger({ keys: { privateKeyPem, publicKeyPem } });
+  }
+  return new ConsentLedger();
 }
 
 function createDefaultIngestStore(): IngestStore {
