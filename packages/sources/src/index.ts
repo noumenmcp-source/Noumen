@@ -1,6 +1,6 @@
 import type { IngestEvent } from "@cdp-us/contracts";
 import { mapShopifyEvent, verifyShopifyHmac, mapDataLayerEvent } from "@cdp-us/integrations";
-import { verifyHmacSha256, type InboundProvider, type WebhookHeaders } from "@cdp-us/webhooks-inbound";
+import { verifyHmacSha256, verifyStripe, type InboundProvider, type WebhookHeaders } from "@cdp-us/webhooks-inbound";
 
 /**
  * The "collect from everywhere" backbone (AXIOM deck slide 5). A Source turns an
@@ -36,6 +36,7 @@ export const SOURCE_CATALOG: readonly SourceDescriptor[] = [
   { key: "snippet", name: "On-site snippet", category: "tag-manager", mode: "snippet", requiresSecret: false, description: "Drop-in JS tag that posts consented events to /v1/track." },
   { key: "segment", name: "Segment", category: "custom", mode: "webhook", requiresSecret: true, description: "Segment-shaped track/identify payloads from any Segment source." },
   { key: "hubspot", name: "HubSpot", category: "crm", mode: "webhook", requiresSecret: true, description: "Contact creations and property changes via HubSpot webhooks." },
+  { key: "stripe", name: "Stripe", category: "ecommerce", mode: "webhook", requiresSecret: true, description: "Payments and subscription lifecycle via Stripe webhooks." },
   { key: "generic", name: "Generic webhook", category: "custom", mode: "webhook", requiresSecret: true, description: "Any system that can POST a signed CDP event or batch." },
   { key: "csv", name: "CSV upload", category: "file", mode: "upload", requiresSecret: false, description: "Upload a CSV with an email column to create or merge profiles." },
 ];
@@ -47,7 +48,7 @@ export const SOURCE_CATALOG: readonly SourceDescriptor[] = [
  * @example new InboundRegistry(builtinInboundProviders());
  */
 export function builtinInboundProviders(): readonly InboundProvider[] {
-  return [shopifyProvider(), datalayerProvider(), segmentProvider(), genericProvider(), hubspotProvider()];
+  return [shopifyProvider(), datalayerProvider(), segmentProvider(), genericProvider(), hubspotProvider(), stripeProvider()];
 }
 
 /** Keys of catalog entries that are live inbound webhook providers. */
@@ -108,6 +109,14 @@ function hubspotProvider(): InboundProvider {
     provider: "hubspot",
     verify: (rawBody, headers, secret) => verifyHmacSha256(rawBody, header(headers, "x-cdp-signature"), secret),
     map: (payload) => mapHubspot(payload),
+  };
+}
+
+function stripeProvider(): InboundProvider {
+  return {
+    provider: "stripe",
+    verify: (rawBody, headers, secret) => verifyStripe(rawBody, header(headers, "stripe-signature"), secret),
+    map: (payload) => mapStripe(payload),
   };
 }
 
@@ -192,6 +201,66 @@ function hubspotObjectId(record: Record<string, unknown>): string | undefined {
 function hubspotTs(record: Record<string, unknown>): string | undefined {
   const raw = record.occurredAt;
   return typeof raw === "number" && Number.isFinite(raw) ? new Date(raw).toISOString() : undefined;
+}
+
+/**
+ * Map a Stripe webhook event to a CDP track event. Payments (checkout /
+ * payment_intent / charge succeeded) become "Order Completed" with a dollar
+ * value; subscription lifecycle events map to start/cancel. `created` is epoch
+ * seconds; amounts are cents.
+ */
+function mapStripe(payload: unknown): IngestEvent[] {
+  const record = asRecord(payload);
+  if (!record) return [];
+  const eventType = str(record, "type");
+  if (!eventType) return [];
+
+  const obj = asRecord(asRecord(record.data)?.object) ?? {};
+  const customer = str(obj, "customer");
+  const email = customer ? undefined : str(obj, "customer_email") ?? str(obj, "receipt_email");
+  const objId = customer || email ? undefined : str(obj, "id");
+  const anonymousId = customer ? `stripe:${customer}` : email ?? (objId ? `stripe:${objId}` : undefined);
+  if (!anonymousId) return [];
+
+  const ts =
+    typeof record.created === "number" && Number.isFinite(record.created)
+      ? new Date(record.created * 1000).toISOString()
+      : undefined;
+
+  const stripeEventId = str(record, "id");
+  const base: Record<string, unknown> = { source: "stripe", ...(stripeEventId ? { stripeEventId } : {}) };
+  const amountProps = (cents: unknown): Record<string, unknown> => {
+    if (typeof cents !== "number") return {};
+    const currency = str(obj, "currency");
+    return { value: cents / 100, ...(currency ? { currency } : {}) };
+  };
+
+  let event: string;
+  let properties: Record<string, unknown>;
+  switch (eventType) {
+    case "checkout.session.completed":
+      event = "Order Completed";
+      properties = { ...base, ...amountProps(obj.amount_total) };
+      break;
+    case "payment_intent.succeeded":
+    case "charge.succeeded":
+      event = "Order Completed";
+      properties = { ...base, ...amountProps(obj.amount) };
+      break;
+    case "customer.subscription.created":
+      event = "Subscription Started";
+      properties = base;
+      break;
+    case "customer.subscription.deleted":
+      event = "Subscription Cancelled";
+      properties = base;
+      break;
+    default:
+      event = eventType;
+      properties = base;
+  }
+
+  return [{ type: "track", anonymousId, event, properties, ...(ts ? { ts } : {}) }];
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

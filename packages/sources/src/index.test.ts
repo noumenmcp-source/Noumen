@@ -11,6 +11,10 @@ function sign(rawBody: string): string {
 function shopifySign(rawBody: string): string {
   return createHmac("sha256", SECRET).update(rawBody).digest("base64");
 }
+function stripeSign(rawBody: string, t = "1781000000"): string {
+  const v1 = createHmac("sha256", SECRET).update(`${t}.${rawBody}`).digest("hex");
+  return `t=${t},v1=${v1}`;
+}
 
 describe("source catalog", () => {
   it("exposes a non-empty catalog with unique keys", () => {
@@ -94,5 +98,33 @@ describe("builtin inbound providers", () => {
     const res = registry.handle("hubspot", body, { "x-cdp-signature": "nope" }, SECRET);
     expect(res.verified).toBe(false);
     expect(res.events).toHaveLength(0);
+  });
+
+  it("maps a signed Stripe checkout.session.completed to Order Completed", () => {
+    const body = JSON.stringify({
+      id: "evt_1",
+      type: "checkout.session.completed",
+      created: 1781000000,
+      data: { object: { customer: "cus_42", amount_total: 4200, currency: "usd" } },
+    });
+    const res = registry.handle("stripe", body, { "stripe-signature": stripeSign(body) }, SECRET);
+    expect(res.verified).toBe(true);
+    expect(res.events[0]).toMatchObject({
+      type: "track",
+      anonymousId: "stripe:cus_42",
+      event: "Order Completed",
+      properties: { value: 42, currency: "usd", source: "stripe", stripeEventId: "evt_1" },
+    });
+    expect(res.events[0]?.ts).toBe(new Date(1781000000 * 1000).toISOString());
+  });
+
+  it("maps a Stripe subscription cancel and rejects a bad signature", () => {
+    const body = JSON.stringify({ id: "evt_2", type: "customer.subscription.deleted", data: { object: { customer: "cus_9" } } });
+    const ok = registry.handle("stripe", body, { "stripe-signature": stripeSign(body) }, SECRET);
+    expect(ok.events[0]).toMatchObject({ type: "track", anonymousId: "stripe:cus_9", event: "Subscription Cancelled" });
+
+    const bad = registry.handle("stripe", body, { "stripe-signature": "t=1,v1=deadbeef" }, SECRET);
+    expect(bad.verified).toBe(false);
+    expect(bad.events).toHaveLength(0);
   });
 });
