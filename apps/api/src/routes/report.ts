@@ -1,9 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import type { IngestEvent } from "@cdp-us/contracts";
+import { classifyLifecycle, LIFECYCLE_STAGES, type LifecycleStage } from "@cdp-us/computed-traits";
 import { generatePlaybook } from "@cdp-us/playbook";
 import { authenticate, roleSatisfies, type TokenStore } from "../auth.js";
 import type { TenantStore } from "../tenant.js";
-import { lifecycleDistribution, type LifecycleStore } from "./segments.js";
+import { lifecycleDistribution, type LifecycleProfile, type LifecycleStore } from "./segments.js";
 import { computeChannelQuality } from "./channel-quality.js";
 
 export type ReportDeps = Readonly<{
@@ -44,6 +45,7 @@ export function registerReport(app: FastifyInstance, deps: ReportDeps): void {
       const playbook = generatePlaybook({ stages: base.stages });
       const trend = revenueTrend(events, now, 12);
       const topProfiles = topRevenueProfiles(events, profiles, 8);
+      const revenueByStage = revenuePerStage(events, profiles, now);
       return reply.send({
         ok: true,
         tenantId,
@@ -53,6 +55,7 @@ export function registerReport(app: FastifyInstance, deps: ReportDeps): void {
         playbook,
         trend,
         topProfiles,
+        revenueByStage,
       });
     } catch {
       return reply.code(502).send({ error: "base_audit_failed" });
@@ -108,6 +111,34 @@ export function topRevenueProfiles(
     .filter((r) => r.revenue > 0)
     .sort((a, b) => b.revenue - a.revenue)
     .slice(0, limit);
+}
+
+/** Lifetime revenue attributed to each lifecycle stage (where the money is). */
+export function revenuePerStage(
+  events: readonly IngestEvent[],
+  profiles: readonly LifecycleProfile[],
+  now: string,
+): Record<LifecycleStage, number> {
+  const eventsByAnon = new Map<string, IngestEvent[]>();
+  const revByAnon = new Map<string, number>();
+  for (const event of events) {
+    const list = eventsByAnon.get(event.anonymousId) ?? [];
+    list.push(event);
+    eventsByAnon.set(event.anonymousId, list);
+    if (event.type === "track" && event.event === "Order Completed") {
+      const value = Number((event.properties as Record<string, unknown>).value);
+      revByAnon.set(event.anonymousId, (revByAnon.get(event.anonymousId) ?? 0) + (Number.isFinite(value) ? value : 0));
+    }
+  }
+  const out = Object.fromEntries(LIFECYCLE_STAGES.map((s) => [s, 0])) as Record<LifecycleStage, number>;
+  for (const profile of profiles) {
+    const anon = profile.anonymousId;
+    const profileEvents = anon ? eventsByAnon.get(anon) ?? [] : [];
+    const { stage } = classifyLifecycle(profileEvents, { now, firstSeen: profile.createdAt });
+    out[stage] += anon ? revByAnon.get(anon) ?? 0 : 0;
+  }
+  for (const s of LIFECYCLE_STAGES) out[s] = Math.round(out[s]);
+  return out;
 }
 
 /** YYYY-MM key in UTC. */

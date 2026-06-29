@@ -245,6 +245,47 @@ export function ServiceWidget(props: {
   );
 }
 
+// ─── VBars — vertical bars over a category axis (e.g. revenue by month) ───────
+
+export function VBars(props: {
+  readonly bars: readonly { label: string; value: number }[];
+  readonly tone?: Tone;
+  readonly height?: number;
+  readonly format?: (v: number) => string;
+}) {
+  const tone = props.tone ?? "gold";
+  const h = props.height ?? 150;
+  const fmt = props.format ?? ((v: number) => `${v}`);
+  const max = Math.max(...props.bars.map((b) => b.value), 1);
+  const peakIdx = props.bars.reduce((best, b, i) => (b.value > props.bars[best]!.value ? i : best), 0);
+  return (
+    <div>
+      <div className="flex items-end gap-1.5" style={{ height: h }}>
+        {props.bars.map((b, i) => (
+          <div key={b.label} className="group relative flex flex-1 flex-col items-center justify-end">
+            <span className="mb-1 font-mono text-[9px] text-muted opacity-0 transition-opacity group-hover:opacity-100">
+              {fmt(b.value)}
+            </span>
+            <div
+              className="w-full rounded-t-sm transition-all"
+              style={{
+                height: `${Math.max(2, (b.value / max) * (h - 18))}px`,
+                background: TONE[tone],
+                opacity: i === peakIdx ? 1 : 0.55,
+              }}
+            />
+          </div>
+        ))}
+      </div>
+      <div className="mt-1.5 flex gap-1.5">
+        {props.bars.map((b) => (
+          <span key={b.label} className="flex-1 text-center font-mono text-[9px] uppercase text-muted">{b.label}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── ChartCard — titled container ─────────────────────────────────────────────
 
 export function ChartCard(props: {

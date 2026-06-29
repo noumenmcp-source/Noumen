@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { readSession } from "../../src/session";
 import { EmptyState, ErrorState, Shell } from "../../src/ui";
-import { AreaTrend, ChartCard, DonutChart, HBars, ServiceWidget, StatTile, type DonutSlice, type HBar, type Tone } from "../../src/charts";
+import { ChartCard, DonutChart, HBars, ServiceWidget, StatTile, VBars, type DonutSlice, type HBar, type Tone } from "../../src/charts";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8110";
 
@@ -17,6 +17,7 @@ interface Audit {
   actions: { kind: string }[];
   trend: TrendPoint[];
   topProfiles: TopProfile[];
+  revenueByStage: Record<string, number>;
 }
 
 const STAGE_TONE: Record<string, Tone> = {
@@ -53,6 +54,7 @@ export default function OverviewPage() {
           actions: Array.isArray(d.playbook) ? (d.playbook as { kind: string }[]) : [],
           trend: Array.isArray(d.trend) ? (d.trend as TrendPoint[]) : [],
           topProfiles: Array.isArray(d.topProfiles) ? (d.topProfiles as TopProfile[]) : [],
+          revenueByStage: (d.revenueByStage ?? {}) as Record<string, number>,
         });
       } catch { setError("Network error."); }
       finally { setLoading(false); }
@@ -76,20 +78,35 @@ export default function OverviewPage() {
     label: s, value: audit.stages[s] ?? 0, tone: STAGE_TONE[s] ?? "muted",
   })).filter((d) => d.value > 0);
 
+  // Bar = conversion rate (cleanly separates channels); repeat/AOV in the caption.
   const channelConv: HBar[] = [...audit.channels]
-    .sort((a, b) => b.profiles - a.profiles)
+    .sort((a, b) => b.conversionRate - a.conversionRate)
     .map((c) => ({
       label: c.channel,
-      value: c.repeatRate * 100,
-      tone: c.neverClosedRate > 0.5 ? "rust" : c.repeatRate > 0.2 ? "sage" : "gold",
-      caption: `${c.profiles} · ${Math.round(c.conversionRate * 100)}% conv · ${Math.round(c.repeatRate * 100)}% repeat`,
+      value: c.conversionRate * 100,
+      tone: c.conversionRate >= 0.4 ? "sage" : c.conversionRate >= 0.25 ? "gold" : "rust",
+      caption: `${c.profiles.toLocaleString()} leads · ${Math.round(c.conversionRate * 100)}% buy · ${Math.round(c.repeatRate * 100)}% return · ${usd(Math.round(c.avgValue))} AOV`,
     }));
 
-  const trendPoints = audit.trend.map((t) => ({ x: shortMonth(t.month), y: t.revenue }));
-  const topBars: HBar[] = audit.topProfiles.map((p) => ({
-    label: p.email.replace("@brewco.test", ""), value: p.revenue, tone: "gold",
-    caption: `${usd(p.revenue)} · ${p.orders} orders`,
-  }));
+  const trendBars = audit.trend.map((t) => ({ label: shortMonth(t.month), value: t.revenue }));
+  const peak = audit.trend.reduce((b, t) => (t.revenue > b.revenue ? t : b), audit.trend[0] ?? { month: "", revenue: 0, orders: 0 });
+
+  // Revenue by lifecycle stage — where the money actually sits (Pareto).
+  const revByStage = STAGE_ORDER.map((s) => ({ stage: s, value: audit.revenueByStage[s] ?? 0, tone: STAGE_TONE[s] ?? "muted" }));
+  const totalStageRev = revByStage.reduce((a, b) => a + b.value, 0) || 1;
+  const STAGE_DESC: Record<string, string> = {
+    vip: "repeat buyers", active: "recent buyers", new: "no purchase yet",
+    dormant: "win-back", lost: "reactivate", junk: "never bought",
+  };
+  const revBars: HBar[] = revByStage
+    .filter((r) => r.value > 0)
+    .sort((a, b) => b.value - a.value)
+    .map((r) => ({
+      label: `${r.stage} — ${STAGE_DESC[r.stage] ?? ""}`,
+      value: r.value,
+      tone: r.tone,
+      caption: `${usd(r.value)} · ${Math.round((r.value / totalStageRev) * 100)}%`,
+    }));
 
   // Per-service widgets — real numbers from the base where available.
   const seoCh = audit.channels.find((c) => c.channel === "seo");
@@ -119,8 +136,8 @@ export default function OverviewPage() {
       </div>
 
       {/* Revenue trend full-width */}
-      <ChartCard title="Revenue by month" subtitle="Order Completed events, trailing 12 months" className="mb-6">
-        <AreaTrend points={trendPoints} tone="gold" height={160} format={usd} />
+      <ChartCard title="Revenue by month" subtitle={`${usd(totalRevenue)} over 12 months · peak ${usd(peak.revenue)} in ${shortMonth(peak.month)}`} className="mb-6">
+        <VBars bars={trendBars} tone="gold" height={150} format={usd} />
       </ChartCard>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -128,15 +145,15 @@ export default function OverviewPage() {
           <DonutChart slices={donut} centerValue={audit.total.toLocaleString()} centerLabel="profiles" />
         </ChartCard>
 
-        <ChartCard title="Channel quality" subtitle="Repeat rate by acquisition channel — not cost-per-lead">
-          <HBars bars={channelConv} max={100} format={(v) => `${Math.round(v)}%`} />
+        <ChartCard title="Channel quality" subtitle="Conversion by acquisition channel — who buys, not who's cheapest">
+          <HBars bars={channelConv} max={Math.max(...channelConv.map((c) => c.value), 50)} format={(v) => `${Math.round(v)}%`} />
         </ChartCard>
 
-        <ChartCard title="Top customers by revenue" subtitle="Lifetime value, joined from order history">
-          {topBars.length > 0 ? <HBars bars={topBars} format={usd} /> : <EmptyState title="No orders yet" body="—" />}
+        <ChartCard title="Where the revenue sits" subtitle="Lifetime revenue by lifecycle stage — the 80/20 of your base">
+          {revBars.length > 0 ? <HBars bars={revBars} format={usd} /> : <EmptyState title="No orders yet" body="—" />}
         </ChartCard>
 
-        <ChartCard title="Where the money moves" subtitle="Segment value concentration">
+        <ChartCard title="How the base splits" subtitle="Profile count by stage — most are leads, few are buyers">
           <HBars
             bars={[
               { label: "VIP — repeat buyers", value: audit.stages.vip ?? 0, tone: "gold", caption: `${(audit.stages.vip ?? 0).toLocaleString()} profiles` },
