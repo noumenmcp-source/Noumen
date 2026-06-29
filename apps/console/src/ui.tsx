@@ -83,7 +83,7 @@ export function Badge(props: {
 /** AXIOM logo mark — two gold dots */
 function LogoMark() {
   return (
-    <span className="mr-2 inline-flex items-center gap-[3px]">
+    <span className="inline-flex items-center gap-[3px]">
       <span className="h-[5px] w-[5px] rounded-full bg-gold" />
       <span className="h-[5px] w-[5px] rounded-full bg-gold/50" />
     </span>
@@ -115,7 +115,7 @@ function NavIcon(props: { readonly name: string }) {
 }
 
 const NAV_ITEMS = [
-  "Today", "Overview", "Playbook", "Lifecycle", "Channels",
+  "Overview", "Today", "Playbook", "Lifecycle", "Channels",
   "Profiles", "Activation", "Email", "Automations",
   "Compliance", "Modules", "Connect",
 ] as const;
@@ -143,8 +143,12 @@ export function Shell(props: { readonly children: ReactNode }) {
       <aside
         className={`sticky top-0 flex h-screen shrink-0 flex-col bg-ink text-white transition-[width] duration-200 ${collapsed ? "w-[60px]" : "w-56"} ${ready ? "" : "invisible"}`}
       >
-        {/* brand */}
-        <Link href="/" className="flex h-14 items-center gap-0 px-4 font-mono text-sm font-semibold uppercase tracking-[0.18em] text-white">
+        {/* brand — mark stays visible when collapsed */}
+        <Link
+          href="/"
+          title="AXIOM"
+          className={`flex h-14 items-center gap-2 border-b border-white/10 font-mono text-sm font-semibold uppercase tracking-[0.18em] text-white ${collapsed ? "justify-center px-0" : "px-4"}`}
+        >
           <LogoMark />
           {!collapsed && <span>AXIOM</span>}
         </Link>
@@ -153,7 +157,7 @@ export function Shell(props: { readonly children: ReactNode }) {
         <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2 py-2">
           {NAV_ITEMS.map((item) => {
             const href = `/${item.toLowerCase()}`;
-            const active = pathname === href || (item === "Today" && pathname === "/");
+            const active = pathname === href || (item === "Overview" && pathname === "/");
             return (
               <Link
                 key={item}
