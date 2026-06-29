@@ -89,3 +89,67 @@ export class ResendSender implements EmailSender {
     return this.client;
   }
 }
+
+/** Config for {@link SmtpSender}. */
+export interface SmtpSenderConfig {
+  /** SMTP connection URL, e.g. `smtps://user:pass@mail.example.com:465`.
+   * Falls back to the SMTP_URL env var. */
+  url?: string;
+}
+
+/** Minimal structural type for the nodemailer transport we depend on. */
+interface SmtpTransportLike {
+  sendMail(opts: {
+    from: string;
+    to: string;
+    subject: string;
+    html: string;
+  }): Promise<{ messageId?: string }>;
+}
+
+/**
+ * Self-hosted SMTP sender backed by "nodemailer". Works with any SMTP relay —
+ * listmonk's SMTP, Postal, Amazon SES SMTP, etc. — which keeps per-email cost
+ * out of the margin (the Tier-2 "email really sends" path).
+ *
+ * The transport is created lazily from {@link SmtpSenderConfig.url} (or the
+ * SMTP_URL env var) so the offline test suite never loads nodemailer; a
+ * transport can also be injected directly for unit tests.
+ */
+export class SmtpSender implements EmailSender {
+  private readonly url: string | undefined;
+  private transport: SmtpTransportLike | undefined;
+
+  constructor(config: SmtpSenderConfig = {}, transport?: SmtpTransportLike) {
+    this.url = config.url ?? process.env.SMTP_URL;
+    this.transport = transport;
+  }
+
+  async send(msg: OutboundMessage): Promise<SendResult> {
+    const transport = await this.getTransport();
+    const info = await transport.sendMail({
+      from: msg.from,
+      to: msg.to,
+      subject: msg.subject,
+      html: msg.html,
+    });
+    if (!info?.messageId) {
+      throw new Error("SMTP send returned no messageId.");
+    }
+    return { id: info.messageId };
+  }
+
+  private async getTransport(): Promise<SmtpTransportLike> {
+    if (this.transport) {
+      return this.transport;
+    }
+    if (!this.url) {
+      throw new Error("SmtpSender requires an SMTP URL (SMTP_URL).");
+    }
+    const mod = (await import("nodemailer")) as {
+      createTransport: (url: string) => SmtpTransportLike;
+    };
+    this.transport = mod.createTransport(this.url);
+    return this.transport;
+  }
+}

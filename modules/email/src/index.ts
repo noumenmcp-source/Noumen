@@ -18,8 +18,8 @@ export {
   renderTemplate,
 } from "./generators.js";
 export type { AiGatewayConfig } from "./generators.js";
-export { FakeSender, ResendSender } from "./senders.js";
-export type { ResendSenderConfig } from "./senders.js";
+export { FakeSender, ResendSender, SmtpSender } from "./senders.js";
+export type { ResendSenderConfig, SmtpSenderConfig } from "./senders.js";
 export { selectRecipients } from "./triggers.js";
 export {
   sendCampaign,

@@ -25,6 +25,7 @@ import { registerData } from "./routes/data.js";
 import {
   FakeSender,
   ResendSender,
+  SmtpSender,
   type EmailSender,
 } from "@cdp-us/email";
 import { InMemoryUsageMeter, type UsageMeter } from "@cdp-us/billing";
@@ -241,7 +242,12 @@ function createDefaultTokenStore(): TokenStore {
 }
 
 function createDefaultEmailSender(): EmailSender {
-  return process.env.RESEND_API_KEY ? new ResendSender() : new FakeSender();
+  // Prefer self-hosted SMTP (listmonk/Postal/SES-SMTP) when configured — keeps
+  // per-email cost out of the margin — then the managed Resend ESP, then the
+  // offline FakeSender (no real delivery).
+  if (process.env.SMTP_URL) return new SmtpSender();
+  if (process.env.RESEND_API_KEY) return new ResendSender();
+  return new FakeSender();
 }
 
 function createDefaultProfileStore(): ProfileStore {
