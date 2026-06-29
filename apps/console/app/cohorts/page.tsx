@@ -56,8 +56,8 @@ function getRowCells(row: CohortRow): { label: string; cells: number[] } {
 }
 
 export default function RetentionCohortsPage() {
-  const [granularity, setGranularity] = useState<Granularity>("week");
-  const [periods, setPeriods] = useState<number>(4);
+  const [granularity, setGranularity] = useState<Granularity>("month");
+  const [periods, setPeriods] = useState<number>(6);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>("");
   const [result, setResult] = useState<CohortsResponse | null>(null);
