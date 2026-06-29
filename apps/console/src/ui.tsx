@@ -143,15 +143,34 @@ export function Shell(props: { readonly children: ReactNode }) {
       <aside
         className={`sticky top-0 flex h-screen shrink-0 flex-col bg-ink text-white transition-[width] duration-200 ${collapsed ? "w-[60px]" : "w-56"} ${ready ? "" : "invisible"}`}
       >
-        {/* brand — mark stays visible when collapsed */}
-        <Link
-          href="/"
-          title="AXIOM"
-          className={`flex h-14 items-center gap-2 border-b border-white/10 font-mono text-sm font-semibold uppercase tracking-[0.18em] text-white ${collapsed ? "justify-center px-0" : "px-4"}`}
-        >
-          <LogoMark />
-          {!collapsed && <span>AXIOM</span>}
-        </Link>
+        {/* brand + prominent collapse toggle */}
+        <div className={`flex h-14 items-center border-b border-white/10 ${collapsed ? "justify-center px-0" : "justify-between px-4"}`}>
+          {!collapsed && (
+            <Link href="/" title="AXIOM" className="flex items-center gap-2 font-mono text-base font-semibold uppercase tracking-[0.18em] text-white">
+              <LogoMark />
+              <span>AXIOM</span>
+            </Link>
+          )}
+          <button
+            type="button"
+            onClick={toggle}
+            title={collapsed ? "Expand menu" : "Collapse menu"}
+            aria-label={collapsed ? "Expand menu" : "Collapse menu"}
+            className="flex h-9 w-9 items-center justify-center rounded-md text-white/70 hover:bg-white/10 hover:text-white"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform ${collapsed ? "rotate-180" : ""}`}>
+              <path d="M4 6h16M4 12h16M4 18h16" opacity={collapsed ? "1" : "0"} />
+              <path d="m15 18-6-6 6-6" opacity={collapsed ? "0" : "1"} />
+            </svg>
+          </button>
+        </div>
+
+        {/* collapsed: keep the mark visible under the toggle */}
+        {collapsed && (
+          <Link href="/" title="AXIOM" className="flex h-10 items-center justify-center border-b border-white/10">
+            <LogoMark />
+          </Link>
+        )}
 
         {/* nav */}
         <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2 py-2">
@@ -174,18 +193,6 @@ export function Shell(props: { readonly children: ReactNode }) {
           })}
         </nav>
 
-        {/* collapse toggle */}
-        <button
-          type="button"
-          onClick={toggle}
-          title={collapsed ? "Expand" : "Collapse"}
-          className="flex h-11 items-center gap-3 border-t border-white/10 px-3 text-sm text-white/55 hover:text-white"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className={`shrink-0 transition-transform ${collapsed ? "rotate-180" : ""} ${collapsed ? "mx-auto" : ""}`}>
-            <path d="m15 18-6-6 6-6" />
-          </svg>
-          {!collapsed && <span>Collapse</span>}
-        </button>
       </aside>
 
       <main className="min-w-0 flex-1 px-6 py-7 lg:px-10">{props.children}</main>
