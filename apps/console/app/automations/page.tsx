@@ -6,6 +6,7 @@ import { readSession } from "../../src/session";
 import type { AutomationRunResult, AutomationStep } from "../../src/types";
 import { Badge, Button, EmptyState, ErrorState, Field, Panel, Shell } from "../../src/ui";
 import { ChartCard, DonutChart, StatTile, type DonutSlice, type Tone } from "../../src/charts";
+import { JourneysPanel } from "../../src/sections";
 
 type Kind = AutomationStep["kind"];
 
@@ -72,6 +73,11 @@ export default function AutomationsPage() {
           <strong> messaging_tcpa</strong> consent per recipient — un-consented sends are skipped.
         </p>
 
+        <JourneysPanel />
+
+        <div className="flex items-baseline justify-between border-t border-line pt-5">
+          <h2 className="text-lg font-semibold">Build a scenario</h2>
+        </div>
         <Panel className="grid gap-3">
           <label className="grid gap-1 text-sm font-medium text-ink">
             <span>Step kind</span>

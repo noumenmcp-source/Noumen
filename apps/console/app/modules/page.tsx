@@ -6,6 +6,7 @@ import { readSession } from "../../src/session";
 import type { ModuleManifest, Session } from "../../src/types";
 import { StatTile } from "../../src/charts";
 import { Badge, Button, EmptyState, ErrorState, Panel, Shell } from "../../src/ui";
+import { ServiceActivityPanel } from "../../src/sections";
 
 export default function ModulesPage() {
   const [session, setSession] = useState<Session | null>(null);
@@ -126,6 +127,8 @@ export default function ModulesPage() {
             <EmptyState title="All modules active" body="Every available module is already enabled." />
           )}
         </section>
+
+        <ServiceActivityPanel />
       </div>
     </Shell>
   );

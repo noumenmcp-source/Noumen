@@ -6,6 +6,7 @@ import { readSession } from "../../src/session";
 import { EMAIL_TRIGGERS, type CampaignResult, type EmailTrigger } from "../../src/types";
 import { Badge, Button, EmptyState, ErrorState, Field, Panel, Shell } from "../../src/ui";
 import { ChartCard, DonutChart, StatTile, type DonutSlice } from "../../src/charts";
+import { CampaignsPanel } from "../../src/sections";
 
 function gateMessage(status: number): string {
   if (status === 402) return "Plan limit reached, or the email module is not entitled on your plan. Enable it under Modules / upgrade your plan.";
@@ -64,6 +65,11 @@ export default function EmailPage() {
           <strong> marketing_email</strong> consent are sent to; CAN-SPAM fields are mandatory.
         </p>
 
+        <CampaignsPanel />
+
+        <div className="flex items-baseline justify-between border-t border-line pt-5">
+          <h2 className="text-lg font-semibold">Run a campaign</h2>
+        </div>
         <Panel className="grid gap-3">
           <label className="grid gap-1 text-sm font-medium text-ink">
             <span>Trigger</span>
