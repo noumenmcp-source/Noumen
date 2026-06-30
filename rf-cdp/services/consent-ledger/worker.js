@@ -15,6 +15,7 @@ const { normalizeState, allowedPurposes } = require('./lib/cmp');
 const { EsLedgerStore } = require('./lib/es-store');
 const observe = require('./lib/observe');
 const tenantAuth = require('./lib/tenant-auth');
+const ratelimit = require('./lib/ratelimit');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -22,7 +23,7 @@ const RECEIPTS_PREFIX = 'cdp_consent_';
 
 // Known route patterns, for bounded /metrics cardinality (':x' = wildcard).
 const ROUTES = [
-  '/v1/health', '/v1/live', '/v1/ready', '/metrics',
+  '/v1/health', '/v1/live', '/v1/ready', '/metrics', '/v1/auth/introspect',
   '/v1/consent/pubkey', '/v1/consent/state', '/v1/consent/chain',
   '/v1/consent/verify', '/v1/ledger/append',
 ];
@@ -38,7 +39,13 @@ function makeDeps(env = process.env) {
     authz: tenantAuth.makeAuthorizer({
       adminToken: env.CONSENT_API_TOKEN || '',
       tenantTokens: env.CONSENT_TENANT_TOKENS || '',
+      revokedTokens: env.CONSENT_REVOKED_TOKENS || '',
+      adminExp: env.CONSENT_API_TOKEN_EXP || '',
       log: (m) => console.warn(m),
+    }),
+    limiter: ratelimit.createLimiter({
+      capacity: parseInt(env.CONSENT_RATE_CAPACITY || '0', 10),
+      refillPerSec: parseFloat(env.CONSENT_RATE_REFILL_PER_SEC || '0'),
     }),
     keyDir: env.CONSENT_KEY_DIR || '',
     port: parseInt(env.PORT || '8140', 10),
@@ -211,6 +218,18 @@ function createServer(deps) {
         if (!g.ok) { send(res, g.code, { error: g.error }); return false; }
         return true;
       };
+
+      // Per-tenant rate limiting (token-bucket; no-op unless configured).
+      const rlKey = auth.sites ? [...auth.sites].join(',') : (auth.kind === 'admin' ? 'admin' : (req.socket.remoteAddress || 'anon'));
+      if (ratelimit.enforce(res, deps.limiter, rlKey)) return;
+
+      // Admin-only token introspection (auth-hardening parity with US).
+      if (req.method === 'POST' && url.pathname === '/v1/auth/introspect') {
+        if (auth.kind !== 'admin') return send(res, 403, { error: 'admin token required' });
+        const ib = await readBody(req).catch(() => ({}));
+        return send(res, 200, deps.authz.introspect(ib.token));
+      }
+
       const site = url.searchParams.get('site');
       const subject = url.searchParams.get('subject');
 

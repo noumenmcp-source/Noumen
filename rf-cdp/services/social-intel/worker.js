@@ -10,6 +10,7 @@ const { analyzeIntent, DEFAULT_INTENT_TOPICS } = require('./lib/analyze');
 const { parseSearchResponse } = require('./lib/youtube/parse');
 const { analyzeComments, extractContentIdeas } = require('./lib/youtube/analyze');
 const observe = require('./lib/observe');
+const ratelimit = require('./lib/ratelimit');
 
 // Known route patterns, for bounded /metrics cardinality.
 const ROUTES = [
@@ -25,6 +26,11 @@ function makeDeps(env = process.env) {
     metrics: observe.createMetrics('social-intel'),
     // Self-contained/deterministic engine: no external deps, ready when live.
     ready: () => observe.checkAll([]),
+    // Stateless compute — rate-limit by client address to protect CPU (off unless set).
+    limiter: ratelimit.createLimiter({
+      capacity: parseInt(env.SOCIAL_RATE_CAPACITY || '0', 10),
+      refillPerSec: parseFloat(env.SOCIAL_RATE_REFILL_PER_SEC || '0'),
+    }),
   };
 }
 
@@ -51,6 +57,8 @@ function createServer(deps) {
       if (deps.apiToken && (req.headers.authorization || '') !== `Bearer ${deps.apiToken}`) {
         return send(res, 401, { error: 'unauthorized' });
       }
+      // Rate limiting by client address (token-bucket; no-op unless configured).
+      if (ratelimit.enforce(res, deps.limiter, req.socket.remoteAddress || 'anon')) return;
 
       if (req.method === 'POST' && url.pathname === '/v1/social/analyze') {
         const b = await readBody(req).catch(() => ({}));

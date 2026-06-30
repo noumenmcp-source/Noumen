@@ -17,13 +17,14 @@ const { InMemoryProfileStore, EsProfileStore } = require('./lib/profile-store');
 const { segmentMembers } = require('./lib/segments');
 const observe = require('./lib/observe');
 const tenantAuth = require('./lib/tenant-auth');
+const ratelimit = require('./lib/ratelimit');
 
 const EVENTS_PREFIX = 'cdp_events_';
 const PROFILES_PREFIX = 'cdp_profiles_';
 
 // Known route patterns, for bounded /metrics cardinality (':id' = wildcard).
 const ROUTES = [
-  '/v1/health', '/v1/live', '/v1/ready', '/metrics',
+  '/v1/health', '/v1/live', '/v1/ready', '/metrics', '/v1/auth/introspect',
   '/v1/profiles/:id', '/v1/profiles', '/v1/segments/preview', '/v1/materialize',
 ];
 
@@ -42,7 +43,13 @@ function makeDeps(env = process.env) {
     authz: tenantAuth.makeAuthorizer({
       adminToken: env.PROFILE_API_TOKEN || '',
       tenantTokens: env.PROFILE_TENANT_TOKENS || '',
+      revokedTokens: env.PROFILE_REVOKED_TOKENS || '',
+      adminExp: env.PROFILE_API_TOKEN_EXP || '',
       log: (m) => console.warn(m),
+    }),
+    limiter: ratelimit.createLimiter({
+      capacity: parseInt(env.PROFILE_RATE_CAPACITY || '0', 10),
+      refillPerSec: parseFloat(env.PROFILE_RATE_REFILL_PER_SEC || '0'),
     }),
     port: parseInt(env.PORT || '8130', 10),
     scanSize: parseInt(env.SCAN_SIZE || '10000', 10),
@@ -176,6 +183,18 @@ function createServer(deps) {
         if (!g.ok) { send(res, g.code, { error: g.error }); return false; }
         return true;
       };
+
+      // Per-tenant rate limiting (token-bucket; no-op unless configured).
+      const rlKey = auth.sites ? [...auth.sites].join(',') : (auth.kind === 'admin' ? 'admin' : (req.socket.remoteAddress || 'anon'));
+      if (ratelimit.enforce(res, deps.limiter, rlKey)) return;
+
+      // Admin-only token introspection (auth-hardening parity with US).
+      if (req.method === 'POST' && url.pathname === '/v1/auth/introspect') {
+        if (auth.kind !== 'admin') return send(res, 403, { error: 'admin token required' });
+        const body = await readBody(req).catch(() => ({}));
+        return send(res, 200, deps.authz.introspect(body.token));
+      }
+
       const site = url.searchParams.get('site');
 
       if (req.method === 'GET' && url.pathname.startsWith('/v1/profiles/')) {

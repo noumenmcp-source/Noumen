@@ -252,6 +252,12 @@ services:
       PROFILE_API_TOKEN: ${PROFILE_API_TOKEN:-}
       # Per-tenant tokens "site:token,..." => tenant isolation (152-ФЗ). Empty => off.
       PROFILE_TENANT_TOKENS: ${PROFILE_TENANT_TOKENS:-}
+      # Auth-hardening (all optional): revocation list, admin-token expiry.
+      PROFILE_REVOKED_TOKENS: ${PROFILE_REVOKED_TOKENS:-}
+      PROFILE_API_TOKEN_EXP: ${PROFILE_API_TOKEN_EXP:-}
+      # Rate limit (token-bucket; capacity<=0 => off).
+      PROFILE_RATE_CAPACITY: ${PROFILE_RATE_CAPACITY:-0}
+      PROFILE_RATE_REFILL_PER_SEC: ${PROFILE_RATE_REFILL_PER_SEC:-0}
       MATERIALIZE_INTERVAL_MS: ${MATERIALIZE_INTERVAL_MS:-60000}
     ports:
       - "127.0.0.1:8130:8130"
@@ -279,6 +285,11 @@ services:
       CONSENT_API_TOKEN: ${CONSENT_API_TOKEN:-}
       # Per-tenant tokens "site:token,..." => tenant isolation (152-ФЗ). Empty => off.
       CONSENT_TENANT_TOKENS: ${CONSENT_TENANT_TOKENS:-}
+      # Auth-hardening (optional) + rate limit (token-bucket; capacity<=0 => off).
+      CONSENT_REVOKED_TOKENS: ${CONSENT_REVOKED_TOKENS:-}
+      CONSENT_API_TOKEN_EXP: ${CONSENT_API_TOKEN_EXP:-}
+      CONSENT_RATE_CAPACITY: ${CONSENT_RATE_CAPACITY:-0}
+      CONSENT_RATE_REFILL_PER_SEC: ${CONSENT_RATE_REFILL_PER_SEC:-0}
       LEDGER_INTERVAL_MS: ${LEDGER_INTERVAL_MS:-60000}
       # Private Ed25519 signing key lives in this mounted volume, not in ES.
       CONSENT_KEY_DIR: /keys
@@ -318,6 +329,11 @@ services:
       CONSENT_API_TOKEN: ${CONSENT_API_TOKEN:-}
       # Per-tenant tokens for this service's own /v1/campaign API (152-ФЗ).
       EMAIL_TENANT_TOKENS: ${EMAIL_TENANT_TOKENS:-}
+      # Auth-hardening (optional) + rate limit (token-bucket; capacity<=0 => off).
+      EMAIL_REVOKED_TOKENS: ${EMAIL_REVOKED_TOKENS:-}
+      EMAIL_API_TOKEN_EXP: ${EMAIL_API_TOKEN_EXP:-}
+      EMAIL_RATE_CAPACITY: ${EMAIL_RATE_CAPACITY:-0}
+      EMAIL_RATE_REFILL_PER_SEC: ${EMAIL_RATE_REFILL_PER_SEC:-0}
     ports:
       - "127.0.0.1:8150:8150"
     networks:
@@ -336,6 +352,9 @@ services:
     environment:
       PORT: 8160
       SOCIAL_API_TOKEN: ${SOCIAL_API_TOKEN:-}
+      # Rate limit by client address (token-bucket; capacity<=0 => off).
+      SOCIAL_RATE_CAPACITY: ${SOCIAL_RATE_CAPACITY:-0}
+      SOCIAL_RATE_REFILL_PER_SEC: ${SOCIAL_RATE_REFILL_PER_SEC:-0}
     ports:
       - "127.0.0.1:8160:8160"
     networks:
@@ -362,6 +381,11 @@ services:
       CONSENT_API_TOKEN: ${CONSENT_API_TOKEN:-}
       # Per-tenant tokens for this service's own /v1/automation API.
       AUTOMATION_TENANT_TOKENS: ${AUTOMATION_TENANT_TOKENS:-}
+      # Auth-hardening (optional) + rate limit (token-bucket; capacity<=0 => off).
+      AUTOMATION_REVOKED_TOKENS: ${AUTOMATION_REVOKED_TOKENS:-}
+      AUTOMATION_API_TOKEN_EXP: ${AUTOMATION_API_TOKEN_EXP:-}
+      AUTOMATION_RATE_CAPACITY: ${AUTOMATION_RATE_CAPACITY:-0}
+      AUTOMATION_RATE_REFILL_PER_SEC: ${AUTOMATION_RATE_REFILL_PER_SEC:-0}
     ports:
       - "127.0.0.1:8170:8170"
     networks:

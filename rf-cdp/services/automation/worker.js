@@ -11,9 +11,10 @@ const { InMemorySocialAdapter, InMemoryMessengerAdapter } = require('./lib/adapt
 const { messagingAllowed } = require('./lib/consent-client');
 const observe = require('./lib/observe');
 const tenantAuth = require('./lib/tenant-auth');
+const ratelimit = require('./lib/ratelimit');
 
 // Known route patterns, for bounded /metrics cardinality.
-const ROUTES = ['/v1/health', '/v1/live', '/v1/ready', '/metrics', '/v1/automation/run'];
+const ROUTES = ['/v1/health', '/v1/live', '/v1/ready', '/metrics', '/v1/auth/introspect', '/v1/automation/run'];
 
 function makeDeps(env = process.env) {
   const consentUrl = env.CONSENT_LEDGER_URL || 'http://consent-ledger:8140';
@@ -25,7 +26,13 @@ function makeDeps(env = process.env) {
     authz: tenantAuth.makeAuthorizer({
       adminToken: env.AUTOMATION_API_TOKEN || '',
       tenantTokens: env.AUTOMATION_TENANT_TOKENS || '',
+      revokedTokens: env.AUTOMATION_REVOKED_TOKENS || '',
+      adminExp: env.AUTOMATION_API_TOKEN_EXP || '',
       log: (m) => console.warn(m),
+    }),
+    limiter: ratelimit.createLimiter({
+      capacity: parseInt(env.AUTOMATION_RATE_CAPACITY || '0', 10),
+      refillPerSec: parseFloat(env.AUTOMATION_RATE_REFILL_PER_SEC || '0'),
     }),
     port: parseInt(env.PORT || '8170', 10),
     metrics: observe.createMetrics('automation'),
@@ -79,6 +86,17 @@ function createServer(deps) {
         if (!g.ok) { send(res, g.code, { error: g.error }); return false; }
         return true;
       };
+
+      // Per-tenant rate limiting (token-bucket; no-op unless configured).
+      const rlKey = auth.sites ? [...auth.sites].join(',') : (auth.kind === 'admin' ? 'admin' : (req.socket.remoteAddress || 'anon'));
+      if (ratelimit.enforce(res, deps.limiter, rlKey)) return;
+
+      // Admin-only token introspection (auth-hardening parity with US).
+      if (req.method === 'POST' && url.pathname === '/v1/auth/introspect') {
+        if (auth.kind !== 'admin') return send(res, 403, { error: 'admin token required' });
+        const ib = await readBody(req).catch(() => ({}));
+        return send(res, 200, deps.authz.introspect(ib.token));
+      }
 
       if (req.method === 'POST' && url.pathname === '/v1/automation/run') {
         const body = await readBody(req).catch(() => ({}));
