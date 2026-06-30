@@ -18,6 +18,7 @@ const { segmentMembers } = require('./lib/segments');
 const observe = require('./lib/observe');
 const tenantAuth = require('./lib/tenant-auth');
 const ratelimit = require('./lib/ratelimit');
+const errsink = require('./lib/errsink');
 
 const EVENTS_PREFIX = 'cdp_events_';
 const PROFILES_PREFIX = 'cdp_profiles_';
@@ -26,6 +27,7 @@ const PROFILES_PREFIX = 'cdp_profiles_';
 const ROUTES = [
   '/v1/health', '/v1/live', '/v1/ready', '/metrics', '/v1/auth/introspect',
   '/v1/profiles/:id', '/v1/profiles', '/v1/segments/preview', '/v1/materialize',
+  '/v1/dsar/export', '/v1/dsar/erase',
 ];
 
 function makeDeps(env = process.env) {
@@ -51,6 +53,7 @@ function makeDeps(env = process.env) {
       capacity: parseInt(env.PROFILE_RATE_CAPACITY || '0', 10),
       refillPerSec: parseFloat(env.PROFILE_RATE_REFILL_PER_SEC || '0'),
     }),
+    errsink: errsink.createSink({ service: 'profile-engine', dsn: env.SENTRY_DSN || '', release: env.RELEASE || '', environment: env.DEPLOY_ENV || 'production' }),
     port: parseInt(env.PORT || '8130', 10),
     scanSize: parseInt(env.SCAN_SIZE || '10000', 10),
     intervalMs: parseInt(env.MATERIALIZE_INTERVAL_MS || '60000', 10),
@@ -147,6 +150,58 @@ async function materializeAll(deps) {
   return results;
 }
 
+// --- DSAR (152-ФЗ ст.14/21): subject data export + right-to-erasure ---
+
+/** Find a subject's profile(s) in a tenant by userId or anonymousId. */
+async function dsarFindProfiles(deps, site, subject) {
+  const out = [];
+  const byUser = await deps.store.getByUserId(site, subject).catch(() => undefined);
+  if (byUser) out.push(byUser);
+  const byAnon = await deps.store.getByAnonymousId(site, subject).catch(() => undefined);
+  if (byAnon && !out.some((p) => p.id === byAnon.id)) out.push(byAnon);
+  return out;
+}
+
+/** All identity values to erase/match for a subject: the input + the profiles'
+ *  linked userId/anonymousId, so stitched events under a sibling id are covered. */
+function dsarIdentities(subject, profiles) {
+  const ids = new Set([subject]);
+  for (const p of profiles) { if (p.userId) ids.add(p.userId); if (p.anonymousId) ids.add(p.anonymousId); }
+  return [...ids];
+}
+
+const dsarQuery = (ids) => ({
+  query: { bool: { should: ids.flatMap((v) => [{ term: { user_id: v } }, { term: { anonymous_id: v } }]), minimum_should_match: 1 } },
+});
+
+/** Export everything this tenant stores about a subject (152-ФЗ access right). */
+async function dsarExport(deps, site, subject) {
+  const profiles = await dsarFindProfiles(deps, site, subject);
+  const ids = dsarIdentities(subject, profiles);
+  const cnt = await esJson(deps, 'POST', `/${EVENTS_PREFIX}${site}/_count`, dsarQuery(ids)).catch(() => ({}));
+  return { site, subject, identities: ids, profiles, events: typeof cnt.count === 'number' ? cnt.count : 0, exportedAt: new Date().toISOString() };
+}
+
+/**
+ * Erase a subject: delete their profile doc(s) AND their raw events
+ * (cdp_events_<site>) across ALL linked ids, so the periodic materializer cannot
+ * rebuild the profile. Consent receipts live in the consent-ledger and are
+ * retained there as the legal basis (append-only legal hold) — handled by that
+ * service's DSAR route.
+ */
+async function dsarErase(deps, site, subject) {
+  const profiles = await dsarFindProfiles(deps, site, subject);
+  const ids = dsarIdentities(subject, profiles);
+  let erasedProfiles = 0;
+  for (const p of profiles) {
+    const r = await esJson(deps, 'DELETE', `/${PROFILES_PREFIX}${site}/_doc/${encodeURIComponent(p.id)}`).catch(() => ({}));
+    if (r && !r._missing) erasedProfiles++;
+  }
+  const del = await esJson(deps, 'POST', `/${EVENTS_PREFIX}${site}/_delete_by_query?refresh=true&conflicts=proceed`, dsarQuery(ids)).catch(() => ({}));
+  await deps.store.refresh(site).catch(() => {});
+  return { site, subject, identities: ids, erasedProfiles, erasedEvents: typeof del.deleted === 'number' ? del.deleted : 0, erasedAt: new Date().toISOString() };
+}
+
 // --- read API ---
 function send(res, code, obj) {
   const body = JSON.stringify(obj);
@@ -238,8 +293,24 @@ function createServer(deps) {
         const result = s ? [await materializeTenant(deps, s)] : await materializeAll(deps);
         return send(res, 200, { materialized: result });
       }
+      if (req.method === 'GET' && url.pathname === '/v1/dsar/export') {
+        const subject = url.searchParams.get('subject');
+        if (!site || !subject) return send(res, 400, { error: 'site and subject query params required' });
+        if (!guard(site)) return;
+        return send(res, 200, await dsarExport(deps, site, subject));
+      }
+      if (req.method === 'POST' && url.pathname === '/v1/dsar/erase') {
+        const body = await readBody(req).catch(() => ({}));
+        const s = body.site || site;
+        if (!s || !body.subject) return send(res, 400, { error: 'site and subject required' });
+        if (!guard(s)) return;
+        const result = await dsarErase(deps, s, body.subject);
+        if (deps.errsink) deps.errsink.event('info', 'dsar.erase', result); // audit trail
+        return send(res, 200, result);
+      }
       send(res, 404, { error: 'no route' });
     } catch (e) {
+      if (deps.errsink) deps.errsink.capture(e, { method: req.method, path: req.url });
       send(res, 500, { error: String((e && e.message) || e) });
     }
   });
@@ -274,6 +345,6 @@ if (require.main === module) {
 
 module.exports = {
   makeDeps, esJson, discoverSites, docToEvent, scanEvents,
-  materializeTenant, materializeAll, createServer,
+  materializeTenant, materializeAll, dsarExport, dsarErase, createServer,
   EVENTS_PREFIX, PROFILES_PREFIX,
 };

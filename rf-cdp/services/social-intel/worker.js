@@ -11,6 +11,7 @@ const { parseSearchResponse } = require('./lib/youtube/parse');
 const { analyzeComments, extractContentIdeas } = require('./lib/youtube/analyze');
 const observe = require('./lib/observe');
 const ratelimit = require('./lib/ratelimit');
+const errsink = require('./lib/errsink');
 
 // Known route patterns, for bounded /metrics cardinality.
 const ROUTES = [
@@ -31,6 +32,7 @@ function makeDeps(env = process.env) {
       capacity: parseInt(env.SOCIAL_RATE_CAPACITY || '0', 10),
       refillPerSec: parseFloat(env.SOCIAL_RATE_REFILL_PER_SEC || '0'),
     }),
+    errsink: errsink.createSink({ service: 'social-intel', dsn: env.SENTRY_DSN || '', release: env.RELEASE || '', environment: env.DEPLOY_ENV || 'production' }),
   };
 }
 
@@ -86,6 +88,7 @@ function createServer(deps) {
       }
       send(res, 404, { error: 'no route' });
     } catch (e) {
+      if (deps.errsink) deps.errsink.capture(e, { method: req.method, path: req.url });
       send(res, 500, { error: String((e && e.message) || e) });
     }
   });

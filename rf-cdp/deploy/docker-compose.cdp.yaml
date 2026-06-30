@@ -245,6 +245,10 @@ services:
       - elasticsearch
     environment:
       PORT: 8130
+      # Error sink (optional): structured logs always; Sentry HTTP ship if DSN set.
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      RELEASE: ${RELEASE:-}
+      DEPLOY_ENV: ${DEPLOY_ENV:-production}
       ES_URL: ${ES_URL:-http://elasticsearch:9200}
       ES_USER: ${ES_USER:-elastic}
       ES_PASSWORD: ${ES_PASSWORD:-}
@@ -279,6 +283,9 @@ services:
       - elasticsearch
     environment:
       PORT: 8140
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      RELEASE: ${RELEASE:-}
+      DEPLOY_ENV: ${DEPLOY_ENV:-production}
       ES_URL: ${ES_URL:-http://elasticsearch:9200}
       ES_USER: ${ES_USER:-elastic}
       ES_PASSWORD: ${ES_PASSWORD:-}
@@ -316,6 +323,9 @@ services:
       - consent-ledger
     environment:
       PORT: 8150
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      RELEASE: ${RELEASE:-}
+      DEPLOY_ENV: ${DEPLOY_ENV:-production}
       PROFILE_ENGINE_URL: ${PROFILE_ENGINE_URL:-http://profile-engine:8130}
       CONSENT_LEDGER_URL: ${CONSENT_LEDGER_URL:-http://consent-ledger:8140}
       # Optional OpenAI-compatible LLM gateway (Flot). Empty => deterministic RU template.
@@ -351,6 +361,9 @@ services:
       driver: "local"
     environment:
       PORT: 8160
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      RELEASE: ${RELEASE:-}
+      DEPLOY_ENV: ${DEPLOY_ENV:-production}
       SOCIAL_API_TOKEN: ${SOCIAL_API_TOKEN:-}
       # Rate limit by client address (token-bucket; capacity<=0 => off).
       SOCIAL_RATE_CAPACITY: ${SOCIAL_RATE_CAPACITY:-0}
@@ -375,6 +388,9 @@ services:
       - consent-ledger
     environment:
       PORT: 8170
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      RELEASE: ${RELEASE:-}
+      DEPLOY_ENV: ${DEPLOY_ENV:-production}
       CONSENT_LEDGER_URL: ${CONSENT_LEDGER_URL:-http://consent-ledger:8140}
       AUTOMATION_API_TOKEN: ${AUTOMATION_API_TOKEN:-}
       # Sent as Bearer to consent-ledger — must equal its admin token (152-ФЗ gate).

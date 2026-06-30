@@ -16,6 +16,7 @@ const { EsLedgerStore } = require('./lib/es-store');
 const observe = require('./lib/observe');
 const tenantAuth = require('./lib/tenant-auth');
 const ratelimit = require('./lib/ratelimit');
+const errsink = require('./lib/errsink');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -26,6 +27,7 @@ const ROUTES = [
   '/v1/health', '/v1/live', '/v1/ready', '/metrics', '/v1/auth/introspect',
   '/v1/consent/pubkey', '/v1/consent/state', '/v1/consent/chain',
   '/v1/consent/verify', '/v1/ledger/append',
+  '/v1/dsar/export', '/v1/dsar/erase',
 ];
 
 function makeDeps(env = process.env) {
@@ -47,6 +49,7 @@ function makeDeps(env = process.env) {
       capacity: parseInt(env.CONSENT_RATE_CAPACITY || '0', 10),
       refillPerSec: parseFloat(env.CONSENT_RATE_REFILL_PER_SEC || '0'),
     }),
+    errsink: errsink.createSink({ service: 'consent-ledger', dsn: env.SENTRY_DSN || '', release: env.RELEASE || '', environment: env.DEPLOY_ENV || 'production' }),
     keyDir: env.CONSENT_KEY_DIR || '',
     port: parseInt(env.PORT || '8140', 10),
     scanSize: parseInt(env.SCAN_SIZE || '10000', 10),
@@ -288,8 +291,29 @@ function createServer(deps) {
         const result = s ? [await appendNewReceipts(deps, s)] : await appendAll(deps);
         return send(res, 200, { appended: result });
       }
+      if (req.method === 'GET' && url.pathname === '/v1/dsar/export') {
+        if (!site || !subject) return send(res, 400, { error: 'site and subject query params required' });
+        if (!guard(site)) return;
+        const docs = await deps.store.listBySubject(site, subject);
+        const keys = await keysFor(deps, site);
+        const verify = keys ? verifyChain(docs.map(recordOf), keys.publicKeyPem) : { ok: false };
+        return send(res, 200, { site, subject, records: docs.length, verify, chain: docs, exportedAt: deps.now() });
+      }
+      if (req.method === 'POST' && url.pathname === '/v1/dsar/erase') {
+        const body = await readBody(req).catch(() => ({}));
+        const s = body.site || site;
+        const subj = body.subject || subject;
+        if (!s || !subj) return send(res, 400, { error: 'site and subject required' });
+        if (!guard(s)) return;
+        const docs = await deps.store.listBySubject(s, subj);
+        // 152-ФЗ: the consent chain is the legal basis / tamper-evident proof of
+        // the consent lifecycle (append-only). It is RETAINED under legal hold —
+        // not erased; PII erasure happens in profile-engine's /v1/dsar/erase.
+        return send(res, 200, { site: s, subject: subj, erased: 0, retained: docs.length, legalHold: true, reason: 'consent ledger is append-only legal basis (152-ФЗ); records retained, erase PII in profile-engine' });
+      }
       send(res, 404, { error: 'no route' });
     } catch (e) {
+      if (deps.errsink) deps.errsink.capture(e, { method: req.method, path: req.url });
       send(res, 500, { error: String((e && e.message) || e) });
     }
   });

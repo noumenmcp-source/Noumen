@@ -18,6 +18,7 @@ const { EMAIL_TRIGGERS } = require('./lib/types');
 const observe = require('./lib/observe');
 const tenantAuth = require('./lib/tenant-auth');
 const ratelimit = require('./lib/ratelimit');
+const errsink = require('./lib/errsink');
 
 // Known route patterns, for bounded /metrics cardinality.
 const ROUTES = [
@@ -47,6 +48,7 @@ function makeDeps(env = process.env) {
       capacity: parseInt(env.EMAIL_RATE_CAPACITY || '0', 10),
       refillPerSec: parseFloat(env.EMAIL_RATE_REFILL_PER_SEC || '0'),
     }),
+    errsink: errsink.createSink({ service: 'email-ai', dsn: env.SENTRY_DSN || '', release: env.RELEASE || '', environment: env.DEPLOY_ENV || 'production' }),
     port: parseInt(env.PORT || '8150', 10),
     metrics: observe.createMetrics('email-ai'),
     // Ready iff both upstreams (profile-engine, consent-ledger) are reachable.
@@ -147,6 +149,7 @@ function createServer(deps) {
       }
       send(res, 404, { error: 'no route' });
     } catch (e) {
+      if (deps.errsink) deps.errsink.capture(e, { method: req.method, path: req.url });
       send(res, 500, { error: String((e && e.message) || e) });
     }
   });

@@ -12,6 +12,7 @@ const { messagingAllowed } = require('./lib/consent-client');
 const observe = require('./lib/observe');
 const tenantAuth = require('./lib/tenant-auth');
 const ratelimit = require('./lib/ratelimit');
+const errsink = require('./lib/errsink');
 
 // Known route patterns, for bounded /metrics cardinality.
 const ROUTES = ['/v1/health', '/v1/live', '/v1/ready', '/metrics', '/v1/auth/introspect', '/v1/automation/run'];
@@ -34,6 +35,7 @@ function makeDeps(env = process.env) {
       capacity: parseInt(env.AUTOMATION_RATE_CAPACITY || '0', 10),
       refillPerSec: parseFloat(env.AUTOMATION_RATE_REFILL_PER_SEC || '0'),
     }),
+    errsink: errsink.createSink({ service: 'automation', dsn: env.SENTRY_DSN || '', release: env.RELEASE || '', environment: env.DEPLOY_ENV || 'production' }),
     port: parseInt(env.PORT || '8170', 10),
     metrics: observe.createMetrics('automation'),
     // Ready iff the consent-ledger (the 152-ФЗ gate dependency) is reachable.
@@ -108,6 +110,7 @@ function createServer(deps) {
       }
       send(res, 404, { error: 'no route' });
     } catch (e) {
+      if (deps.errsink) deps.errsink.capture(e, { method: req.method, path: req.url });
       send(res, 500, { error: String((e && e.message) || e) });
     }
   });
