@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
+import { Redis } from "ioredis";
 import type { ConsentState, IngestEvent } from "@cdp-us/contracts";
 import { InMemoryAuditStore, type AuditStore } from "@cdp-us/audit-log";
 import { InMemorySuppressionStore, shouldSuppress, type SuppressionStore } from "@cdp-us/deliverability";
@@ -102,6 +103,8 @@ export async function buildServer(
     socialAdapter?: SocialAdapter;
     messengerAdapter?: MessengerAdapter;
     rateLimit?: { max: number; timeWindow: number | string } | false;
+    /** Inject a Redis client for distributed rate limiting (tests/override). */
+    rateLimitRedis?: Redis;
     observability?: ObservabilityOptions | false;
   } = {},
 ) {
@@ -145,9 +148,14 @@ export async function buildServer(
   });
   const rateLimitConfig = opts.rateLimit ?? defaultRateLimit();
   if (rateLimitConfig !== false) {
+    // Share the limit across replicas when a Redis URL is set; otherwise the
+    // plugin's in-process store (per-instance) is used.
+    const rateLimitRedis = opts.rateLimitRedis ?? resolveRateLimitRedis();
+    if (rateLimitRedis) app.addHook("onClose", async () => { await rateLimitRedis.quit().catch(() => undefined); });
     await app.register(rateLimit, {
       max: rateLimitConfig.max,
       timeWindow: rateLimitConfig.timeWindow,
+      ...(rateLimitRedis ? { redis: rateLimitRedis } : {}),
     });
   }
   registerHealth(app);
@@ -311,6 +319,17 @@ function defaultRateLimit(): { max: number; timeWindow: number | string } {
   const max = Number(process.env.RATE_LIMIT_MAX ?? 600);
   const timeWindow = process.env.RATE_LIMIT_WINDOW ?? "1 minute";
   return { max: Number.isFinite(max) && max > 0 ? max : 600, timeWindow };
+}
+
+/**
+ * Build a Redis client for distributed rate limiting when a URL is configured
+ * (`RATE_LIMIT_REDIS_URL` or `REDIS_URL`); otherwise undefined (in-process).
+ * Lazy-connect so construction never blocks at boot or in tests.
+ */
+export function resolveRateLimitRedis(env: NodeJS.ProcessEnv = process.env): Redis | undefined {
+  const url = env.RATE_LIMIT_REDIS_URL ?? env.REDIS_URL;
+  if (!url) return undefined;
+  return new Redis(url, { lazyConnect: true, maxRetriesPerRequest: null, enableOfflineQueue: false });
 }
 
 function createDataExportReaders(profileStore: ProfileStore, ingestStore: IngestStore): DsarReaders {
