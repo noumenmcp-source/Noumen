@@ -3,6 +3,7 @@ import pg from "pg";
 import * as schema from "./schema.js";
 
 export * from "./schema.js";
+export { withTenant } from "./tenant-context.js";
 
 /** Create a tenant-aware Drizzle client over a Postgres connection string. */
 export function createDb(connectionString: string) {

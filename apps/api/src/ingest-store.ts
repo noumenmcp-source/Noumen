@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray, isNull, not, or } from "drizzle-orm";
 import type { IngestEvent, TenantId } from "@cdp-us/contracts";
-import { events, type Db } from "@cdp-us/db";
+import { events, withTenant, type Db } from "@cdp-us/db";
 
 export interface StoredIngestEvent {
   id: string;
@@ -63,22 +63,23 @@ export class DbIngestStore implements IngestStore {
   constructor(private readonly db: Db) {}
 
   async save(event: StoredIngestEvent): Promise<void> {
-    await this.db.insert(events).values({
-      id: event.id,
-      tenantId: event.tenantId,
-      anonymousId: event.anonymousId,
-      type: event.type,
-      name: event.name,
-      properties: event.properties,
-      ts: new Date(event.ts),
-    });
+    await withTenant(this.db, event.tenantId, (tx) =>
+      tx.insert(events).values({
+        id: event.id,
+        tenantId: event.tenantId,
+        anonymousId: event.anonymousId,
+        type: event.type,
+        name: event.name,
+        properties: event.properties,
+        ts: new Date(event.ts),
+      }),
+    );
   }
 
   async listByTenant(tenantId: TenantId): Promise<StoredIngestEvent[]> {
-    const rows = await this.db
-      .select()
-      .from(events)
-      .where(eq(events.tenantId, tenantId));
+    const rows = await withTenant(this.db, tenantId, (tx) =>
+      tx.select().from(events).where(eq(events.tenantId, tenantId)),
+    );
     return rows.map((row) => ({
       id: row.id,
       tenantId: row.tenantId,
@@ -106,7 +107,9 @@ export class DbIngestStore implements IngestStore {
         where = and(base, not(retained));
       }
     }
-    const deleted = await this.db.delete(events).where(where).returning({ id: events.id });
+    const deleted = await withTenant(this.db, tenantId, (tx) =>
+      tx.delete(events).where(where).returning({ id: events.id }),
+    );
     return deleted.length;
   }
 }
