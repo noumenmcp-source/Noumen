@@ -107,7 +107,7 @@ test('HTTP: / serves the AXIOM RU console; /api/overview shapes data', async () 
   const base = `http://127.0.0.1:${server.address().port}`;
   try {
     const html = await (await fetch(`${base}/`)).text();
-    assert.match(html, /AXIOM/);
+    assert.match(html, /Аксиома/);
     assert.match(html, /Жизненный цикл/);
     assert.match(html, /Источники трафика/);
     assert.match(html, /152-ФЗ/);

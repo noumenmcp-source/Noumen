@@ -126,11 +126,15 @@ export function Shell(props: { readonly children: ReactNode }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [ready, setReady] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
     setCollapsed(localStorage.getItem("axiom-nav-collapsed") === "1");
     setReady(true);
   }, []);
+
+  // close the mobile drawer whenever the route changes
+  useEffect(() => { setMobileOpen(false); }, [pathname]);
 
   function toggle() {
     setCollapsed((c) => {
@@ -141,63 +145,98 @@ export function Shell(props: { readonly children: ReactNode }) {
   }
 
   return (
-    <div className="flex min-h-screen bg-cream text-ink">
-      <aside
-        className={`sticky top-0 flex h-screen shrink-0 flex-col bg-ink text-white transition-[width] duration-200 ${collapsed ? "w-[60px]" : "w-56"} ${ready ? "" : "invisible"}`}
-      >
-        {/* brand + prominent collapse toggle */}
-        <div className={`flex h-14 items-center border-b border-white/10 ${collapsed ? "justify-center px-0" : "justify-between px-4"}`}>
-          {!collapsed && (
-            <Link href="/" title="AXIOM" className="flex items-center gap-2 font-mono text-base font-semibold uppercase tracking-[0.18em] text-white">
-              <LogoMark />
-              <span>AXIOM</span>
-            </Link>
-          )}
-          <button
-            type="button"
-            onClick={toggle}
-            title={collapsed ? "Expand menu" : "Collapse menu"}
-            aria-label={collapsed ? "Expand menu" : "Collapse menu"}
-            className="flex h-9 w-9 items-center justify-center rounded-md text-white/70 hover:bg-white/10 hover:text-white"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform ${collapsed ? "rotate-180" : ""}`}>
-              <path d="M4 6h16M4 12h16M4 18h16" opacity={collapsed ? "1" : "0"} />
-              <path d="m15 18-6-6 6-6" opacity={collapsed ? "0" : "1"} />
-            </svg>
-          </button>
-        </div>
+    <div className="min-h-screen bg-cream text-ink">
+      {/* mobile top bar — only < md */}
+      <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-white/10 bg-ink px-4 text-white md:hidden">
+        <Link href="/" title="AXIOM" className="flex items-center gap-2 font-mono text-base font-semibold uppercase tracking-[0.18em] text-white">
+          <LogoMark />
+          <span>AXIOM</span>
+        </Link>
+        <button
+          type="button"
+          onClick={() => setMobileOpen(true)}
+          aria-label="Открыть меню"
+          className="flex h-9 w-9 items-center justify-center rounded-md text-white/80 hover:bg-white/10 hover:text-white"
+        >
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+        </button>
+      </header>
 
-        {/* collapsed: keep the mark visible under the toggle */}
-        {collapsed && (
-          <Link href="/" title="AXIOM" className="flex h-10 items-center justify-center border-b border-white/10">
-            <LogoMark />
-          </Link>
+      <div className="flex min-h-screen md:min-h-0">
+        {/* backdrop for the mobile drawer */}
+        {mobileOpen && (
+          <button type="button" aria-label="Закрыть меню" onClick={() => setMobileOpen(false)} className="fixed inset-0 z-40 bg-black/40 md:hidden" />
         )}
 
-        {/* nav */}
-        <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2 py-2">
-          {NAV_ITEMS.map((item) => {
-            const href = `/${item.toLowerCase()}`;
-            const active = pathname === href || (item === "Overview" && pathname === "/");
-            return (
-              <Link
-                key={item}
-                href={href}
-                title={item}
-                className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${
-                  active ? "bg-white/10 font-medium text-white" : "text-white/55 hover:bg-white/5 hover:text-white"
-                } ${collapsed ? "justify-center px-0" : ""}`}
-              >
-                <span className={active ? "text-gold" : ""}><NavIcon name={item} /></span>
-                {!collapsed && <span>{item}</span>}
+        <aside
+          className={`fixed inset-y-0 left-0 z-50 flex h-screen w-56 shrink-0 flex-col bg-ink text-white transition-transform duration-200 md:sticky md:top-0 md:z-auto md:translate-x-0 md:transition-[width] ${
+            mobileOpen ? "translate-x-0" : "-translate-x-full"
+          } ${collapsed ? "md:w-[60px]" : "md:w-56"} ${ready ? "" : "md:invisible"}`}
+        >
+          {/* brand + toggle (collapse on desktop, close on mobile) */}
+          <div className={`flex h-14 items-center border-b border-white/10 ${collapsed ? "md:justify-center md:px-0" : ""} justify-between px-4`}>
+            {(!collapsed || mobileOpen) && (
+              <Link href="/" title="AXIOM" className={`flex items-center gap-2 font-mono text-base font-semibold uppercase tracking-[0.18em] text-white ${collapsed ? "md:hidden" : ""}`}>
+                <LogoMark />
+                <span>AXIOM</span>
               </Link>
-            );
-          })}
-        </nav>
+            )}
+            {/* desktop collapse */}
+            <button
+              type="button"
+              onClick={toggle}
+              title={collapsed ? "Expand menu" : "Collapse menu"}
+              aria-label={collapsed ? "Expand menu" : "Collapse menu"}
+              className="hidden h-9 w-9 items-center justify-center rounded-md text-white/70 hover:bg-white/10 hover:text-white md:flex"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform ${collapsed ? "rotate-180" : ""}`}>
+                <path d="M4 6h16M4 12h16M4 18h16" opacity={collapsed ? "1" : "0"} />
+                <path d="m15 18-6-6 6-6" opacity={collapsed ? "0" : "1"} />
+              </svg>
+            </button>
+            {/* mobile close */}
+            <button
+              type="button"
+              onClick={() => setMobileOpen(false)}
+              aria-label="Закрыть меню"
+              className="flex h-9 w-9 items-center justify-center rounded-md text-white/70 hover:bg-white/10 hover:text-white md:hidden"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 6l12 12M18 6 6 18" /></svg>
+            </button>
+          </div>
 
-      </aside>
+          {/* collapsed (desktop): keep the mark visible */}
+          {collapsed && (
+            <Link href="/" title="AXIOM" className="hidden h-10 items-center justify-center border-b border-white/10 md:flex">
+              <LogoMark />
+            </Link>
+          )}
 
-      <main className="min-w-0 flex-1 px-6 py-7 lg:px-10">{props.children}</main>
+          {/* nav */}
+          <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2 py-2">
+            {NAV_ITEMS.map((item) => {
+              const href = `/${item.toLowerCase()}`;
+              const active = pathname === href || (item === "Overview" && pathname === "/");
+              return (
+                <Link
+                  key={item}
+                  href={href}
+                  title={item}
+                  onClick={() => setMobileOpen(false)}
+                  className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${
+                    active ? "bg-white/10 font-medium text-white" : "text-white/55 hover:bg-white/5 hover:text-white"
+                  } ${collapsed ? "md:justify-center md:px-0" : ""}`}
+                >
+                  <span className={active ? "text-gold" : ""}><NavIcon name={item} /></span>
+                  <span className={collapsed ? "md:hidden" : ""}>{item}</span>
+                </Link>
+              );
+            })}
+          </nav>
+        </aside>
+
+        <main className="min-w-0 flex-1 px-4 py-5 md:px-6 md:py-7 lg:px-10">{props.children}</main>
+      </div>
     </div>
   );
 }
