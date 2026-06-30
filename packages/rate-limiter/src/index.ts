@@ -32,6 +32,47 @@ export class InMemoryLimiterStore implements LimiterStore {
   }
 }
 
+/**
+ * Minimal Redis client surface the {@link RedisLimiterStore} needs — satisfied by
+ * `ioredis` and `node-redis` alike, and trivially fakeable in tests. Kept tiny so
+ * the package takes no Redis dependency; the host injects a real client.
+ */
+export interface RedisLike {
+  get(key: string): Promise<string | null>;
+  set(key: string, value: string, mode: "PX", ttlMs: number): Promise<unknown>;
+}
+
+/**
+ * Redis-backed limiter store: shares counters across replicas (unlike the
+ * per-process {@link InMemoryLimiterStore}). Counters are JSON values with a TTL
+ * so idle keys self-expire.
+ *
+ * @example const store = new RedisLimiterStore(ioredis, { ttlMs: 120_000 });
+ */
+export class RedisLimiterStore implements LimiterStore {
+  private readonly prefix: string;
+  private readonly ttlMs: number;
+
+  constructor(private readonly redis: RedisLike, opts: { keyPrefix?: string; ttlMs?: number } = {}) {
+    this.prefix = opts.keyPrefix ?? "rl:";
+    this.ttlMs = opts.ttlMs ?? 3_600_000;
+  }
+
+  async get(key: LimiterKey): Promise<StoredCounter | null> {
+    const raw = await this.redis.get(this.prefix + key);
+    if (raw === null) return null;
+    try {
+      return JSON.parse(raw) as StoredCounter;
+    } catch {
+      return null; // corrupt/foreign value — treat as empty bucket
+    }
+  }
+
+  async set(key: LimiterKey, value: StoredCounter): Promise<void> {
+    await this.redis.set(this.prefix + key, JSON.stringify(value), "PX", this.ttlMs);
+  }
+}
+
 /** @example const key = tenantKey("tenant_1", "track"); */
 export function tenantKey(tenantId: string, resource: string): LimiterKey {
   return `${tenantId}:${resource}`;
