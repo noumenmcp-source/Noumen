@@ -2148,26 +2148,46 @@ const VIEWS={
         (jr.length?jr.map(r=>'<tr><td class="id">'+esc(r[0])+'</td><td class="muted">'+esc(r[1])+'</td><td class="muted">'+esc(r[2])+'</td><td class="muted">'+esc(r[3])+'</td><td>'+badge('valid','sage')+'</td></tr>').join(''):'<tr><td colspan="5" class="muted">нет записей</td></tr>')+
       '</tbody></table></div></div>';
   },
-    services(){const k=OV.kpi,c=OV.consent;return '<div class="grid four">'+[
-    {name:'Веб-трекер',tone:'gold',status:'активен',metric:nf(k.events),caption:nf(k.profiles)+' профилей · '+nf(k.active7)+' активны за 7д'},
-    {name:'Согласия · 152-ФЗ',tone:'sage',status:'активен',metric:nf(c.total),caption:c.purposes.length+' целей · hash-chain подписан'},
-    {name:'Профили и сегменты',tone:'gold',status:'активен',metric:nf(k.identified),caption:'identity-stitching + RFM-сегменты'},
-    {name:'Email-маркетинг',tone:'rust',status:'активен',metric:'РФ-шаблон',caption:'AI-копи · «О рекламе» ст.18 · гейт согласия'},
-    {name:'ВКонтакте',tone:'sage',status:'готов',metric:'соц-сигналы',caption:'намерение + кириллица-токенизация'},
-    {name:'Telegram',tone:'rust',status:'готов',metric:'мессенджер',caption:'рассылки + гейт messaging'},
-    {name:'Rutube / YouTube',tone:'gold',status:'готов',metric:'видео',caption:'парсинг + идеи контента'},
-    {name:'Яндекс.Метрика',tone:'sage',status:'готов',metric:'веб-аналитика',caption:'источники, цели, поведение'}
-  ].map(svc).join('')+'</div>'+
-    '<div class="sec"><p class="label">Журнал</p><h2 class="serif" style="font-size:18px;margin:2px 0 0">Недавняя активность сервисов</h2></div>'+
-    '<div class="card">'+[
-      ['только что','Веб-трекер','order_completed · '+rub(OV.orders.count?Math.round(OV.orders.revenue/OV.orders.count):0)],
-      ['3 мин','Согласия · 152-ФЗ','новое согласие · pdn_processing + marketing_email'],
-      ['12 мин','Email','кампания «Брошенная корзина» → '+nf(Math.round(OV.orders.count*1.8))+' отправлено'],
-      ['28 мин','Профили','identity-stitching: 2 анонима → 1 профиль (ecoma.ru)'],
-      ['1 ч','Автоматизации','сценарий «Реактивация спящих» → запуск, '+nf(lc('Спящие'))+' в работе'],
-      ['2 ч','ВКонтакте','соц-сигнал: интент «эко-товары для дома» ↑'],
-      ['4 ч','Веб-трекер','скачок трафика с ecoma.ru (+'+nf(Math.round(OV.kpi.active1*0.3))+' за час)']
-    ].map(function(r){return '<div style="display:flex;gap:12px;align-items:baseline;padding:8px 0;border-bottom:1px solid var(--line)"><span class="cap" style="min-width:66px;color:var(--muted)">'+r[0]+'</span><b style="min-width:140px">'+esc(r[1])+'</b><span class="muted">'+esc(r[2])+'</span></div>';}).join('')+'</div>';}
+    services(){
+    const k=OV.kpi, c=OV.consent;
+    const used=k.profiles;
+    const limProfiles = used<2000?5000 : used<8000?10000 : used<40000?50000 : 100000;
+    const limEvents = limProfiles*10;
+    const planName = limProfiles<=5000?'Старт' : limProfiles<=10000?'Рост' : 'Бизнес';
+    const mods=[
+      {name:'CDP · единая база клиентов',tone:'gold',on:true,price:0,priceLbl:'основа плана',use:k.profiles,lim:limProfiles,unit:'профилей'},
+      {name:'Веб-трекер · события',tone:'sage',on:true,price:0,priceLbl:'входит в план',use:k.events,lim:limEvents,unit:'событий/мес'},
+      {name:'Профили и сегменты',tone:'gold',on:true,price:0,priceLbl:'входит в план',use:k.identified,lim:limProfiles,unit:'опознано'},
+      {name:'Согласия · 152-ФЗ',tone:'rust',on:true,price:990,use:c.total,lim:null,unit:'записей'},
+      {name:'Email-маркетинг · Перо',tone:'rust',on:true,price:1490,use:null,lim:null,unit:''},
+      {name:'ВКонтакте · соц-сигналы',tone:'sage',on:false,price:690,use:null,lim:null,unit:''},
+      {name:'Telegram · мессенджер',tone:'gold',on:false,price:690,use:null,lim:null,unit:''},
+      {name:'Rutube / YouTube · видео',tone:'rust',on:false,price:590,use:null,lim:null,unit:''},
+      {name:'Яндекс.Метрика · веб-аналитика',tone:'sage',on:false,price:0,priceLbl:'входит в план',use:null,lim:null,unit:''}
+    ];
+    const base=2900;
+    const addons=mods.filter(m=>m.on&&m.price>0).reduce((s2,m)=>s2+m.price,0);
+    const total=base+addons;
+    const fillPct=Math.min(100,Math.round(k.profiles/limProfiles*100));
+    function ubar(lbl,use,lim,unit,tone){var pct=lim?Math.min(100,Math.round(use/lim*100)):0;var col=(pct>85?TONE.rust:TONE[tone]);
+      return '<div class="bar"><div class="tp"><span style="font-weight:600">'+lbl+'</span><span class="cap">'+nf(use)+(lim?(' / '+nf(lim)):'')+(unit?(' '+unit):'')+(lim?(' · '+pct+'%'):'')+'</span></div><div class="track"><div class="fill" style="width:'+(lim?pct:8)+'%;background:'+col+'"></div></div></div>';}
+    const rows=mods.map(m=>{
+      const st=m.on?badge('подключён','sage'):badge('доступен','muted');
+      const price=m.price>0?(nf(m.price)+' ₽/мес'):(m.priceLbl||'входит в план');
+      const usage=(m.lim!=null)?(nf(m.use)+' / '+nf(m.lim)+(m.unit?(' '+m.unit):'')):(m.use!=null?(nf(m.use)+(m.unit?(' '+m.unit):'')):'—');
+      const act=m.on?'<span class="muted cap">активен</span>':'<span class="cta">Подключить →</span>';
+      return '<tr><td style="font-weight:600">'+esc(m.name)+'</td><td>'+st+'</td><td class="muted">'+usage+'</td><td style="font-weight:600">'+price+'</td><td>'+act+'</td></tr>';
+    }).join('');
+    return '<div class="grid k4" style="margin-bottom:16px">'+
+      tile('Тариф',planName,'до '+nf(limProfiles)+' профилей','ink')+
+      tile('Стоимость',rub(total)+'/мес',nf(mods.filter(m=>m.on).length)+' сервиса подключено','gold')+
+      tile('Следующее списание','1 авг','автопродление','sage')+
+      tile('Заполнение лимита',fillPct+'%',nf(k.profiles)+' из '+nf(limProfiles)+' профилей','rust')+'</div>'+
+      chart('Использование плана','Сколько израсходовано до лимита тарифа','<div class="bars">'+ubar('Профили',k.profiles,limProfiles,'профилей','gold')+ubar('События за период',k.events,limEvents,'событий','sage')+ubar('Согласия 152-ФЗ',c.total,null,'записей','rust')+'</div>')+
+      '<div class="sec"><p class="label">Подписка</p><h2 class="serif" style="font-size:18px;margin:2px 0 0">Подключённые сервисы, стоимость и лимиты</h2></div>'+
+      '<div class="card"><div class="tw"><table><thead><tr><th>Сервис</th><th>Статус</th><th>Использование / лимит</th><th>Стоимость</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>'+
+      '<div class="note" style="margin-top:16px">Подключённые сервисы входят в счёт тарифа «'+planName+'» — '+rub(total)+'/мес. Лимит по профилям — '+nf(limProfiles)+'; при приближении предложим следующий тариф. Доступные сервисы подключаются в один клик и добавляются к счёту.</div>';
+  }
 };
 
 function renderProfiles(list){
