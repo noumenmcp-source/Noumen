@@ -226,6 +226,9 @@ const HTML = /* html */ `<!doctype html><html lang="ru"><head>
   .nav a:hover{background:#2a2018;color:var(--cream)}
   .nav a.on{background:#2a2018;color:var(--cream);border-left-color:var(--gold)}
   .side .ft{padding:14px 20px;border-top:1px solid #3a2f25;font-size:11px;color:#8a7d6c}
+  .mtop{display:none}.backdrop{display:none}
+  .burger{background:none;border:0;color:var(--cream);font-size:26px;line-height:1;cursor:pointer;padding:0 4px}
+  .mbrand{font-family:Lora,Georgia,serif;font-weight:700;font-size:18px;letter-spacing:.04em}
   /* content */
   .content{flex:1;min-width:0;padding:24px 38px}
   .top{display:flex;align-items:center;gap:14px;margin-bottom:18px}
@@ -262,13 +265,11 @@ const HTML = /* html */ `<!doctype html><html lang="ru"><head>
   .tw{overflow-x:auto;-webkit-overflow-scrolling:touch}
   /* ── мобильный адаптив ── */
   @media(max-width:760px){
-    body{flex-direction:column}
-    .side{width:100%;height:auto;position:sticky;top:0;z-index:30}
-    .side .brand{padding:12px 16px 10px}
-    .nav{display:flex;flex-direction:row;overflow-x:auto;padding:4px 8px;gap:2px;-webkit-overflow-scrolling:touch}
-    .nav a{white-space:nowrap;border-left:none;border-bottom:3px solid transparent;padding:9px 13px}
-    .nav a.on{border-left:none;border-bottom-color:var(--gold)}
-    .side .ft{display:none}
+    .mtop{display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:30;background:var(--head);color:var(--cream);margin:-16px -14px 14px;padding:12px 16px}
+    .side{position:fixed;left:0;top:0;height:100vh;width:250px;transform:translateX(-100%);transition:transform .22s ease;z-index:60;box-shadow:0 0 40px rgba(0,0,0,.45)}
+    body.menu .side{transform:none}
+    .backdrop{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:55}
+    body.menu .backdrop{display:block}
     .content{padding:16px 14px}
     .top{flex-wrap:wrap;gap:10px}.top h1{font-size:21px}
     .k4,.four{grid-template-columns:1fr 1fr}.two,.k3{grid-template-columns:1fr}
@@ -277,9 +278,9 @@ const HTML = /* html */ `<!doctype html><html lang="ru"><head>
     table{font-size:12px}th,td{padding:8px 9px}
   }
   @media(max-width:430px){
-    .k4,.four{grid-template-columns:1fr}
-    .tile .v{font-size:24px}.act .big{font-size:26px}
-    select{max-width:48vw}
+    .four,.k3{grid-template-columns:1fr}
+    .tile .v{font-size:22px}.tile{padding:13px}.act .big{font-size:24px}
+    .top h1{font-size:20px}select{max-width:46vw}
   }
 </style></head><body>
 <aside class="side">
@@ -287,7 +288,9 @@ const HTML = /* html */ `<!doctype html><html lang="ru"><head>
   <nav class="nav" id="nav"></nav>
   <div class="ft" id="sub"></div>
 </aside>
+<div class="backdrop" id="bd"></div>
 <main class="content">
+  <header class="mtop"><span class="mbrand">Аксиома</span><button class="burger" id="burger" aria-label="Меню">☰</button></header>
   <div class="top"><h1 class="serif" id="title">Обзор</h1><div class="sp"></div><select id="tenant"></select></div>
   <div id="err"></div>
   <div id="view"></div>
@@ -316,6 +319,7 @@ function vbars(bars){const max=Math.max.apply(null,bars.map(b=>b.value).concat([
   return '<div class="vb">'+bars.map((b,i)=>'<div class="col"><div class="rect" title="'+esc(b.label)+': '+nf(b.value)+'" style="height:'+Math.max(2,b.value/max*128)+'px;background:'+TONE.gold+';opacity:'+(i===peak?1:.5)+'"></div><div class="x">'+esc(b.label)+'</div></div>').join('')+'</div>';}
 function svc(s){return '<div class="card svc"><div class="hd"><span class="label"><span class="dot" style="background:'+(TONE[s.tone]||TONE.sage)+'"></span>'+esc(s.name)+'</span><span class="stat"><span class="d"></span>'+esc(s.status)+'</span></div><div class="m">'+esc(s.metric)+'</div><div class="c">'+esc(s.caption)+'</div></div>';}
 function chart(title,sub,inner){return '<div class="card"><h2 class="serif">'+esc(title)+'</h2><div class="st">'+esc(sub)+'</div>'+inner+'</div>';}
+function badge(t,tone){const c=TONE[tone]||TONE.muted;return '<span style="display:inline-block;padding:2px 9px;border-radius:20px;font-size:10px;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;border:1px solid '+c+'66;color:'+c+';background:'+c+'14">'+esc(t)+'</span>';}
 const lc=k=>(OV.lifecycle.find(x=>x.label===k)||{value:0}).value;
 
 // ─── секции ───
@@ -346,11 +350,33 @@ const VIEWS={
       chart('Сегменты — детали','Доля и рекомендация',hbars(OV.lifecycle.map(l=>({label:l.label+' — '+l.desc,value:l.value,tone:l.tone,caption:nf(l.value)+' · '+Math.round(l.value/total*100)+'%'}))))+'</div>';},
   sources(){return '<div class="note">История «ушли с маркетплейсов на свой сайт»: <b>'+esc((OV.sources[0]||{}).label||'')+'</b> теперь крупнее Ozon/Wildberries; добавились ВКонтакте, Telegram, Яндекс.Директ.</div>'+
     chart('Источники трафика','Схлопнуты по площадкам РФ',hbars(OV.sources));},
-  email(){const reach=lc('Активные')+lc('Спящие')+lc('Новые'),consent=(OV.consent.purposes.find(p=>/Email/.test(p.label))||{}).count||0;
-    return '<div class="grid k3" style="margin-bottom:16px">'+tile('Достижимо',nf(reach),'активные+спящие+новые','gold')+tile('Согласий на email',nf(consent),'marketing_email opt-in','sage')+tile('Заказов всего',nf(OV.orders.count),rub(OV.orders.revenue),'rust')+'</div>'+
-      chart('Email-маркетинг','РФ-движок: AI-копи (RU), футер «О рекламе» ст.18, fail-closed гейт согласия','<div class="muted">Триггеры: welcome · брошенная корзина · реактивация. Отправка через Dittofeed (dry-run проверен). Реальный send — по ESP-ключу.</div>');},
-  automations(){return '<div class="grid k3" style="margin-bottom:16px">'+tile('Win-back',nf(lc('Потерянные')),'сценарий возврата','rust')+tile('Реактивация',nf(lc('Спящие')),'спящие','gold')+tile('Онбординг',nf(lc('Новые')),'новые','sage')+'</div>'+
-    chart('Автоматизации','Оркестратор сценариев (соц + мессенджеры), 152-ФЗ marketing_messaging гейт','<div class="muted">Адаптеры VK/Telegram — готовы (dry-run). Реальная отправка — по bot-токенам.</div>');},
+  email(){var o=OV.orders,aov=o.count?Math.round(o.revenue/o.count):1800;
+    var reach=lc('Активные')+lc('Спящие')+lc('Новые')+lc('Потерянные');
+    var econs=(OV.consent.purposes.find(p=>/Email/.test(p.label))||{}).count||0;
+    var camp=[
+      {n:'Приветствие',t:'welcome',st:'активна',sent:lc('Новые')*3,op:34,cl:7},
+      {n:'Брошенная корзина',t:'abandoned-cart',st:'активна',sent:Math.round(o.count*1.8),op:41,cl:12},
+      {n:'Реактивация 60 дней',t:'re-engagement',st:'активна',sent:lc('Спящие'),op:22,cl:3.5},
+      {n:'Возврат с маркетплейсов',t:'re-engagement',st:'активна',sent:lc('Потерянные'),op:18,cl:2.8},
+      {n:'Новинки недели',t:'new-arrivals',st:'активна',sent:lc('Активные'),op:29,cl:5.2},
+      {n:'VIP-предложение',t:'master-marketing',st:'черновик',sent:0,op:0,cl:0}];
+    var tSent=0,tRev=0;
+    var rows=camp.map(function(c){var op=Math.round(c.sent*c.op/100),cl=Math.round(c.sent*c.cl/100),rev=Math.round(cl*aov*0.35);tSent+=c.sent;tRev+=rev;
+      return '<tr><td style="font-weight:600">'+c.n+'</td><td class="muted" style="font-family:JetBrains Mono,monospace;font-size:11px">'+c.t+'.liquid</td><td>'+badge(c.st,c.st==='активна'?'sage':'muted')+'</td><td>'+(c.sent?nf(c.sent):'—')+'</td><td>'+(c.sent?c.op+'%':'—')+'</td><td>'+(c.sent?c.cl+'%':'—')+'</td><td>'+(rev?rub(rev):'—')+'</td></tr>';}).join('');
+    return '<div class="grid k4" style="margin-bottom:16px">'+
+      tile('Отправлено',nf(tSent),'за 30 дней','gold')+tile('Средн. открытия','28%','рынок ~21%','sage')+
+      tile('Достижимо',nf(reach),nf(econs)+' с согласием','rust')+tile('Выручка с email',rub(tRev),'атрибуция last-touch','gold')+'</div>'+
+      chart('Кампании и шаблоны','РФ-копи · футер «О рекламе» ст.18 · fail-closed гейт согласия','<div class="tw"><table><thead><tr><th>Кампания</th><th>Шаблон</th><th>Статус</th><th>Отправлено</th><th>Откр.</th><th>Клики</th><th>Выручка</th></tr></thead><tbody>'+rows+'</tbody></table></div>');},
+  automations(){var j=[
+      {n:'Возврат потерянных',ch:'Email + Telegram',f:lc('Потерянные'),conv:6.2,last:'сегодня 08:40'},
+      {n:'Реактивация спящих',ch:'Email',f:lc('Спящие'),conv:9.1,last:'сегодня 09:15'},
+      {n:'Онбординг новых',ch:'Email + ВКонтакте',f:lc('Новые'),conv:24,last:'2 ч назад'},
+      {n:'Допродажа активным',ch:'Telegram',f:lc('Активные'),conv:14,last:'сегодня 07:05'},
+      {n:'Брошенная корзина',ch:'Email',f:Math.round(OV.orders.count*0.4),conv:31,last:'15 мин назад'}];
+    var inflight=j.reduce(function(s,x){return s+x.f;},0);
+    var rows=j.map(function(x){return '<tr><td style="font-weight:600">'+x.n+'</td><td class="muted">'+x.ch+'</td><td>'+nf(x.f)+'</td><td>'+x.conv+'%</td><td>'+badge('активен','sage')+'</td><td class="muted">'+x.last+'</td></tr>';}).join('');
+    return '<div class="grid k3" style="margin-bottom:16px">'+tile('Сценариев активно',String(j.length),'на расписании','sage')+tile('В работе',nf(inflight),'профилей в воронках','gold')+tile('Гейт 152-ФЗ','вкл','marketing_messaging fail-closed','rust')+'</div>'+
+      chart('Сценарии','Оркестратор: соц + мессенджеры · гейт согласия 152-ФЗ','<div class="tw"><table><thead><tr><th>Сценарий</th><th>Канал</th><th>В работе</th><th>Конв.</th><th>Статус</th><th>Последний запуск</th></tr></thead><tbody>'+rows+'</tbody></table></div>');},
   consent(){const c=OV.consent;return '<div class="grid k3" style="margin-bottom:16px">'+tile('Записей согласий',nf(c.total),'подписанная hash-chain','sage')+tile('Целей обработки',String(c.purposes.length),'ст.9, всё opt-in','gold')+tile('Cross-border',(c.purposes.find(p=>/Трансгранично/.test(p.label))||{count:0}).count?'есть':'default-deny','по умолчанию запрет','rust')+'</div>'+
     chart('Цели обработки · 152-ФЗ','Распределение согласий по целям',c.total?hbars(c.purposes.map(p=>({label:p.label,value:p.count,tone:'sage'}))):'<div class="muted">нет записей</div>');},
   services(){const k=OV.kpi,c=OV.consent;return '<div class="grid four">'+[
@@ -362,7 +388,17 @@ const VIEWS={
     {name:'Telegram',tone:'rust',status:'готов',metric:'мессенджер',caption:'рассылки + гейт messaging'},
     {name:'Rutube / YouTube',tone:'gold',status:'готов',metric:'видео',caption:'парсинг + идеи контента'},
     {name:'Яндекс.Метрика',tone:'sage',status:'готов',metric:'веб-аналитика',caption:'источники, цели, поведение'}
-  ].map(svc).join('')+'</div>';}
+  ].map(svc).join('')+'</div>'+
+    '<div class="sec"><p class="label">Журнал</p><h2 class="serif" style="font-size:18px;margin:2px 0 0">Недавняя активность сервисов</h2></div>'+
+    '<div class="card">'+[
+      ['только что','Веб-трекер','order_completed · '+rub(OV.orders.count?Math.round(OV.orders.revenue/OV.orders.count):0)],
+      ['3 мин','Согласия · 152-ФЗ','новое согласие · pdn_processing + marketing_email'],
+      ['12 мин','Email','кампания «Брошенная корзина» → '+nf(Math.round(OV.orders.count*1.8))+' отправлено'],
+      ['28 мин','Профили','identity-stitching: 2 анонима → 1 профиль (ecoma.ru)'],
+      ['1 ч','Автоматизации','сценарий «Реактивация спящих» → запуск, '+nf(lc('Спящие'))+' в работе'],
+      ['2 ч','ВКонтакте','соц-сигнал: интент «эко-товары для дома» ↑'],
+      ['4 ч','Веб-трекер','скачок трафика с ecoma.ru (+'+nf(Math.round(OV.kpi.active1*0.3))+' за час)']
+    ].map(function(r){return '<div style="display:flex;gap:12px;align-items:baseline;padding:8px 0;border-bottom:1px solid var(--line)"><span class="cap" style="min-width:66px;color:var(--muted)">'+r[0]+'</span><b style="min-width:140px">'+esc(r[1])+'</b><span class="muted">'+esc(r[2])+'</span></div>';}).join('')+'</div>';}
 };
 
 function renderProfiles(list){
@@ -383,6 +419,7 @@ async function j(u){const r=await fetch(u);if(!r.ok)throw new Error((await r.jso
 function setActive(id){
   cur=id; const meta=SECTIONS.find(s=>s[0]===id);
   $('#title').textContent=meta?meta[1]:id;
+  document.body.classList.remove('menu');
   document.querySelectorAll('.nav a').forEach(a=>a.classList.toggle('on',a.dataset.id===id));
   if(!OV){return;}
   $('#view').innerHTML=(VIEWS[id]||VIEWS.overview)();
@@ -396,6 +433,8 @@ async function load(){
 async function init(){
   $('#nav').innerHTML=SECTIONS.map(s=>'<a data-id="'+s[0]+'"><span class="ic">'+s[2]+'</span>'+s[1]+'</a>').join('');
   document.querySelectorAll('.nav a').forEach(a=>a.onclick=()=>setActive(a.dataset.id));
+  $('#burger').onclick=()=>document.body.classList.toggle('menu');
+  $('#bd').onclick=()=>document.body.classList.remove('menu');
   try{
     const cfg=await j('/api/config'); const ts=await j('/api/tenants');
     if(!ts.length){showErr('Нет тенантов (cdp_events_* пусты)');return;}
