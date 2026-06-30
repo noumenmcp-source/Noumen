@@ -9,14 +9,30 @@ const http = require('node:http');
 const { Orchestrator } = require('./lib/orchestrator');
 const { InMemorySocialAdapter, InMemoryMessengerAdapter } = require('./lib/adapters');
 const { messagingAllowed } = require('./lib/consent-client');
+const observe = require('./lib/observe');
+const tenantAuth = require('./lib/tenant-auth');
+
+// Known route patterns, for bounded /metrics cardinality.
+const ROUTES = ['/v1/health', '/v1/live', '/v1/ready', '/metrics', '/v1/automation/run'];
 
 function makeDeps(env = process.env) {
+  const consentUrl = env.CONSENT_LEDGER_URL || 'http://consent-ledger:8140';
   return {
     fetchImpl: globalThis.fetch,
-    consentUrl: env.CONSENT_LEDGER_URL || 'http://consent-ledger:8140',
+    consentUrl,
     consentToken: env.CONSENT_API_TOKEN || '',
     apiToken: env.AUTOMATION_API_TOKEN || '',
+    authz: tenantAuth.makeAuthorizer({
+      adminToken: env.AUTOMATION_API_TOKEN || '',
+      tenantTokens: env.AUTOMATION_TENANT_TOKENS || '',
+      log: (m) => console.warn(m),
+    }),
     port: parseInt(env.PORT || '8170', 10),
+    metrics: observe.createMetrics('automation'),
+    // Ready iff the consent-ledger (the 152-ФЗ gate dependency) is reachable.
+    ready: () => observe.checkAll([
+      { name: 'consent-ledger', check: () => observe.pingHttp(globalThis.fetch, `${consentUrl}/v1/health`) },
+    ]),
   };
 }
 
@@ -47,14 +63,27 @@ function createServer(deps) {
   return http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url, 'http://internal');
+      observe.instrument(req, res, { metrics: deps.metrics, pathname: url.pathname, routes: ROUTES });
+
+      // Liveness/readiness/metrics — unauthenticated, like /v1/health below.
+      if (await observe.handleObservability(req, res, { pathname: url.pathname, metrics: deps.metrics, ready: deps.ready })) return;
+
       if (req.method === 'GET' && url.pathname === '/v1/health') {
         return send(res, 200, { status: 'ok', consentUrl: deps.consentUrl });
       }
-      if (deps.apiToken && (req.headers.authorization || '') !== `Bearer ${deps.apiToken}`) {
-        return send(res, 401, { error: 'unauthorized' });
-      }
+      const auth = deps.authz.authenticate(req.headers.authorization);
+      if (!auth.ok) return send(res, auth.code, { error: auth.error });
+      // Per-tenant isolation: a scoped token may only run scenarios for its site.
+      const guard = (s) => {
+        const g = tenantAuth.checkSite(auth, s);
+        if (!g.ok) { send(res, g.code, { error: g.error }); return false; }
+        return true;
+      };
+
       if (req.method === 'POST' && url.pathname === '/v1/automation/run') {
         const body = await readBody(req).catch(() => ({}));
+        // Mirror runScenario's site resolution (body.site || 'default') for the guard.
+        if (!guard(body.site || 'default')) return;
         const out = await runScenario(deps, body);
         const { status, ...rest } = out;
         return send(res, status, rest);
@@ -68,7 +97,9 @@ function createServer(deps) {
 
 function main() {
   const deps = makeDeps();
-  createServer(deps).listen(deps.port, '0.0.0.0', () => console.log(`automation up on :${deps.port} consent=${deps.consentUrl}`));
+  const server = createServer(deps);
+  server.listen(deps.port, '0.0.0.0', () => console.log(`automation up on :${deps.port} consent=${deps.consentUrl}`));
+  observe.installGraceful({ server, log: (m) => console.log(m) });
 }
 
 if (require.main === module) main();

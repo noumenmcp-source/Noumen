@@ -15,6 +15,14 @@ const { runCampaign } = require('./lib/campaign');
 const { listProfiles } = require('./lib/profiles-client');
 const { marketingAllowed } = require('./lib/consent-client');
 const { EMAIL_TRIGGERS } = require('./lib/types');
+const observe = require('./lib/observe');
+const tenantAuth = require('./lib/tenant-auth');
+
+// Known route patterns, for bounded /metrics cardinality.
+const ROUTES = [
+  '/v1/health', '/v1/live', '/v1/ready', '/metrics',
+  '/v1/campaign/preview', '/v1/campaign/send',
+];
 
 function makeDeps(env = process.env) {
   return {
@@ -27,7 +35,18 @@ function makeDeps(env = process.env) {
     aiKey: env.AI_GATEWAY_API_KEY || '',
     aiModel: env.AI_GATEWAY_MODEL || 'gpt-5.5',
     apiToken: env.EMAIL_API_TOKEN || '',
+    authz: tenantAuth.makeAuthorizer({
+      adminToken: env.EMAIL_API_TOKEN || '',
+      tenantTokens: env.EMAIL_TENANT_TOKENS || '',
+      log: (m) => console.warn(m),
+    }),
     port: parseInt(env.PORT || '8150', 10),
+    metrics: observe.createMetrics('email-ai'),
+    // Ready iff both upstreams (profile-engine, consent-ledger) are reachable.
+    ready: () => observe.checkAll([
+      { name: 'profile-engine', check: () => observe.pingHttp(globalThis.fetch, `${env.PROFILE_ENGINE_URL || 'http://profile-engine:8130'}/v1/health`) },
+      { name: 'consent-ledger', check: () => observe.pingHttp(globalThis.fetch, `${env.CONSENT_LEDGER_URL || 'http://consent-ledger:8140'}/v1/health`) },
+    ]),
   };
 }
 
@@ -81,14 +100,26 @@ function createServer(deps) {
   return http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url, 'http://internal');
+      observe.instrument(req, res, { metrics: deps.metrics, pathname: url.pathname, routes: ROUTES });
+
+      // Liveness/readiness/metrics — unauthenticated, like /v1/health below.
+      if (await observe.handleObservability(req, res, { pathname: url.pathname, metrics: deps.metrics, ready: deps.ready })) return;
+
       if (req.method === 'GET' && url.pathname === '/v1/health') {
         return send(res, 200, { status: 'ok', profilesUrl: deps.profilesUrl, consentUrl: deps.consentUrl, ai: !!deps.aiUrl });
       }
-      if (deps.apiToken && (req.headers.authorization || '') !== `Bearer ${deps.apiToken}`) {
-        return send(res, 401, { error: 'unauthorized' });
-      }
+      const auth = deps.authz.authenticate(req.headers.authorization);
+      if (!auth.ok) return send(res, auth.code, { error: auth.error });
+      // Per-tenant isolation: a scoped token may only run campaigns for its site.
+      const guard = (s) => {
+        const g = tenantAuth.checkSite(auth, s);
+        if (!g.ok) { send(res, g.code, { error: g.error }); return false; }
+        return true;
+      };
+
       if (req.method === 'POST' && url.pathname === '/v1/campaign/preview') {
         const body = await readBody(req).catch(() => ({}));
+        if (!guard(body.site)) return;
         const out = await previewCampaign(deps, body);
         const { status, ...rest } = out;
         return send(res, status, rest);
@@ -105,9 +136,11 @@ function createServer(deps) {
 
 function main() {
   const deps = makeDeps();
-  createServer(deps).listen(deps.port, '0.0.0.0', () => {
+  const server = createServer(deps);
+  server.listen(deps.port, '0.0.0.0', () => {
     console.log(`email-ai up on :${deps.port} profiles=${deps.profilesUrl} consent=${deps.consentUrl} ai=${!!deps.aiUrl}`);
   });
+  observe.installGraceful({ server, log: (m) => console.log(m) });
 }
 
 if (require.main === module) main();

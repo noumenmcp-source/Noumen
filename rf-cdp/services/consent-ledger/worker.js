@@ -13,10 +13,19 @@ const http = require('node:http');
 const { ConsentLedger, verifyChain } = require('./lib/ledger');
 const { normalizeState, allowedPurposes } = require('./lib/cmp');
 const { EsLedgerStore } = require('./lib/es-store');
+const observe = require('./lib/observe');
+const tenantAuth = require('./lib/tenant-auth');
 const fs = require('node:fs');
 const path = require('node:path');
 
 const RECEIPTS_PREFIX = 'cdp_consent_';
+
+// Known route patterns, for bounded /metrics cardinality (':x' = wildcard).
+const ROUTES = [
+  '/v1/health', '/v1/live', '/v1/ready', '/metrics',
+  '/v1/consent/pubkey', '/v1/consent/state', '/v1/consent/chain',
+  '/v1/consent/verify', '/v1/ledger/append',
+];
 
 function makeDeps(env = process.env) {
   const esUrl = String(env.ES_URL || 'http://localhost:9200').replace(/\/+$/, '');
@@ -26,11 +35,21 @@ function makeDeps(env = process.env) {
     esUrl, esAuth, fetchImpl,
     store: new EsLedgerStore({ esUrl, esAuth, fetchImpl }),
     apiToken: env.CONSENT_API_TOKEN || '',
+    authz: tenantAuth.makeAuthorizer({
+      adminToken: env.CONSENT_API_TOKEN || '',
+      tenantTokens: env.CONSENT_TENANT_TOKENS || '',
+      log: (m) => console.warn(m),
+    }),
     keyDir: env.CONSENT_KEY_DIR || '',
     port: parseInt(env.PORT || '8140', 10),
     scanSize: parseInt(env.SCAN_SIZE || '10000', 10),
     intervalMs: parseInt(env.LEDGER_INTERVAL_MS || '60000', 10),
     now: () => new Date().toISOString(),
+    metrics: observe.createMetrics('consent-ledger'),
+    // Ready iff Elasticsearch (the ledger store) is reachable.
+    ready: () => observe.checkAll([
+      { name: 'elasticsearch', check: () => observe.pingHttp(fetchImpl, `${esUrl}/_cluster/health`, { auth: esAuth }) },
+    ]),
   };
 }
 
@@ -175,23 +194,35 @@ function createServer(deps) {
   return http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url, 'http://internal');
+      observe.instrument(req, res, { metrics: deps.metrics, pathname: url.pathname, routes: ROUTES });
+
+      // Liveness/readiness/metrics — unauthenticated, like /v1/health below.
+      if (await observe.handleObservability(req, res, { pathname: url.pathname, metrics: deps.metrics, ready: deps.ready })) return;
+
       if (req.method === 'GET' && url.pathname === '/v1/health') {
         const sites = await discoverSites(deps).catch(() => []);
         return send(res, 200, { status: 'ok', sites });
       }
-      if (deps.apiToken && (req.headers.authorization || '') !== `Bearer ${deps.apiToken}`) {
-        return send(res, 401, { error: 'unauthorized' });
-      }
+      const auth = deps.authz.authenticate(req.headers.authorization);
+      if (!auth.ok) return send(res, auth.code, { error: auth.error });
+      // Per-tenant isolation: a scoped token may only touch sites it owns.
+      const guard = (s) => {
+        const g = tenantAuth.checkSite(auth, s);
+        if (!g.ok) { send(res, g.code, { error: g.error }); return false; }
+        return true;
+      };
       const site = url.searchParams.get('site');
       const subject = url.searchParams.get('subject');
 
       if (req.method === 'GET' && url.pathname === '/v1/consent/pubkey') {
         if (!site) return send(res, 400, { error: 'site required' });
+        if (!guard(site)) return;
         const keys = await keysFor(deps, site);
         return keys ? send(res, 200, { site, publicKeyPem: keys.publicKeyPem }) : send(res, 404, { error: 'no keys for site' });
       }
       if (req.method === 'GET' && url.pathname === '/v1/consent/state') {
         if (!site || !subject) return send(res, 400, { error: 'site and subject required' });
+        if (!guard(site)) return;
         const docs = await deps.store.listBySubject(site, subject);
         if (!docs.length) return send(res, 404, { error: 'no consent for subject' });
         const latest = docs[docs.length - 1];
@@ -204,6 +235,7 @@ function createServer(deps) {
       }
       if (req.method === 'GET' && url.pathname === '/v1/consent/chain') {
         if (!site || !subject) return send(res, 400, { error: 'site and subject required' });
+        if (!guard(site)) return;
         const docs = await deps.store.listBySubject(site, subject);
         const keys = await keysFor(deps, site);
         const verify = keys ? verifyChain(docs.map(recordOf), keys.publicKeyPem) : { ok: false };
@@ -213,6 +245,7 @@ function createServer(deps) {
         const body = await readBody(req).catch(() => ({}));
         const s = body.site || site;
         if (!s) return send(res, 400, { error: 'site required' });
+        if (!guard(s)) return;
         const keys = await keysFor(deps, s);
         if (!keys) return send(res, 404, { error: 'no keys for site' });
         const subj = body.subject || subject;
@@ -231,6 +264,8 @@ function createServer(deps) {
       if (req.method === 'POST' && url.pathname === '/v1/ledger/append') {
         const body = await readBody(req).catch(() => ({}));
         const s = body.site || site;
+        // guard(null) => a scoped token cannot trigger an append-all; admin can.
+        if (!guard(s)) return;
         const result = s ? [await appendNewReceipts(deps, s)] : await appendAll(deps);
         return send(res, 200, { appended: result });
       }
@@ -249,8 +284,10 @@ async function main() {
     try { console.log('ledger', JSON.stringify(await appendAll(deps))); }
     catch (e) { console.error('ledger error', e.message); }
   };
+  let timer = null;
+  if (deps.intervalMs > 0) timer = setInterval(tick, deps.intervalMs);
+  observe.installGraceful({ server, log: (m) => console.log(m), timers: [timer] });
   await tick();
-  if (deps.intervalMs > 0) setInterval(tick, deps.intervalMs);
 }
 
 if (require.main === module) {

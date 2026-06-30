@@ -15,9 +15,17 @@ const http = require('node:http');
 const { ProfileService } = require('./lib/profile-service');
 const { InMemoryProfileStore, EsProfileStore } = require('./lib/profile-store');
 const { segmentMembers } = require('./lib/segments');
+const observe = require('./lib/observe');
+const tenantAuth = require('./lib/tenant-auth');
 
 const EVENTS_PREFIX = 'cdp_events_';
 const PROFILES_PREFIX = 'cdp_profiles_';
+
+// Known route patterns, for bounded /metrics cardinality (':id' = wildcard).
+const ROUTES = [
+  '/v1/health', '/v1/live', '/v1/ready', '/metrics',
+  '/v1/profiles/:id', '/v1/profiles', '/v1/segments/preview', '/v1/materialize',
+];
 
 function makeDeps(env = process.env) {
   const esUrl = String(env.ES_URL || 'http://localhost:9200').replace(/\/+$/, '');
@@ -31,9 +39,19 @@ function makeDeps(env = process.env) {
     fetchImpl,
     store: new EsProfileStore({ esUrl, esAuth, indexPrefix: PROFILES_PREFIX, fetchImpl }),
     apiToken: env.PROFILE_API_TOKEN || '',
+    authz: tenantAuth.makeAuthorizer({
+      adminToken: env.PROFILE_API_TOKEN || '',
+      tenantTokens: env.PROFILE_TENANT_TOKENS || '',
+      log: (m) => console.warn(m),
+    }),
     port: parseInt(env.PORT || '8130', 10),
     scanSize: parseInt(env.SCAN_SIZE || '10000', 10),
     intervalMs: parseInt(env.MATERIALIZE_INTERVAL_MS || '60000', 10),
+    metrics: observe.createMetrics('profile-engine'),
+    // Ready iff Elasticsearch (the profile store) is reachable.
+    ready: () => observe.checkAll([
+      { name: 'elasticsearch', check: () => observe.pingHttp(fetchImpl, `${esUrl}/_cluster/health`, { auth: esAuth }) },
+    ]),
   };
 }
 
@@ -140,27 +158,36 @@ function createServer(deps) {
   return http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url, 'http://internal');
+      observe.instrument(req, res, { metrics: deps.metrics, pathname: url.pathname, routes: ROUTES });
+
+      // Liveness/readiness/metrics — unauthenticated, like /v1/health below.
+      if (await observe.handleObservability(req, res, { pathname: url.pathname, metrics: deps.metrics, ready: deps.ready })) return;
 
       // Health is unauthenticated so the orchestrator/HEALTHCHECK can probe it.
       if (req.method === 'GET' && url.pathname === '/v1/health') {
         const sites = await discoverSites(deps).catch(() => []);
         return send(res, 200, { status: 'ok', sites });
       }
-      if (deps.apiToken) {
-        if ((req.headers.authorization || '') !== `Bearer ${deps.apiToken}`) {
-          return send(res, 401, { error: 'unauthorized' });
-        }
-      }
+      const auth = deps.authz.authenticate(req.headers.authorization);
+      if (!auth.ok) return send(res, auth.code, { error: auth.error });
+      // Per-tenant isolation: a scoped token may only touch sites it owns.
+      const guard = (s) => {
+        const g = tenantAuth.checkSite(auth, s);
+        if (!g.ok) { send(res, g.code, { error: g.error }); return false; }
+        return true;
+      };
       const site = url.searchParams.get('site');
 
       if (req.method === 'GET' && url.pathname.startsWith('/v1/profiles/')) {
         if (!site) return send(res, 400, { error: 'site query param required' });
+        if (!guard(site)) return;
         const id = decodeURIComponent(url.pathname.slice('/v1/profiles/'.length));
         const p = await deps.store.getById(site, id);
         return p ? send(res, 200, p) : send(res, 404, { error: 'not found' });
       }
       if (req.method === 'GET' && url.pathname === '/v1/profiles') {
         if (!site) return send(res, 400, { error: 'site query param required' });
+        if (!guard(site)) return;
         const userId = url.searchParams.get('userId');
         const anonymousId = url.searchParams.get('anonymousId');
         if (userId) {
@@ -178,6 +205,7 @@ function createServer(deps) {
         const body = await readBody(req);
         const s = body.site || site;
         if (!s) return send(res, 400, { error: 'site required' });
+        if (!guard(s)) return;
         const rule = Array.isArray(body.rule) ? body.rule : [];
         const all = await deps.store.listByTenant(s);
         const members = segmentMembers(all, rule);
@@ -186,6 +214,8 @@ function createServer(deps) {
       if (req.method === 'POST' && url.pathname === '/v1/materialize') {
         const body = await readBody(req).catch(() => ({}));
         const s = body.site || site;
+        // guard(null) => a scoped token cannot trigger a materialize-all; admin can.
+        if (!guard(s)) return;
         const result = s ? [await materializeTenant(deps, s)] : await materializeAll(deps);
         return send(res, 200, { materialized: result });
       }
@@ -213,8 +243,10 @@ async function main() {
       console.error('materialize error', e.message);
     }
   };
+  let timer = null;
+  if (deps.intervalMs > 0) timer = setInterval(tick, deps.intervalMs);
+  observe.installGraceful({ server, log: (m) => console.log(m), timers: [timer] });
   await tick();
-  if (deps.intervalMs > 0) setInterval(tick, deps.intervalMs);
 }
 
 if (require.main === module) {

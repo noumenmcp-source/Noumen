@@ -9,9 +9,23 @@ const { normalizeAll } = require('./lib/normalize');
 const { analyzeIntent, DEFAULT_INTENT_TOPICS } = require('./lib/analyze');
 const { parseSearchResponse } = require('./lib/youtube/parse');
 const { analyzeComments, extractContentIdeas } = require('./lib/youtube/analyze');
+const observe = require('./lib/observe');
+
+// Known route patterns, for bounded /metrics cardinality.
+const ROUTES = [
+  '/v1/health', '/v1/live', '/v1/ready', '/metrics',
+  '/v1/social/analyze', '/v1/social/youtube/parse',
+  '/v1/social/youtube/comments', '/v1/social/youtube/ideas',
+];
 
 function makeDeps(env = process.env) {
-  return { apiToken: env.SOCIAL_API_TOKEN || '', port: parseInt(env.PORT || '8160', 10) };
+  return {
+    apiToken: env.SOCIAL_API_TOKEN || '',
+    port: parseInt(env.PORT || '8160', 10),
+    metrics: observe.createMetrics('social-intel'),
+    // Self-contained/deterministic engine: no external deps, ready when live.
+    ready: () => observe.checkAll([]),
+  };
 }
 
 function send(res, code, obj) { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)); }
@@ -26,6 +40,11 @@ function createServer(deps) {
   return http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url, 'http://internal');
+      observe.instrument(req, res, { metrics: deps.metrics, pathname: url.pathname, routes: ROUTES });
+
+      // Liveness/readiness/metrics — unauthenticated, like /v1/health below.
+      if (await observe.handleObservability(req, res, { pathname: url.pathname, metrics: deps.metrics, ready: deps.ready })) return;
+
       if (req.method === 'GET' && url.pathname === '/v1/health') {
         return send(res, 200, { status: 'ok', topics: Object.keys(DEFAULT_INTENT_TOPICS) });
       }
@@ -66,7 +85,9 @@ function createServer(deps) {
 
 function main() {
   const deps = makeDeps();
-  createServer(deps).listen(deps.port, '0.0.0.0', () => console.log(`social-intel up on :${deps.port}`));
+  const server = createServer(deps);
+  server.listen(deps.port, '0.0.0.0', () => console.log(`social-intel up on :${deps.port}`));
+  observe.installGraceful({ server, log: (m) => console.log(m) });
 }
 
 if (require.main === module) main();
