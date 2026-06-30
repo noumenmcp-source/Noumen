@@ -611,8 +611,8 @@ const rub=n=>'₽'+nf(Math.round(n||0));
 const esc=s=>(s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmtDt=t=>t?new Date(t).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit'}):'—';
 const SECTIONS=[
-  ['overview','Обзор','▦'],['today','Сегодня','◆'],['profiles','Профили','◉'],['segments','Сегменты','◑'],
-  ['sources','Источники','⇲'],['email','Email','✉'],['automations','Автоматизации','⟳'],['consent','Согласия · 152-ФЗ','⚖'],['services','Сервисы','◰']
+  ['overview','Обзор','▦'],['today','Сегодня','◆'],['profiles','Профили','◉'],['segments','Сегменты и сценарии','◑'],
+  ['sources','Источники','⇲'],['email','Email','✉'],['consent','Согласия · 152-ФЗ','⚖'],['services','Сервисы','◰']
 ];
 let TENANT=null, OV=null, cur='overview';
 
@@ -2021,6 +2021,57 @@ function emailRender(){
   return '<div class="em-module">'+nav+'<div class="em-panel">'+body+'</div></div>';
 }
 
+
+/* ── СЛИТЫЙ раздел: Сегменты + Сценарии (под-вкладки em-tab, data-segtab) ── */
+var SEG_SUBTABS=[['audience','Сегменты','◑'],['flows','Сценарии','⟳']];
+function seg_validSub(id){return id==='audience'||id==='flows';}
+if(typeof window.segTab==='undefined') window.segTab=null;
+window.segTo=function(tab){
+  if(!seg_validSub(tab)) tab='audience';
+  window.segTab=tab;
+  try{var path=(tab==='flows')?'/automations':'/segments';var sp=new URLSearchParams(location.search);var qs=sp.toString();
+    history.replaceState(history.state,'',path+(qs?('?'+qs):''));}catch(e){}
+  var v=$('#view'); if(v) v.innerHTML=segRender();
+};
+function SEG_AUDIENCE(){
+  const total=OV.lifecycle.reduce((s,x)=>s+x.value,0)||1;
+  const o=OV.orders, aov=o.count?Math.round(o.revenue/o.count):0;
+  const risk=lc('Спящие')+lc('Потерянные');
+  const ACT={'Новые':{act:'Онбординг: первое письмо и бонус за подписку — пока интерес горячий',ch:'Email · ВК'},'Активные':{act:'Допродажа и рост чека, пока клиент тёплый',ch:'Email · Telegram'},'Спящие':{act:'Реактивация: «мы скучали» и персональная подборка',ch:'Email'},'Потерянные':{act:'Win-back: вернуть ушедших с маркетплейсов на свой сайт',ch:'Email · ВК'}};
+  const cards=OV.lifecycle.map(l=>{const a=ACT[l.label]||{act:'',ch:''};const pct=Math.round(l.value/total*100);
+    return '<div class="card act"><div><div class="nm">'+esc(l.label)+' <span class="muted" style="font-weight:400">· '+esc(l.desc)+'</span></div><div class="big" style="color:'+TONE[l.tone]+'">'+nf(l.value)+'</div><div class="c" style="color:var(--muted)">'+pct+'% базы</div></div><div><div class="c">'+esc(a.act)+'</div><div style="margin:8px 0">'+badge(a.ch,l.tone)+'</div><span class="cta" data-segtab="flows" style="cursor:pointer">Настроить сценарий →</span></div></div>';}).join('');
+  return '<div class="grid k4" style="margin-bottom:16px">'+
+    tile('Всего профилей',nf(OV.kpi.profiles),nf(OV.kpi.identified)+' опознано','ink')+
+    tile('Активные',nf(lc('Активные')),'заходят и покупают','sage')+
+    tile('Под угрозой оттока',nf(risk),'спящие и потерянные','rust')+
+    tile('Средний чек',rub(aov),nf(o.count)+' заказов','gold')+'</div>'+
+    '<div class="grid two">'+
+      chart('Жизненный цикл','Каждый профиль — в одном сегменте по давности визита',donut(OV.lifecycle))+
+      chart('Доли и приоритет','Размер сегмента и куда смотреть первым',hbars(OV.lifecycle.slice().sort((a,b)=>b.value-a.value).map(l=>({label:l.label,value:l.value,tone:l.tone,caption:nf(l.value)+' · '+Math.round(l.value/total*100)+'%'}))))+
+    '</div>'+
+    '<div class="sec"><p class="label">Кому что нужно</p><h2 class="serif" style="font-size:18px;margin:2px 0 0">Сегмент → готовый сценарий</h2></div>'+
+    '<div class="grid two">'+cards+'</div>'+
+    '<div class="note" style="margin-top:16px">Сегменты живые: профиль меняет давность визита — и переходит в другую группу. Запустить действие — во вкладке «Сценарии», оно идёт только по согласившимся (гейт 152-ФЗ).</div>';
+}
+function SEG_FLOWS(){
+  var j=[{n:'Возврат потерянных',ch:'Email + Telegram',f:lc('Потерянные'),conv:6.2,last:'сегодня 08:40',seg:'Потерянные'},{n:'Реактивация спящих',ch:'Email',f:lc('Спящие'),conv:9.1,last:'сегодня 09:15',seg:'Спящие'},{n:'Онбординг новых',ch:'Email + ВКонтакте',f:lc('Новые'),conv:24,last:'2 ч назад',seg:'Новые'},{n:'Допродажа активным',ch:'Telegram',f:lc('Активные'),conv:14,last:'сегодня 07:05',seg:'Активные'},{n:'Брошенная корзина',ch:'Email',f:Math.round(OV.orders.count*0.4),conv:31,last:'15 мин назад',seg:'Триггер: корзина'}];
+  var inflight=j.reduce(function(s,x){return s+x.f;},0);
+  var rows=j.map(function(x){return '<tr><td style="font-weight:600">'+x.n+'</td><td class="muted">'+x.seg+'</td><td class="muted">'+x.ch+'</td><td>'+nf(x.f)+'</td><td>'+x.conv+'%</td><td>'+badge('активен','sage')+'</td><td class="muted">'+x.last+'</td></tr>';}).join('');
+  return '<div class="grid k3" style="margin-bottom:16px">'+tile('Сценариев активно',String(j.length),'на расписании','sage')+tile('В работе',nf(inflight),'профилей в воронках','gold')+tile('Гейт 152-ФЗ','вкл','marketing_messaging fail-closed','rust')+'</div>'+
+    '<div class="note">Сценарии запускаются на сегментах: каждый берёт свою группу и ведёт по шагам (триггер → ожидание → письмо → цель). Соцсети и мессенджеры — через гейт согласия 152-ФЗ.</div>'+
+    chart('Сценарии на сегментах','Оркестратор: email · ВК · Telegram · гейт согласия','<div class="tw"><table><thead><tr><th>Сценарий</th><th>Сегмент</th><th>Канал</th><th>В работе</th><th>Конв.</th><th>Статус</th><th>Последний запуск</th></tr></thead><tbody>'+rows+'</tbody></table></div>');
+}
+function segRender(){
+  if(window.segTab==null) window.segTab=(location.pathname.indexOf('automations')>=0?'flows':'audience');
+  if(!seg_validSub(window.segTab)) window.segTab='audience';
+  var nav='<div class="em-tabs">';
+  for(var i=0;i<SEG_SUBTABS.length;i++){var t=SEG_SUBTABS[i];var on=(t[0]===window.segTab)?' on':'';
+    nav+='<button class="em-tab'+on+'" data-segtab="'+t[0]+'"><span class="em-tab-ic">'+t[2]+'</span><span class="em-tab-lb">'+esc(t[1])+'</span></button>';}
+  nav+='</div>';
+  var body=(window.segTab==='flows')?SEG_FLOWS():SEG_AUDIENCE();
+  return '<div class="em-module">'+nav+'<div class="em-panel">'+body+'</div></div>';
+}
+
 const VIEWS={
   today(){const o=OV.orders,aov=o.count?Math.round(o.revenue/o.count):0;
     const cards=[
@@ -2043,30 +2094,7 @@ const VIEWS={
       chart('Топ событий','Что делают на сайте',hbars(OV.topEvents))+
       chart('Согласия · 152-ФЗ','Цели обработки (opt-in ст.9)',OV.consent.total?hbars(OV.consent.purposes.map(p=>({label:p.label,value:p.count,tone:'sage'}))):'<div class="muted">нет записей</div>')+'</div>';},
   profiles(){return '<div class="muted" id="pl">Загрузка профилей…</div>';},
-  segments(){
-    const total=OV.lifecycle.reduce((s,x)=>s+x.value,0)||1;
-    const o=OV.orders, aov=o.count?Math.round(o.revenue/o.count):0;
-    const risk=lc('Спящие')+lc('Потерянные');
-    const ACT={
-      'Новые':{act:'Онбординг: первое письмо и бонус за подписку — пока интерес горячий',ch:'Email · ВК',cta:'Запустить онбординг'},
-      'Активные':{act:'Допродажа и рост чека, пока клиент тёплый',ch:'Email · Telegram',cta:'Собрать допродажу'},
-      'Спящие':{act:'Реактивация: «мы скучали» и персональная подборка',ch:'Email',cta:'Разбудить сегмент'},
-      'Потерянные':{act:'Win-back: вернуть ушедших с маркетплейсов на свой сайт',ch:'Email · ВК',cta:'Кампания возврата'}};
-    const cards=OV.lifecycle.map(l=>{const a=ACT[l.label]||{act:'',ch:'',cta:'Действие'};const pct=Math.round(l.value/total*100);
-      return '<div class="card act"><div><div class="nm">'+esc(l.label)+' <span class="muted" style="font-weight:400">· '+esc(l.desc)+'</span></div><div class="big" style="color:'+TONE[l.tone]+'">'+nf(l.value)+'</div><div class="c" style="color:var(--muted)">'+pct+'% базы</div></div><div><div class="c">'+esc(a.act)+'</div><div style="margin:8px 0">'+badge(a.ch,l.tone)+'</div><span class="cta">'+esc(a.cta)+' →</span></div></div>';}).join('');
-    return '<div class="grid k4" style="margin-bottom:16px">'+
-      tile('Всего профилей',nf(OV.kpi.profiles),nf(OV.kpi.identified)+' опознано','ink')+
-      tile('Активные',nf(lc('Активные')),'заходят и покупают','sage')+
-      tile('Под угрозой оттока',nf(risk),'спящие и потерянные','rust')+
-      tile('Средний чек',rub(aov),nf(o.count)+' заказов','gold')+'</div>'+
-      '<div class="grid two">'+
-        chart('Жизненный цикл','Каждый профиль — в одном сегменте по давности визита',donut(OV.lifecycle))+
-        chart('Доли и приоритет','Размер сегмента и куда смотреть первым',hbars(OV.lifecycle.slice().sort((a,b)=>b.value-a.value).map(l=>({label:l.label,value:l.value,tone:l.tone,caption:nf(l.value)+' · '+Math.round(l.value/total*100)+'%'}))))+
-      '</div>'+
-      '<div class="sec"><p class="label">Что делать</p><h2 class="serif" style="font-size:18px;margin:2px 0 0">Следующее действие по каждому сегменту</h2></div>'+
-      '<div class="grid two">'+cards+'</div>'+
-      '<div class="note" style="margin-top:16px">Сегменты живые: профиль меняет давность визита — и автоматически переходит в другую группу. Действия запускаются только по согласившимся (гейт 152-ФЗ).</div>';
-  },
+  segments(){return segRender();},
     sources(){
     const src=OV.sources, total=src.reduce((s,x)=>s+x.value,0)||1;
     const val=l=>{const x=src.find(s=>s.label===l);return x?x.value:0;};
@@ -2092,17 +2120,7 @@ const VIEWS={
       '</div>';
   },
     email(){return emailRender();},
-  automations(){var j=[
-      {n:'Возврат потерянных',ch:'Email + Telegram',f:lc('Потерянные'),conv:6.2,last:'сегодня 08:40'},
-      {n:'Реактивация спящих',ch:'Email',f:lc('Спящие'),conv:9.1,last:'сегодня 09:15'},
-      {n:'Онбординг новых',ch:'Email + ВКонтакте',f:lc('Новые'),conv:24,last:'2 ч назад'},
-      {n:'Допродажа активным',ch:'Telegram',f:lc('Активные'),conv:14,last:'сегодня 07:05'},
-      {n:'Брошенная корзина',ch:'Email',f:Math.round(OV.orders.count*0.4),conv:31,last:'15 мин назад'}];
-    var inflight=j.reduce(function(s,x){return s+x.f;},0);
-    var rows=j.map(function(x){return '<tr><td style="font-weight:600">'+x.n+'</td><td class="muted">'+x.ch+'</td><td>'+nf(x.f)+'</td><td>'+x.conv+'%</td><td>'+badge('активен','sage')+'</td><td class="muted">'+x.last+'</td></tr>';}).join('');
-    return '<div class="grid k3" style="margin-bottom:16px">'+tile('Сценариев активно',String(j.length),'на расписании','sage')+tile('В работе',nf(inflight),'профилей в воронках','gold')+tile('Гейт 152-ФЗ','вкл','marketing_messaging fail-closed','rust')+'</div>'+
-      chart('Сценарии','Оркестратор: соц + мессенджеры · гейт согласия 152-ФЗ','<div class="tw"><table><thead><tr><th>Сценарий</th><th>Канал</th><th>В работе</th><th>Конв.</th><th>Статус</th><th>Последний запуск</th></tr></thead><tbody>'+rows+'</tbody></table></div>');},
-  consent(){
+    consent(){
     const c=OV.consent, k=OV.kpi;
     const pv=p=>{const x=c.purposes.find(q=>new RegExp(p).test(q.label));return x?x.count:0;};
     const email=pv('Email'), msg=pv('Мессендж'), cross=pv('Трансгранично');
@@ -2168,9 +2186,9 @@ function showErr(e){$('#err').innerHTML=e?'<div class="err">Ошибка: '+esc(
 async function j(u){const r=await fetch(u);if(!r.ok)throw new Error((await r.json().catch(()=>({}))).error||('HTTP '+r.status));return r.json();}
 
 const isSec=id=>SECTIONS.some(s=>s[0]===id);
-function secFromPath(){const seg=(location.pathname.replace(/\\/+$/,'')||'/').slice(1);return isSec(seg)?seg:'overview';}
-function navTo(id){if(!isSec(id))return;const q=location.search;if(location.pathname!=='/'+id)history.pushState({id:id},'','/'+id+q);setActive(id);}
-function syncTenantUrl(){var t=$('#tenant').value;var sp=new URLSearchParams(location.search);if(t)sp.set('tenant',t);else sp.delete('tenant');if(cur!=='email')sp.delete('tab');var qs=sp.toString();history.replaceState({id:cur},'','/'+cur+(qs?'?'+qs:''));}
+function secFromPath(){const seg=(location.pathname.replace(/\\/+$/,'')||'/').slice(1);if(seg==='automations'){window.segTab='flows';return 'segments';}if(seg==='segments'&&window.segTab==null)window.segTab='audience';return isSec(seg)?seg:'overview';}
+function navTo(id){if(!isSec(id))return;if(id==='segments')window.segTab='audience';const q=location.search;if(location.pathname!=='/'+id)history.pushState({id:id},'','/'+id+q);setActive(id);}
+function syncTenantUrl(){var t=$('#tenant').value;var sp=new URLSearchParams(location.search);if(t)sp.set('tenant',t);else sp.delete('tenant');if(cur!=='email')sp.delete('tab');var qs=sp.toString();var bp=(cur==='segments'&&window.segTab==='flows')?'/automations':('/'+cur);history.replaceState({id:cur},'',bp+(qs?'?'+qs:''));}
 function setActive(id){
   cur=id; const meta=SECTIONS.find(s=>s[0]===id);
   $('#title').textContent=meta?meta[1]:id;
@@ -2190,7 +2208,7 @@ async function init(){
   cur=secFromPath();
   $('#nav').innerHTML=SECTIONS.map(s=>'<a href="/'+s[0]+'" data-id="'+s[0]+'"><span class="ic">'+s[2]+'</span>'+s[1]+'</a>').join('');
   document.querySelectorAll('.nav a').forEach(a=>a.onclick=e=>{if(e.metaKey||e.ctrlKey||e.shiftKey||e.button)return;e.preventDefault();navTo(a.dataset.id);});
-  window.onpopstate=()=>setActive(secFromPath());
+  window.onpopstate=()=>setActive(secFromPath());document.addEventListener('click',function(e){var b=e.target&&e.target.closest&&e.target.closest('[data-segtab]');if(b){e.preventDefault();window.segTo(b.getAttribute('data-segtab'));}});
   $('#burger').onclick=()=>document.body.classList.toggle('menu');
   $('#bd').onclick=()=>document.body.classList.remove('menu');
   try{
