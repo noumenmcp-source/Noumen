@@ -97,6 +97,8 @@ export const apiTokens = pgTable(
     role: text("role").notNull().default("viewer"),
     tokenHash: text("token_hash").notNull().unique(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
   },
   (t) => [index("api_tokens_tenant_idx").on(t.tenantId)],
 );

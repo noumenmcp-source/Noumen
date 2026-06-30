@@ -64,6 +64,23 @@ run("db integration (real Postgres)", () => {
     expect(tenants.some((listedTenant) => listedTenant.id === tenant.id)).toBe(true);
   });
 
+  it("token store: revoke and expiry stop resolution (real DB)", async () => {
+    const account = await tenantStore.createTenantAccount({
+      name: `Integration Test ${randomUUID()}`,
+      ownerEmail: `owner-${randomUUID()}@example.com`,
+    });
+    const base = { tenantId: account.tenant.id, userId: account.owner.id, role: "owner" as const };
+
+    const { token, principal } = await tokenStore.issue(base);
+    expect(await tokenStore.resolve(token)).toMatchObject({ tenantId: base.tenantId });
+
+    await tokenStore.revoke(principal.tokenId);
+    expect(await tokenStore.resolve(token)).toBeUndefined();
+
+    const expired = await tokenStore.issue({ ...base, expiresAt: "2000-01-01T00:00:00.000Z" });
+    expect(await tokenStore.resolve(expired.token)).toBeUndefined();
+  });
+
   it("persists and reads plan/status on the tenant account", async () => {
     const { tenant } = await tenantStore.createTenantAccount({
       name: `Integration Test ${randomUUID()}`,

@@ -87,6 +87,7 @@ import {
 } from "@cdp-us/rate-limiter";
 import { registerModules } from "./routes/modules.js";
 import { registerSignup } from "./routes/signup.js";
+import { registerAuth } from "./routes/auth.js";
 import {
   DbTenantStore,
   InMemoryTenantStore,
@@ -185,6 +186,7 @@ export async function buildServer(
   registerMetrics(app, createMetricsRegistry(() => ({ ...counters })));
   registerModules(app, tenantStore, tokenStore, { auditStore });
   registerSignup(app, tenantStore, tokenStore);
+  registerAuth(app, tokenStore);
   registerIngest(app, ingestStore, tenantStore, profileService, createIngestRateLimiter(rateLimitRedis));
   registerData(app, profileStore, ingestStore, tokenStore);
   registerEmail(app, tenantStore, profileStore, tokenStore, {

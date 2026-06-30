@@ -15,6 +15,7 @@ function fakeTokenStore(principal: AuthPrincipal): TokenStore {
   return {
     issue: () => Promise.reject(new Error("not_used")),
     resolve: (raw) => Promise.resolve(raw === "good" ? principal : undefined),
+    revoke: () => Promise.resolve(),
   };
 }
 

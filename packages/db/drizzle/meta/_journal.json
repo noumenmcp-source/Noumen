@@ -71,6 +71,13 @@
       "when": 1782580100000,
       "tag": "0009_rls_profiles_consent_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1782580200000,
+      "tag": "0010_api_token_revoke_expiry",
+      "breakpoints": true
     }
   ]
 }

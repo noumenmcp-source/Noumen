@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { FastifyRequest } from "fastify";
 import type { Role } from "@cdp-us/contracts";
 import { apiTokens, type Db } from "@cdp-us/db";
-import { eq } from "drizzle-orm";
+import { and, eq, gt, isNull, or } from "drizzle-orm";
 
 /**
  * Token-based auth + RBAC for the US platform API.
@@ -26,6 +26,8 @@ export interface IssueTokenInput {
   /** Fixed raw token (tests only); otherwise generated. */
   readonly token?: string;
   readonly id?: string;
+  /** Optional absolute expiry (ISO). After this, the token no longer resolves. */
+  readonly expiresAt?: string;
 }
 
 /** Result of issuing a token; the raw value is returned exactly once. */
@@ -53,7 +55,10 @@ export function generateRawToken(): string {
 /** Persistence boundary for API tokens. */
 export interface TokenStore {
   issue(input: IssueTokenInput): Promise<IssuedToken>;
+  /** Resolve a live (non-revoked, non-expired) token to its principal. */
   resolve(rawToken: string): Promise<AuthPrincipal | undefined>;
+  /** Invalidate a token by id (logout / admin revoke). Idempotent. */
+  revoke(tokenId: string): Promise<void>;
 }
 
 /**
@@ -64,10 +69,12 @@ export interface TokenStore {
  * await s.resolve(token); // => principal
  */
 export class InMemoryTokenStore implements TokenStore {
-  readonly #byHash = new Map<string, AuthPrincipal>();
+  readonly #byHash = new Map<string, { principal: AuthPrincipal; expiresAt?: number; revoked: boolean }>();
+  readonly #hashById = new Map<string, string>();
 
   reset(): void {
     this.#byHash.clear();
+    this.#hashById.clear();
   }
 
   async issue(input: IssueTokenInput): Promise<IssuedToken> {
@@ -78,12 +85,27 @@ export class InMemoryTokenStore implements TokenStore {
       userId: input.userId,
       role: input.role,
     };
-    this.#byHash.set(hashToken(token), principal);
+    const hash = hashToken(token);
+    this.#byHash.set(hash, {
+      principal,
+      expiresAt: input.expiresAt ? Date.parse(input.expiresAt) : undefined,
+      revoked: false,
+    });
+    this.#hashById.set(principal.tokenId, hash);
     return { token, principal };
   }
 
   async resolve(rawToken: string): Promise<AuthPrincipal | undefined> {
-    return this.#byHash.get(hashToken(rawToken));
+    const entry = this.#byHash.get(hashToken(rawToken));
+    if (!entry || entry.revoked) return undefined;
+    if (entry.expiresAt !== undefined && entry.expiresAt <= Date.now()) return undefined;
+    return entry.principal;
+  }
+
+  async revoke(tokenId: string): Promise<void> {
+    const hash = this.#hashById.get(tokenId);
+    const entry = hash ? this.#byHash.get(hash) : undefined;
+    if (entry) entry.revoked = true;
   }
 }
 
@@ -103,6 +125,7 @@ export class DbTokenStore implements TokenStore {
       userId: input.userId,
       role: input.role,
       tokenHash: hashToken(token),
+      expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
     });
     return {
       token,
@@ -114,7 +137,13 @@ export class DbTokenStore implements TokenStore {
     const [row] = await this.db
       .select()
       .from(apiTokens)
-      .where(eq(apiTokens.tokenHash, hashToken(rawToken)))
+      .where(
+        and(
+          eq(apiTokens.tokenHash, hashToken(rawToken)),
+          isNull(apiTokens.revokedAt),
+          or(isNull(apiTokens.expiresAt), gt(apiTokens.expiresAt, new Date())),
+        ),
+      )
       .limit(1);
     if (!row) return undefined;
     return {
@@ -123,6 +152,10 @@ export class DbTokenStore implements TokenStore {
       userId: row.userId,
       role: row.role as Role,
     };
+  }
+
+  async revoke(tokenId: string): Promise<void> {
+    await this.db.update(apiTokens).set({ revokedAt: new Date() }).where(eq(apiTokens.id, tokenId));
   }
 }
 
