@@ -67,8 +67,8 @@ function stubEs() {
       ] } } });
     }
     if (url.includes('/cdp_consent_aero/_search')) {
-      return json({ hits: { total: { value: 6 } }, aggregations: { byState: { buckets: [
-        { key: 'granted', doc_count: 5 }, { key: 'denied', doc_count: 1 },
+      return json({ hits: { total: { value: 6 } }, aggregations: { purposes: { buckets: [
+        { key: 'personal_data', doc_count: 6 }, { key: 'marketing', doc_count: 4 },
       ] } } });
     }
     // not an ES call (e.g. the test client hitting the local server) → real fetch
@@ -92,9 +92,10 @@ test('aggregate shapes RF metrics: collapses sources, detects consent grants', a
     // lifecycle from profilesOf
     assert.equal(d.lifecycle.find((l) => l.label === 'Новые').value, 1);
     assert.equal(d.lifecycle.find((l) => l.label === 'Спящие').value, 1);
-    // consent grants
+    // consent purposes (152-ФЗ) with RU labels
     assert.equal(d.consent.total, 6);
-    assert.equal(d.consent.granted, 5);
+    const pdn = d.consent.purposes.find((p) => p.purpose === 'personal_data');
+    assert.ok(pdn && pdn.count === 6 && pdn.label === 'Обработка ПДн');
     assert.equal(d.daily.length, 2);
   } finally { restore(); }
 });

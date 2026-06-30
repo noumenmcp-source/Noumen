@@ -96,16 +96,22 @@ async function profilesOf(tenant, nowMs) {
   return buckets.map((b) => ({ id: b.key, firstSeen: b.fs.value_as_string, lastSeen: b.ls.value_as_string }));
 }
 
+// РФ-метки целей обработки (152-ФЗ): purpose → русская подпись
+const PURPOSE_RU = {
+  personal_data: 'Обработка ПДн', pdn_processing: 'Обработка ПДн', marketing: 'Маркетинг',
+  marketing_email: 'Email-маркетинг', marketing_messaging: 'Мессенджеры', analytics: 'Аналитика',
+  third_party_transfer: 'Передача 3-м лицам', cross_border: 'Трансгранично',
+};
 async function consentStats(tenant) {
   const q = await es('/cdp_consent_' + tenant + '/_search', {
     size: 0, track_total_hits: true,
-    aggs: { byState: { terms: { field: 'consent.state.keyword', size: 10 } } },
+    aggs: { purposes: { terms: { field: 'consent.purposes.keyword', size: 12 } } },
   }).catch(() => ({ _missing: true }));
-  if (q._missing) return { total: 0, granted: 0, states: [] };
+  if (q._missing) return { total: 0, purposes: [] };
   const total = (q.hits && q.hits.total && q.hits.total.value) || 0;
-  const states = (q.aggregations && q.aggregations.byState.buckets) || [];
-  const granted = states.filter((s) => /grant|accept|opt.?in|да|разреш/i.test(s.key)).reduce((a, s) => a + s.doc_count, 0);
-  return { total, granted, states: states.map((s) => ({ state: s.key, count: s.doc_count })) };
+  const purposes = ((q.aggregations && q.aggregations.purposes.buckets) || [])
+    .map((b) => ({ purpose: b.key, label: PURPOSE_RU[b.key] || b.key, count: b.doc_count }));
+  return { total, purposes };
 }
 
 async function aggregate(tenant, nowMs) {
@@ -307,7 +313,7 @@ function svc(s){return '<div class="card svc"><div class="hd"><span class="label
 function connectors(d){const k=d.kpi,c=d.consent;
   return [
     {name:'Веб-трекер',tone:'gold',status:'активен',metric:nf(k.events),caption:nf(k.profiles)+' профилей · '+nf(k.active7)+' активны за 7 дней'},
-    {name:'Согласия · 152-ФЗ',tone:'sage',status:'активен',metric:(c.total?Math.round(c.granted/c.total*100):0)+'%',caption:'opt-in ст.9 · '+nf(c.total)+' записей · hash-chain подписан'},
+    {name:'Согласия · 152-ФЗ',tone:'sage',status:'активен',metric:nf(c.total),caption:'записей opt-in ст.9 · '+c.purposes.length+' целей · hash-chain подписан'},
     {name:'Профили и сегменты',tone:'gold',status:'активен',metric:nf(k.identified),caption:'идентифицировано · identity-stitching + RFM-сегменты'},
     {name:'Email-маркетинг',tone:'rust',status:'активен',metric:'РФ-шаблон',caption:'AI-копирайт · футер «О рекламе» ст.18 · гейт согласия'},
     {name:'ВКонтакте',tone:'sage',status:'готов',metric:'соц-сигналы',caption:'намерение + комментарии · кириллица-токенизация'},
@@ -343,7 +349,7 @@ async function load(){
     $('#events').innerHTML=d.topEvents.length?hbars(d.topEvents):'<div style="color:var(--muted)">Нет событий</div>';
     const c=d.consent;
     $('#consent').innerHTML=c.total
-      ? hbars(c.states.map(s=>({label:s.state,value:s.count,tone:/grant|accept|opt.?in|да|разреш/i.test(s.state)?'sage':'rust'})))+'<div style="margin-top:10px;color:var(--muted);font-size:12px">'+nf(c.granted)+' из '+nf(c.total)+' — согласие получено</div>'
+      ? hbars(c.purposes.map(p=>({label:p.label,value:p.count,tone:'sage'})))+'<div style="margin-top:10px;color:var(--muted);font-size:12px">'+nf(c.total)+' записей согласий · '+c.purposes.length+' целей обработки (ст.9)</div>'
       : '<div style="color:var(--muted)">Записей согласий пока нет (cdp_consent_'+esc(t)+')</div>';
     $('#connectors').innerHTML=connectors(d).map(svc).join('');
   }catch(e){showErr(e.message||e)}
