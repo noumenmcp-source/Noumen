@@ -51,6 +51,7 @@ import { registerAbTesting } from "./routes/ab-testing.js";
 import { registerAttribution } from "./routes/attribution.js";
 import { registerAudiences } from "./routes/audiences.js";
 import { registerAuditLog } from "./routes/audit-log.js";
+import { registerBilling } from "./routes/billing.js";
 import { registerCohorts } from "./routes/cohorts.js";
 import { registerSegments, type LifecycleStore } from "./routes/segments.js";
 import { registerChannelQuality } from "./routes/channel-quality.js";
@@ -224,6 +225,7 @@ export async function buildServer(
   });
   registerEnrichment(app, { tenantStore, tokenStore, profileStore, providers: [] });
   registerAuditLog(app, { tenantStore, tokenStore, store: auditStore });
+  registerBilling(app, { tenantStore, tokenStore, usageMeter });
   registerFunnels(app, {
     tenantStore,
     tokenStore,

@@ -111,6 +111,7 @@ function NavIcon(props: { readonly name: string }) {
     case "Modules": return p("M4 4h6v6H4z|M14 4h6v6h-6z|M14 14h6v6h-6z|M4 14h6v6H4z");
     case "Connect": return p("M9 12h6|M9 12a3 3 0 0 1-3 3H5a3 3 0 0 1 0-6h1|M15 12a3 3 0 0 0 3 3h1a3 3 0 0 0 0-6h-1");
     case "Audit": return p("M9 11l3 3 5-6|M5 3h14v18l-7-3-7 3z");
+    case "Billing": return p("M3 6h18v12H3z|M3 10h18|M7 15h3");
     default: return p("M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z");
   }
 }
@@ -118,7 +119,7 @@ function NavIcon(props: { readonly name: string }) {
 const NAV_ITEMS = [
   "Overview", "Today", "Playbook", "Lifecycle", "Channels",
   "Profiles", "Activation", "Email", "Automations",
-  "Compliance", "Audit", "Modules", "Connect",
+  "Compliance", "Audit", "Modules", "Connect", "Billing",
 ] as const;
 
 export function Shell(props: { readonly children: ReactNode }) {
