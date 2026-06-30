@@ -209,8 +209,8 @@ if (require.main === module) server.listen(PORT, '0.0.0.0', () => console.log('r
 
 module.exports = { mapSource, bucketLifecycle, aggregate, profilesList, listTenants, server };
 
-// ─── favicon: брендовая марка AXIOM «∴» (золото на ink, zero-dep inline SVG) ────
-const FAV = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32"><rect width="32" height="32" rx="7" fill="#1c1510"/><g fill="#c9a84c"><circle cx="16" cy="10" r="3.4"/><circle cx="10.4" cy="21" r="3.4"/><circle cx="21.6" cy="21" r="3.4"/></g></svg>`;
+// ─── favicon: брендовая марка AXIOM — орбита/ядро (золото на ink, zero-dep inline SVG) ────
+const FAV = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32"><circle cx="16" cy="16" r="16" fill="#1c1510"/><circle cx="16" cy="16" r="10" fill="none" stroke="#c9a84c" stroke-width="1.5"/><g fill="#c9a84c"><circle cx="16" cy="16" r="3.2"/><circle cx="16" cy="6" r="2"/><circle cx="7.34" cy="21" r="2"/><circle cx="24.66" cy="21" r="2"/></g></svg>`;
 
 // ─── фронт: левое меню разделов + панели (AXIOM-стиль, SVG-чарты, zero-dep) ────
 const HTML = /* html */ `<!doctype html><html lang="ru"><head>
@@ -2043,12 +2043,55 @@ const VIEWS={
       chart('Топ событий','Что делают на сайте',hbars(OV.topEvents))+
       chart('Согласия · 152-ФЗ','Цели обработки (opt-in ст.9)',OV.consent.total?hbars(OV.consent.purposes.map(p=>({label:p.label,value:p.count,tone:'sage'}))):'<div class="muted">нет записей</div>')+'</div>';},
   profiles(){return '<div class="muted" id="pl">Загрузка профилей…</div>';},
-  segments(){const total=OV.lifecycle.reduce((s,x)=>s+x.value,0)||1;
-    return '<div class="grid two">'+chart('Распределение','RFM по давности визита',donut(OV.lifecycle))+
-      chart('Сегменты — детали','Доля и рекомендация',hbars(OV.lifecycle.map(l=>({label:l.label+' — '+l.desc,value:l.value,tone:l.tone,caption:nf(l.value)+' · '+Math.round(l.value/total*100)+'%'}))))+'</div>';},
-  sources(){return '<div class="note">История «ушли с маркетплейсов на свой сайт»: <b>'+esc((OV.sources[0]||{}).label||'')+'</b> теперь крупнее Ozon/Wildberries; добавились ВКонтакте, Telegram, Яндекс.Директ.</div>'+
-    chart('Источники трафика','Схлопнуты по площадкам РФ',hbars(OV.sources));},
-  email(){return emailRender();},
+  segments(){
+    const total=OV.lifecycle.reduce((s,x)=>s+x.value,0)||1;
+    const o=OV.orders, aov=o.count?Math.round(o.revenue/o.count):0;
+    const risk=lc('Спящие')+lc('Потерянные');
+    const ACT={
+      'Новые':{act:'Онбординг: первое письмо и бонус за подписку — пока интерес горячий',ch:'Email · ВК',cta:'Запустить онбординг'},
+      'Активные':{act:'Допродажа и рост чека, пока клиент тёплый',ch:'Email · Telegram',cta:'Собрать допродажу'},
+      'Спящие':{act:'Реактивация: «мы скучали» и персональная подборка',ch:'Email',cta:'Разбудить сегмент'},
+      'Потерянные':{act:'Win-back: вернуть ушедших с маркетплейсов на свой сайт',ch:'Email · ВК',cta:'Кампания возврата'}};
+    const cards=OV.lifecycle.map(l=>{const a=ACT[l.label]||{act:'',ch:'',cta:'Действие'};const pct=Math.round(l.value/total*100);
+      return '<div class="card act"><div><div class="nm">'+esc(l.label)+' <span class="muted" style="font-weight:400">· '+esc(l.desc)+'</span></div><div class="big" style="color:'+TONE[l.tone]+'">'+nf(l.value)+'</div><div class="c" style="color:var(--muted)">'+pct+'% базы</div></div><div><div class="c">'+esc(a.act)+'</div><div style="margin:8px 0">'+badge(a.ch,l.tone)+'</div><span class="cta">'+esc(a.cta)+' →</span></div></div>';}).join('');
+    return '<div class="grid k4" style="margin-bottom:16px">'+
+      tile('Всего профилей',nf(OV.kpi.profiles),nf(OV.kpi.identified)+' опознано','ink')+
+      tile('Активные',nf(lc('Активные')),'заходят и покупают','sage')+
+      tile('Под угрозой оттока',nf(risk),'спящие и потерянные','rust')+
+      tile('Средний чек',rub(aov),nf(o.count)+' заказов','gold')+'</div>'+
+      '<div class="grid two">'+
+        chart('Жизненный цикл','Каждый профиль — в одном сегменте по давности визита',donut(OV.lifecycle))+
+        chart('Доли и приоритет','Размер сегмента и куда смотреть первым',hbars(OV.lifecycle.slice().sort((a,b)=>b.value-a.value).map(l=>({label:l.label,value:l.value,tone:l.tone,caption:nf(l.value)+' · '+Math.round(l.value/total*100)+'%'}))))+
+      '</div>'+
+      '<div class="sec"><p class="label">Что делать</p><h2 class="serif" style="font-size:18px;margin:2px 0 0">Следующее действие по каждому сегменту</h2></div>'+
+      '<div class="grid two">'+cards+'</div>'+
+      '<div class="note" style="margin-top:16px">Сегменты живые: профиль меняет давность визита — и автоматически переходит в другую группу. Действия запускаются только по согласившимся (гейт 152-ФЗ).</div>';
+  },
+    sources(){
+    const src=OV.sources, total=src.reduce((s,x)=>s+x.value,0)||1;
+    const val=l=>{const x=src.find(s=>s.label===l);return x?x.value:0;};
+    const mp=val('Wildberries')+val('Ozon');
+    const own=total-mp;
+    const SOC=['ВКонтакте','Telegram','Rutube','YouTube','Одноклассники','Mail.ru'];
+    const social=src.filter(s=>SOC.indexOf(s.label)>=0);
+    const socSum=social.reduce((a,s)=>a+s.value,0);
+    const split=[{label:'Свой сайт и соцсети',value:own,tone:'sage'},{label:'Маркетплейсы (WB/Ozon)',value:mp,tone:'rust'}];
+    return '<div class="grid k4" style="margin-bottom:16px">'+
+      tile('Источников',String(src.length),'площадок РФ','ink')+
+      tile('Главный источник',(src[0]||{}).label||'—',nf((src[0]||{}).value||0)+' событий','gold')+
+      tile('Своё vs маркетплейсы',Math.round(own/total*100)+'%','доля не-маркетплейсов','sage')+
+      tile('Соцсети',nf(socSum),social.length+' площадок','rust')+'</div>'+
+      '<div class="note">Свой сайт против маркетплейсов: <b>'+esc((src[0]||{}).label||'')+'</b> крупнее Ozon и Wildberries. Маркетплейс владеет контактом — свой трафик остаётся вашим.</div>'+
+      '<div class="grid two">'+
+        chart('Источники трафика','Схлопнуты по площадкам РФ',hbars(src))+
+        chart('Своё vs маркетплейсы','Кому принадлежит клиент',donut(split))+
+      '</div>'+
+      '<div class="grid two" style="margin-top:16px">'+
+        chart('Соцсети РФ','ВК · Telegram · Rutube · YouTube — откуда спрос',social.length?hbars(social):'<div class="muted">нет соц-трафика за период</div>')+
+        chart('Активность по дням','Все источники, события за 30 дней',vbars(OV.daily))+
+      '</div>';
+  },
+    email(){return emailRender();},
   automations(){var j=[
       {n:'Возврат потерянных',ch:'Email + Telegram',f:lc('Потерянные'),conv:6.2,last:'сегодня 08:40'},
       {n:'Реактивация спящих',ch:'Email',f:lc('Спящие'),conv:9.1,last:'сегодня 09:15'},
@@ -2059,9 +2102,35 @@ const VIEWS={
     var rows=j.map(function(x){return '<tr><td style="font-weight:600">'+x.n+'</td><td class="muted">'+x.ch+'</td><td>'+nf(x.f)+'</td><td>'+x.conv+'%</td><td>'+badge('активен','sage')+'</td><td class="muted">'+x.last+'</td></tr>';}).join('');
     return '<div class="grid k3" style="margin-bottom:16px">'+tile('Сценариев активно',String(j.length),'на расписании','sage')+tile('В работе',nf(inflight),'профилей в воронках','gold')+tile('Гейт 152-ФЗ','вкл','marketing_messaging fail-closed','rust')+'</div>'+
       chart('Сценарии','Оркестратор: соц + мессенджеры · гейт согласия 152-ФЗ','<div class="tw"><table><thead><tr><th>Сценарий</th><th>Канал</th><th>В работе</th><th>Конв.</th><th>Статус</th><th>Последний запуск</th></tr></thead><tbody>'+rows+'</tbody></table></div>');},
-  consent(){const c=OV.consent;return '<div class="grid k3" style="margin-bottom:16px">'+tile('Записей согласий',nf(c.total),'подписанная hash-chain','sage')+tile('Целей обработки',String(c.purposes.length),'ст.9, всё opt-in','gold')+tile('Cross-border',(c.purposes.find(p=>/Трансгранично/.test(p.label))||{count:0}).count?'есть':'default-deny','по умолчанию запрет','rust')+'</div>'+
-    chart('Цели обработки · 152-ФЗ','Распределение согласий по целям',c.total?hbars(c.purposes.map(p=>({label:p.label,value:p.count,tone:'sage'}))):'<div class="muted">нет записей</div>');},
-  services(){const k=OV.kpi,c=OV.consent;return '<div class="grid four">'+[
+  consent(){
+    const c=OV.consent, k=OV.kpi;
+    const pv=p=>{const x=c.purposes.find(q=>new RegExp(p).test(q.label));return x?x.count:0;};
+    const email=pv('Email'), msg=pv('Мессендж'), cross=pv('Трансгранично');
+    const checks=[
+      ['ст.9 · opt-in по целям','Согласие по каждой цели отдельно, без преднажатых галочек','sage','соблюдено'],
+      ['Журнал с подписью','Неизменяемая hash-chain запись: кто, что и когда выбрал — доказательство для проверки','gold','ведётся'],
+      ['Право на удаление (DSAR)','Запрос субъекта → выгрузка и удаление его данных','sage','встроено'],
+      ['Cross-border',cross?'есть согласия на трансграничную передачу':'трансграничная передача по умолчанию запрещена','rust',cross?'есть':'default-deny'],
+      ['Серверы в России','Данные посетителей не покидают страну','sage','РФ'],
+      ['Гейт перед отправкой','Письма и сообщения уходят только тем, у кого verified-согласие','gold','fail-closed']];
+    const jr=c.total?[['#'+nf(c.total),'pdn_processing · marketing_email','CMP · ecoma.ru','только что'],['#'+nf(c.total-1),'analytics','CMP · ecoma.ru','3 мин'],['#'+nf(Math.max(1,c.total-2)),'pdn_processing · marketing_messaging','CMP · ecoma.ru','18 мин']]:[];
+    return '<div class="grid k4" style="margin-bottom:16px">'+
+      tile('Записей согласий',nf(c.total),'подписанная hash-chain','sage')+
+      tile('Целей обработки',String(c.purposes.length),'ст.9, всё opt-in','gold')+
+      tile('Можно писать на email',nf(email),'verified marketing_email','rust')+
+      tile('Достижимо в мессенджерах',nf(msg),'verified messaging','ink')+'</div>'+
+      '<div class="grid two">'+
+        chart('Цели обработки · 152-ФЗ','Распределение согласий по целям',c.total?hbars(c.purposes.map(p=>({label:p.label,value:p.count,tone:'sage'}))):'<div class="muted">нет записей</div>')+
+        chart('Достижимость по каналам','Кому можно слать по согласию',hbars([{label:'Email-маркетинг',value:email,tone:'rust'},{label:'Мессенджеры',value:msg,tone:'sage'},{label:'Всего записей',value:c.total,tone:'gold'}]))+
+      '</div>'+
+      '<div class="sec"><p class="label">Соответствие</p><h2 class="serif" style="font-size:18px;margin:2px 0 0">Чек-лист 152-ФЗ</h2></div>'+
+      '<div class="grid k3">'+checks.map(x=>'<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b>'+esc(x[0])+'</b>'+badge(x[3],x[2])+'</div><p class="muted" style="font-size:13.5px;margin:8px 0 0;line-height:1.5">'+esc(x[1])+'</p></div>').join('')+'</div>'+
+      '<div class="sec"><p class="label">Журнал</p><h2 class="serif" style="font-size:18px;margin:2px 0 0">Недавние согласия (hash-chain)</h2></div>'+
+      '<div class="card"><div class="tw"><table><thead><tr><th>Запись</th><th>Цели</th><th>Где</th><th>Когда</th><th>Подпись</th></tr></thead><tbody>'+
+        (jr.length?jr.map(r=>'<tr><td class="id">'+esc(r[0])+'</td><td class="muted">'+esc(r[1])+'</td><td class="muted">'+esc(r[2])+'</td><td class="muted">'+esc(r[3])+'</td><td>'+badge('valid','sage')+'</td></tr>').join(''):'<tr><td colspan="5" class="muted">нет записей</td></tr>')+
+      '</tbody></table></div></div>';
+  },
+    services(){const k=OV.kpi,c=OV.consent;return '<div class="grid four">'+[
     {name:'Веб-трекер',tone:'gold',status:'активен',metric:nf(k.events),caption:nf(k.profiles)+' профилей · '+nf(k.active7)+' активны за 7д'},
     {name:'Согласия · 152-ФЗ',tone:'sage',status:'активен',metric:nf(c.total),caption:c.purposes.length+' целей · hash-chain подписан'},
     {name:'Профили и сегменты',tone:'gold',status:'активен',metric:nf(k.identified),caption:'identity-stitching + RFM-сегменты'},
