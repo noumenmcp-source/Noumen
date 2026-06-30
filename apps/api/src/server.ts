@@ -89,6 +89,8 @@ import {
 import { registerModules } from "./routes/modules.js";
 import { registerSignup } from "./routes/signup.js";
 import { registerAuth } from "./routes/auth.js";
+import { registerOidc } from "./routes/oidc.js";
+import { MockOidcProvider, OidcStateStore } from "./oidc.js";
 import {
   DbTenantStore,
   InMemoryTenantStore,
@@ -188,6 +190,28 @@ export async function buildServer(
   registerModules(app, tenantStore, tokenStore, { auditStore });
   registerSignup(app, tenantStore, tokenStore);
   registerAuth(app, tokenStore);
+  // OIDC login is opt-in (OIDC_ENABLED=true). Dev uses the self-contained mock
+  // provider; a real IdP replaces it. Claims are mapped to a tenant by owner email.
+  if (process.env.OIDC_ENABLED === "true") {
+    registerOidc(app, {
+      provider: new MockOidcProvider(),
+      stateStore: new OidcStateStore(),
+      tokenStore,
+      redirectUri: process.env.OIDC_REDIRECT_URI ?? "http://localhost:8110/v1/auth/oidc/callback",
+      resolveTenant: async (claims) => {
+        if (!claims.email) return undefined;
+        const getAccount = tenantStore.getTenantAccount?.bind(tenantStore);
+        if (!getAccount) return undefined;
+        for (const t of await tenantStore.listTenants()) {
+          const account = await getAccount(t.id);
+          if (account?.owner.email?.toLowerCase() === claims.email.toLowerCase()) {
+            return { tenantId: t.id, userId: account.owner.id, role: "owner" };
+          }
+        }
+        return undefined;
+      },
+    });
+  }
   registerIngest(app, ingestStore, tenantStore, profileService, createIngestRateLimiter(rateLimitRedis));
   registerData(app, profileStore, ingestStore, tokenStore);
   registerEmail(app, tenantStore, profileStore, tokenStore, {
