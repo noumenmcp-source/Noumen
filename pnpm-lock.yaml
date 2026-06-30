@@ -134,6 +134,9 @@ importers:
       '@cdp-us/playbook':
         specifier: workspace:*
         version: link:../../packages/playbook
+      '@cdp-us/rate-limiter':
+        specifier: workspace:*
+        version: link:../../packages/rate-limiter
       '@cdp-us/social-intel':
         specifier: workspace:*
         version: link:../../modules/social-intel

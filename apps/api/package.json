@@ -38,6 +38,7 @@
     "@cdp-us/notifications": "workspace:*",
     "@cdp-us/platform": "workspace:*",
     "@cdp-us/playbook": "workspace:*",
+    "@cdp-us/rate-limiter": "workspace:*",
     "@cdp-us/social-intel": "workspace:*",
     "@cdp-us/sources": "workspace:*",
     "@cdp-us/warehouse-sync": "workspace:*",

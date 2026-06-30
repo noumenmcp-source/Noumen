@@ -30,6 +30,7 @@
     { "path": "../../packages/lead-scoring" },
     { "path": "../../packages/notifications" },
     { "path": "../../packages/webhooks-inbound" },
+    { "path": "../../packages/rate-limiter" },
     { "path": "../../modules/automation" },
     { "path": "../../modules/consent" },
     { "path": "../../modules/email" },

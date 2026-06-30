@@ -76,7 +76,14 @@ import {
 } from "./ingest-store.js";
 import { registerHealth, counters } from "./routes/health.js";
 import { createMetricsRegistry, registerMetrics } from "./metrics.js";
-import { registerIngest } from "./routes/ingest.js";
+import { registerIngest, type IngestRateLimiter } from "./routes/ingest.js";
+import {
+  InMemoryLimiterStore,
+  RedisLimiterStore,
+  tenantKey,
+  tokenBucket,
+  type LimiterStore,
+} from "@cdp-us/rate-limiter";
 import { registerModules } from "./routes/modules.js";
 import { registerSignup } from "./routes/signup.js";
 import {
@@ -147,12 +154,12 @@ export async function buildServer(
     // read/write endpoints; without it the browser blocks the CORS preflight.
     allowedHeaders: ["content-type", "authorization", "x-cdp-write-key", "x-signature", "stripe-signature", "x-hub-signature-256"],
   });
+  // Share rate-limit/ingest-throttle counters across replicas when a Redis URL
+  // is set; otherwise per-instance. Closed on shutdown.
+  const rateLimitRedis = opts.rateLimitRedis ?? resolveRateLimitRedis();
+  if (rateLimitRedis) app.addHook("onClose", async () => { await rateLimitRedis.quit().catch(() => undefined); });
   const rateLimitConfig = opts.rateLimit ?? defaultRateLimit();
   if (rateLimitConfig !== false) {
-    // Share the limit across replicas when a Redis URL is set; otherwise the
-    // plugin's in-process store (per-instance) is used.
-    const rateLimitRedis = opts.rateLimitRedis ?? resolveRateLimitRedis();
-    if (rateLimitRedis) app.addHook("onClose", async () => { await rateLimitRedis.quit().catch(() => undefined); });
     await app.register(rateLimit, {
       max: rateLimitConfig.max,
       timeWindow: rateLimitConfig.timeWindow,
@@ -163,7 +170,7 @@ export async function buildServer(
   registerMetrics(app, createMetricsRegistry(() => ({ ...counters })));
   registerModules(app, tenantStore, tokenStore, { auditStore });
   registerSignup(app, tenantStore, tokenStore);
-  registerIngest(app, ingestStore, tenantStore, profileService);
+  registerIngest(app, ingestStore, tenantStore, profileService, createIngestRateLimiter(rateLimitRedis));
   registerData(app, profileStore, ingestStore, tokenStore);
   registerEmail(app, tenantStore, profileStore, tokenStore, {
     sender: emailSender,
@@ -332,6 +339,31 @@ export function resolveRateLimitRedis(env: NodeJS.ProcessEnv = process.env): Red
   const url = env.RATE_LIMIT_REDIS_URL ?? env.REDIS_URL;
   if (!url) return undefined;
   return new Redis(url, { lazyConnect: true, maxRetriesPerRequest: null, enableOfflineQueue: false });
+}
+
+/**
+ * Per-tenant ingest throttle (token bucket). Off unless `INGEST_RATE_CAPACITY`
+ * is set, so it never surprises existing traffic. Shares counts via Redis when a
+ * client is available, else per-process. Protects against one tenant flooding.
+ */
+function createIngestRateLimiter(redis?: Redis, env: NodeJS.ProcessEnv = process.env): IngestRateLimiter | undefined {
+  const capacity = Number(env.INGEST_RATE_CAPACITY ?? 0);
+  if (!Number.isFinite(capacity) || capacity <= 0) return undefined;
+  const refillRaw = Number(env.INGEST_RATE_REFILL_PER_SEC ?? capacity / 60);
+  const refillPerSec = Number.isFinite(refillRaw) && refillRaw > 0 ? refillRaw : 1;
+  const bucket = tokenBucket({ capacity, refillPerSec });
+  const store: LimiterStore = redis
+    ? new RedisLimiterStore(
+        { get: (k) => redis.get(k), set: (k, v, _mode, ttlMs) => redis.set(k, v, "PX", ttlMs) },
+        { keyPrefix: "ingest:" },
+      )
+    : new InMemoryLimiterStore();
+  return {
+    check: async (tenantId, n) => {
+      const r = await bucket.consume(tenantKey(tenantId, "ingest"), Math.max(1, n), Date.now(), store);
+      return { allowed: r.allowed, retryAfterMs: r.retryAfterMs };
+    },
+  };
 }
 
 function createDataExportReaders(profileStore: ProfileStore, ingestStore: IngestStore): DsarReaders {

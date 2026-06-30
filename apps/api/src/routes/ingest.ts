@@ -7,11 +7,20 @@ import type { IngestStore } from "../ingest-store.js";
 import { toStoredIngestEvent } from "../ingest-store.js";
 import { counters } from "./health.js";
 
+/**
+ * Optional per-tenant ingest throttle. `check` returns whether the batch of `n`
+ * events is allowed and, if not, how long to back off. Off unless wired.
+ */
+export interface IngestRateLimiter {
+  check(tenantId: string, n: number): Promise<{ allowed: boolean; retryAfterMs: number }>;
+}
+
 export function registerIngest(
   app: FastifyInstance,
   store: IngestStore,
   tenantStore: TenantStore,
   profileService: ProfileService,
+  rateLimiter?: IngestRateLimiter,
 ): void {
   app.post("/v1/track", async (req, reply) => {
     const parsed = ingestBatchSchema.safeParse(req.body);
@@ -27,6 +36,17 @@ export function registerIngest(
     if (!tenant) {
       counters.failed++;
       return reply.code(401).send({ error: "unknown_write_key" });
+    }
+
+    if (rateLimiter) {
+      const verdict = await rateLimiter.check(tenant.id, events.length);
+      if (!verdict.allowed) {
+        counters.failed++;
+        return reply
+          .code(429)
+          .header("retry-after", Math.max(1, Math.ceil(verdict.retryAfterMs / 1000)))
+          .send({ error: "rate_limited", retryAfterMs: verdict.retryAfterMs });
+      }
     }
 
     let stored = 0;
