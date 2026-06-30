@@ -74,7 +74,8 @@ import {
   type StoredIngestEvent,
   type IngestStore,
 } from "./ingest-store.js";
-import { registerHealth } from "./routes/health.js";
+import { registerHealth, counters } from "./routes/health.js";
+import { createMetricsRegistry, registerMetrics } from "./metrics.js";
 import { registerIngest } from "./routes/ingest.js";
 import { registerModules } from "./routes/modules.js";
 import { registerSignup } from "./routes/signup.js";
@@ -159,6 +160,7 @@ export async function buildServer(
     });
   }
   registerHealth(app);
+  registerMetrics(app, createMetricsRegistry(() => ({ ...counters })));
   registerModules(app, tenantStore, tokenStore, { auditStore });
   registerSignup(app, tenantStore, tokenStore);
   registerIngest(app, ingestStore, tenantStore, profileService);
