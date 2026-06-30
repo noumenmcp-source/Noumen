@@ -1,0 +1,11 @@
+{
+  "name": "rf-console",
+  "version": "1.0.0",
+  "private": true,
+  "description": "RF analytics console (AXIOM RU) — server-side ES aggregation, zero deps",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  }
+}
