@@ -250,6 +250,8 @@ services:
       ES_PASSWORD: ${ES_PASSWORD:-}
       # Bearer token for the read/segment API; empty => API open (loopback-only).
       PROFILE_API_TOKEN: ${PROFILE_API_TOKEN:-}
+      # Per-tenant tokens "site:token,..." => tenant isolation (152-ФЗ). Empty => off.
+      PROFILE_TENANT_TOKENS: ${PROFILE_TENANT_TOKENS:-}
       MATERIALIZE_INTERVAL_MS: ${MATERIALIZE_INTERVAL_MS:-60000}
     ports:
       - "127.0.0.1:8130:8130"
@@ -275,6 +277,8 @@ services:
       ES_USER: ${ES_USER:-elastic}
       ES_PASSWORD: ${ES_PASSWORD:-}
       CONSENT_API_TOKEN: ${CONSENT_API_TOKEN:-}
+      # Per-tenant tokens "site:token,..." => tenant isolation (152-ФЗ). Empty => off.
+      CONSENT_TENANT_TOKENS: ${CONSENT_TENANT_TOKENS:-}
       LEDGER_INTERVAL_MS: ${LEDGER_INTERVAL_MS:-60000}
       # Private Ed25519 signing key lives in this mounted volume, not in ES.
       CONSENT_KEY_DIR: /keys
@@ -308,6 +312,12 @@ services:
       AI_GATEWAY_API_KEY: ${AI_GATEWAY_API_KEY:-}
       AI_GATEWAY_MODEL: ${AI_GATEWAY_MODEL:-gpt-5.5}
       EMAIL_API_TOKEN: ${EMAIL_API_TOKEN:-}
+      # Sent as Bearer to profile-engine / consent-ledger — must equal their admin
+      # tokens so service-to-service calls authenticate once isolation is enabled.
+      PROFILE_API_TOKEN: ${PROFILE_API_TOKEN:-}
+      CONSENT_API_TOKEN: ${CONSENT_API_TOKEN:-}
+      # Per-tenant tokens for this service's own /v1/campaign API (152-ФЗ).
+      EMAIL_TENANT_TOKENS: ${EMAIL_TENANT_TOKENS:-}
     ports:
       - "127.0.0.1:8150:8150"
     networks:
@@ -348,6 +358,10 @@ services:
       PORT: 8170
       CONSENT_LEDGER_URL: ${CONSENT_LEDGER_URL:-http://consent-ledger:8140}
       AUTOMATION_API_TOKEN: ${AUTOMATION_API_TOKEN:-}
+      # Sent as Bearer to consent-ledger — must equal its admin token (152-ФЗ gate).
+      CONSENT_API_TOKEN: ${CONSENT_API_TOKEN:-}
+      # Per-tenant tokens for this service's own /v1/automation API.
+      AUTOMATION_TENANT_TOKENS: ${AUTOMATION_TENANT_TOKENS:-}
     ports:
       - "127.0.0.1:8170:8170"
     networks:
