@@ -929,7 +929,7 @@ function em_builder_defaults(type) {
   if (type === 'hero') return { title: 'Clean. Honest. Plastic-free.', sub: 'Home cleaning and cosmetics your family can trust', emoji: '🌿' };
   if (type === 'text') return { body: 'Hi {{first_name}}! Thanks for choosing mindful living. We have gathered the things that actually work — no harsh chemicals, no excess packaging.' };
   if (type === 'cta') return { label: 'Shop the catalog', url: '{{site_url}}/catalog' };
-  if (type === 'products') return { title: 'This week\'s picks', items: [
+  if (type === 'products') return { title: 'This week\\'s picks', items: [
     { name: 'Laundry concentrate', price: 24, cap: 'lasts 60 loads' },
     { name: 'Eco cleaning kit', price: 39, cap: '5 products · 0% phosphates' },
     { name: 'Reusable sponges', price: 12, cap: 'replaces 6 paper-towel rolls' }
@@ -945,7 +945,7 @@ var EM_PRESETS = {
   abandoned: { subject: 'You left something in your cart, {{first_name}}', blocks: ['header', 'text', 'products', 'cta', 'footer'] },
   reengage:  { subject: 'Long time no see — come back for new eco arrivals', blocks: ['header', 'hero', 'text', 'promo', 'cta', 'social', 'footer'] },
   comeback:  { subject: 'Same product — cheaper than the marketplace', blocks: ['header', 'hero', 'text', 'products', 'cta', 'footer'] },
-  arrivals:  { subject: 'This week\'s new arrivals at ecoma: eco, no compromises', blocks: ['header', 'hero', 'products', 'cta', 'social', 'footer'] },
+  arrivals:  { subject: 'This week\\'s new arrivals at ecoma: eco, no compromises', blocks: ['header', 'hero', 'products', 'cta', 'social', 'footer'] },
   receipt:   { subject: 'Thanks for your order! Receipt and delivery status', blocks: ['header', 'text', 'divider', 'cta', 'footer'] }
 };
 var EM_PRESET_META = [
@@ -1391,7 +1391,7 @@ EMAIL_TABS.flows = function(){
   s += '</div>';
   s += '<div class="note em-flows-foot">';
   s += '<b>Flows summary.</b> Triggered email brings in roughly <b>' + rub(totalRev) + '</b> ';
-  s += 'per month across ' + nf(totalIn) + ' profiles in flow. Trigger sequences are ecoma\'s primary channel for direct ';
+  s += 'per month across ' + nf(totalIn) + ' profiles in flow. Trigger sequences are ecoma\\'s primary channel for direct ';
   s += 'customer relationships after going off-marketplace.';
   s += '</div>';
   return s;
