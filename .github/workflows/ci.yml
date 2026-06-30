@@ -76,4 +76,4 @@ jobs:
         run: pnpm --filter @cdp-us/db db:migrate
 
       - name: Integration test (real Postgres)
-        run: pnpm --filter @cdp-us/api exec vitest run src/db.integration.test.ts
+        run: pnpm --filter @cdp-us/api exec vitest run src/db.integration.test.ts src/rls.integration.test.ts
