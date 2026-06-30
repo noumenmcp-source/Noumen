@@ -590,6 +590,19 @@ const HTML = /* html */ `<!doctype html><html lang="ru"><head>
 .em-cmap-track{ height:8px; background:#f1ebe1; border-radius:5px; overflow:hidden; margin-top:2px; }
 .em-cmap-fill{ display:block; height:100%; border-radius:5px; transition:width .5s ease; }
 .em-cmap-pct{ font-size:13px; color:#1c1510; font-weight:700; text-align:right; }
+
+/* профили: поиск + навигация */
+.plbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.plsearch{flex:1;min-width:240px;padding:10px 14px;border:1px solid #e0d8cc;border-radius:10px;background:#fff;font:inherit;font-size:14px;color:#1c1510}
+.plsearch:focus{outline:none;border-color:#c9a84c;box-shadow:0 0 0 3px rgba(201,168,76,.18)}
+.plchips{display:flex;gap:7px;flex-wrap:wrap}
+.plchip{padding:6px 13px;border:1px solid #e0d8cc;border-radius:20px;background:#fff;font-size:13px;cursor:pointer;color:#7a6e60;white-space:nowrap}
+.plchip.on{background:#1c1510;color:#fff;border-color:#1c1510}
+.plchip:hover{border-color:#c9a84c}
+.plpager{display:flex;gap:10px;align-items:center;justify-content:space-between;margin-top:12px;flex-wrap:wrap;font-size:13px;color:#7a6e60}
+.plpager .pg{display:flex;gap:6px;align-items:center}
+.plpager button{padding:6px 12px;border:1px solid #e0d8cc;border-radius:8px;background:#fff;cursor:pointer;font:inherit;font-size:13px;color:#1c1510}
+.plpager button:disabled{opacity:.4;cursor:default}
 </style></head><body>
 <aside class="side">
   <div class="brand"><b class="serif">Аксиома</b><span class="bd">РФ · 152-ФЗ</span></div>
@@ -2072,6 +2085,48 @@ function segRender(){
   return '<div class="em-module">'+nav+'<div class="em-panel">'+body+'</div></div>';
 }
 
+
+/* ── Профили: поиск + фильтры + пагинация (клиентские, на загруженном списке) ── */
+if(typeof window.PROFILES==='undefined'){window.PROFILES=[];window.plQuery='';window.plFilter='all';window.plPage=1;}
+function plLifecycle(p){var now=new Date().getTime();var D=86400000;var af=now-(p.firstSeen?Date.parse(p.firstSeen):0);var al=now-(p.lastSeen?Date.parse(p.lastSeen):0);if(af<=7*D)return 'Новые';if(al<=7*D)return 'Активные';if(al<=30*D)return 'Спящие';return 'Потерянные';}
+function plTableHtml(rows){
+  if(!rows.length)return '<div class="card"><div class="muted">Ничего не найдено — измените поиск или фильтр.</div></div>';
+  var ST={'Новые':'sage','Активные':'gold','Спящие':'rust','Потерянные':'muted'};
+  var body=rows.map(function(p){
+    var who=p.userId?'<span class="idn">'+esc(p.name||p.userId)+'</span>':'<span class="anon">аноним</span>';
+    var seg=plLifecycle(p);
+    var ch=(p.events||[]).slice(0,3).map(function(e){return '<span class="chip">'+esc(e.event)+'·'+e.count+'</span>';}).join('');
+    var src=esc(p.origin||'—');
+    return '<tr><td class="id">'+esc((p.id||'').slice(0,10))+'…</td><td>'+who+'</td><td>'+badge(seg,ST[seg])+'</td><td class="muted">'+esc(p.city||'—')+'</td><td>'+(p.count||0)+'</td><td>'+(p.revenue?rub(p.revenue):'—')+'</td><td class="muted">'+fmtDt(p.lastSeen)+'</td><td class="muted">'+src+'</td><td>'+ch+'</td></tr>';
+  }).join('');
+  return '<div class="card" style="padding:0;overflow:hidden"><div class="tw"><table><thead><tr><th>Профиль</th><th>Кто</th><th>Сегмент</th><th>Город</th><th>Событий</th><th>Выручка</th><th>Активность</th><th>Источник</th><th>Действия</th></tr></thead><tbody>'+body+'</tbody></table></div></div>';
+}
+function plPager(total,pages,page,start,shown){
+  var info='Показано '+(total?(nf(start+1)+'–'+nf(start+shown)):'0')+' из '+nf(total)+' профилей';
+  var prev='<button data-plpage="'+(page-1)+'"'+(page<=1?' disabled':'')+'>← Назад</button>';
+  var next='<button data-plpage="'+(page+1)+'"'+(page>=pages?' disabled':'')+'>Вперёд →</button>';
+  return '<div class="plpager"><span>'+info+'</span><span class="pg">'+prev+'<span style="padding:0 6px">стр. '+page+' / '+pages+'</span>'+next+'</span></div>';
+}
+window.plRenderTable=function(){
+  var el=$('#pltbl'); if(!el)return;
+  var list=window.PROFILES||[]; var q=(window.plQuery||'').toLowerCase().trim(); var ff=window.plFilter||'all';
+  var filtered=list.filter(function(p){
+    if(ff==='identified'&&!p.userId)return false;
+    if(ff==='anon'&&p.userId)return false;
+    if(ff==='buyers'&&!(p.revenue>0))return false;
+    if((ff==='Новые'||ff==='Активные'||ff==='Спящие'||ff==='Потерянные')&&plLifecycle(p)!==ff)return false;
+    if(q){var hay=((p.name||'')+' '+(p.userId||'')+' '+(p.id||'')+' '+(p.city||'')+' '+(p.origin||'')+' '+(p.lastEvent||'')).toLowerCase();if(hay.indexOf(q)<0)return false;}
+    return true;
+  });
+  var total=filtered.length, size=25, pages=Math.max(1,Math.ceil(total/size));
+  if(window.plPage>pages)window.plPage=pages; if(window.plPage<1)window.plPage=1;
+  var start=(window.plPage-1)*size; var rows=filtered.slice(start,start+size);
+  el.innerHTML=plTableHtml(rows)+plPager(total,pages,window.plPage,start,rows.length);
+};
+window.plSearch=function(v){window.plQuery=v;window.plPage=1;window.plRenderTable();};
+window.plSetFilter=function(ff){window.plFilter=ff;window.plPage=1;var cs=document.querySelectorAll('[data-plfilter]');for(var i=0;i<cs.length;i++){cs[i].classList.toggle('on',cs[i].getAttribute('data-plfilter')===ff);}window.plRenderTable();};
+window.plGo=function(pg){window.plPage=pg;window.plRenderTable();};
+
 const VIEWS={
   today(){const o=OV.orders,aov=o.count?Math.round(o.revenue/o.count):0;
     const cards=[
@@ -2093,7 +2148,12 @@ const VIEWS={
       chart('Источники трафика','Площадки РФ — откуда приходят профили',hbars(OV.sources))+
       chart('Топ событий','Что делают на сайте',hbars(OV.topEvents))+
       chart('Согласия · 152-ФЗ','Цели обработки (opt-in ст.9)',OV.consent.total?hbars(OV.consent.purposes.map(p=>({label:p.label,value:p.count,tone:'sage'}))):'<div class="muted">нет записей</div>')+'</div>';},
-  profiles(){return '<div class="muted" id="pl">Загрузка профилей…</div>';},
+  profiles(){
+    window.plQuery=''; window.plFilter='all'; window.plPage=1;
+    var CH=[['all','Все'],['identified','Опознанные'],['anon','Анонимные'],['buyers','С покупками'],['Активные','Активные'],['Спящие','Спящие'],['Потерянные','Потерянные'],['Новые','Новые']];
+    var chips=CH.map(function(c){var on=(c[0]==='all')?' on':'';return '<button class="plchip'+on+'" data-plfilter="'+c[0]+'">'+esc(c[1])+'</button>';}).join('');
+    return '<div class="plbar"><input id="plq" class="plsearch" type="search" placeholder="Поиск: имя, ID, город, источник, событие…" oninput="plSearch(this.value)"><div class="plchips">'+chips+'</div></div><div id="pltbl" class="muted">Загрузка профилей…</div>';
+  },
   segments(){return segRender();},
     sources(){
     const src=OV.sources, total=src.reduce((s,x)=>s+x.value,0)||1;
@@ -2217,7 +2277,7 @@ function setActive(id){
   document.querySelectorAll('.nav a').forEach(a=>a.classList.toggle('on',a.dataset.id===id));
   if(!OV){return;}
   $('#view').innerHTML=(VIEWS[id]||VIEWS.overview)();
-  if(id==='profiles') j('/api/profiles?tenant='+encodeURIComponent(TENANT)+'&limit=200').then(renderProfiles).catch(e=>showErr(e.message||e));
+  if(id==='profiles') j('/api/profiles?tenant='+encodeURIComponent(TENANT)+'&limit=500').then(function(list){window.PROFILES=list||[];window.plPage=1;window.plRenderTable();}).catch(e=>showErr(e.message||e));
 }
 async function load(){
   showErr(''); TENANT=$('#tenant').value; $('#sub').textContent='тенант: '+TENANT; syncTenantUrl();
@@ -2228,7 +2288,7 @@ async function init(){
   cur=secFromPath();
   $('#nav').innerHTML=SECTIONS.map(s=>'<a href="/'+s[0]+'" data-id="'+s[0]+'"><span class="ic">'+s[2]+'</span>'+s[1]+'</a>').join('');
   document.querySelectorAll('.nav a').forEach(a=>a.onclick=e=>{if(e.metaKey||e.ctrlKey||e.shiftKey||e.button)return;e.preventDefault();navTo(a.dataset.id);});
-  window.onpopstate=()=>setActive(secFromPath());document.addEventListener('click',function(e){var b=e.target&&e.target.closest&&e.target.closest('[data-segtab]');if(b){e.preventDefault();window.segTo(b.getAttribute('data-segtab'));}});
+  window.onpopstate=()=>setActive(secFromPath());document.addEventListener('click',function(e){if(!e.target||!e.target.closest)return;var sg=e.target.closest('[data-segtab]');if(sg){e.preventDefault();window.segTo(sg.getAttribute('data-segtab'));return;}var pf=e.target.closest('[data-plfilter]');if(pf){e.preventDefault();window.plSetFilter(pf.getAttribute('data-plfilter'));return;}var pp=e.target.closest('[data-plpage]');if(pp){if(pp.disabled)return;e.preventDefault();window.plGo(parseInt(pp.getAttribute('data-plpage'),10));return;}});
   $('#burger').onclick=()=>document.body.classList.toggle('menu');
   $('#bd').onclick=()=>document.body.classList.remove('menu');
   try{
