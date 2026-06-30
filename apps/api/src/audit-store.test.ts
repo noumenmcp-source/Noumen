@@ -16,7 +16,9 @@ describe("DbAuditStore", () => {
   it("appends an entry into audit_entries with a generated id", async () => {
     const values = vi.fn(() => Promise.resolve());
     const insert = vi.fn(() => ({ values }));
-    const store = new DbAuditStore({ insert } as unknown as Db);
+    const execute = vi.fn(async () => undefined);
+    const transaction = vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb({ insert, execute }));
+    const store = new DbAuditStore({ transaction } as unknown as Db);
 
     await store.append(ENTRY);
 
@@ -52,7 +54,9 @@ describe("DbAuditStore", () => {
     const where = vi.fn(() => ({ orderBy }));
     const from = vi.fn(() => ({ where }));
     const select = vi.fn(() => ({ from }));
-    const store = new DbAuditStore({ select } as unknown as Db);
+    const execute = vi.fn(async () => undefined);
+    const transaction = vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb({ select, execute }));
+    const store = new DbAuditStore({ transaction } as unknown as Db);
 
     const entries = await store.query({ tenantId: "t_1", action: "read" });
 

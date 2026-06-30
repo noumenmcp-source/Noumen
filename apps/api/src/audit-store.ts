@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, eq, gte, lte } from "drizzle-orm";
 import type { Role } from "@cdp-us/contracts";
 import type { AuditEntry, AuditFilter, AuditStore } from "@cdp-us/audit-log";
-import { auditEntries, type Db } from "@cdp-us/db";
+import { auditEntries, withTenant, type Db } from "@cdp-us/db";
 
 /**
  * Postgres-backed audit trail. Append-only; reads are tenant-scoped and ordered
@@ -14,17 +14,19 @@ export class DbAuditStore implements AuditStore {
   constructor(private readonly db: Db) {}
 
   async append(entry: AuditEntry): Promise<void> {
-    await this.db.insert(auditEntries).values({
-      id: randomUUID(),
-      tenantId: entry.tenantId,
-      actorId: entry.actor.id,
-      actorRole: entry.actor.role,
-      action: entry.action,
-      resourceType: entry.resource.type,
-      resourceId: entry.resource.id,
-      metadata: entry.metadata ?? null,
-      ts: new Date(entry.ts),
-    });
+    await withTenant(this.db, entry.tenantId, (tx) =>
+      tx.insert(auditEntries).values({
+        id: randomUUID(),
+        tenantId: entry.tenantId,
+        actorId: entry.actor.id,
+        actorRole: entry.actor.role,
+        action: entry.action,
+        resourceType: entry.resource.type,
+        resourceId: entry.resource.id,
+        metadata: entry.metadata ?? null,
+        ts: new Date(entry.ts),
+      }),
+    );
   }
 
   async query(filter: AuditFilter): Promise<readonly AuditEntry[]> {
@@ -36,11 +38,9 @@ export class DbAuditStore implements AuditStore {
     if (filter.from) conditions.push(gte(auditEntries.ts, new Date(filter.from)));
     if (filter.to) conditions.push(lte(auditEntries.ts, new Date(filter.to)));
 
-    const rows = await this.db
-      .select()
-      .from(auditEntries)
-      .where(and(...conditions))
-      .orderBy(auditEntries.ts);
+    const rows = await withTenant(this.db, filter.tenantId, (tx) =>
+      tx.select().from(auditEntries).where(and(...conditions)).orderBy(auditEntries.ts),
+    );
     return rows.map(toAuditEntry);
   }
 }

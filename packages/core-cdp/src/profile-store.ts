@@ -1,5 +1,5 @@
 import type { Firmographics, IntentSignals, Profile, TenantId } from "@cdp-us/contracts";
-import { profiles, type Db } from "@cdp-us/db";
+import { profiles, withTenant, type Db } from "@cdp-us/db";
 import { and, eq } from "drizzle-orm";
 
 /**
@@ -77,50 +77,48 @@ export class DbProfileStore implements ProfileStore {
 
   async save(profile: Profile): Promise<Profile> {
     const row = toRow(profile);
-    await this.db.insert(profiles).values(row).onConflictDoUpdate({
-      target: profiles.id,
-      set: {
-        anonymousId: row.anonymousId,
-        userId: row.userId,
-        email: row.email,
-        firmographics: row.firmographics,
-        intent: row.intent,
-        traits: row.traits,
-        updatedAt: row.updatedAt,
-      },
-    });
+    await withTenant(this.db, profile.tenantId, (tx) =>
+      tx.insert(profiles).values(row).onConflictDoUpdate({
+        target: profiles.id,
+        set: {
+          anonymousId: row.anonymousId,
+          userId: row.userId,
+          email: row.email,
+          firmographics: row.firmographics,
+          intent: row.intent,
+          traits: row.traits,
+          updatedAt: row.updatedAt,
+        },
+      }),
+    );
     return profile;
   }
 
   async getById(tenantId: TenantId, id: string): Promise<Profile | undefined> {
-    const [row] = await this.db
-      .select()
-      .from(profiles)
-      .where(and(eq(profiles.tenantId, tenantId), eq(profiles.id, id)))
-      .limit(1);
+    const [row] = await withTenant(this.db, tenantId, (tx) =>
+      tx.select().from(profiles).where(and(eq(profiles.tenantId, tenantId), eq(profiles.id, id))).limit(1),
+    );
     return row ? toProfile(row) : undefined;
   }
 
   async getByAnonymousId(tenantId: TenantId, anonymousId: string): Promise<Profile | undefined> {
-    const [row] = await this.db
-      .select()
-      .from(profiles)
-      .where(and(eq(profiles.tenantId, tenantId), eq(profiles.anonymousId, anonymousId)))
-      .limit(1);
+    const [row] = await withTenant(this.db, tenantId, (tx) =>
+      tx.select().from(profiles).where(and(eq(profiles.tenantId, tenantId), eq(profiles.anonymousId, anonymousId))).limit(1),
+    );
     return row ? toProfile(row) : undefined;
   }
 
   async getByUserId(tenantId: TenantId, userId: string): Promise<Profile | undefined> {
-    const [row] = await this.db
-      .select()
-      .from(profiles)
-      .where(and(eq(profiles.tenantId, tenantId), eq(profiles.userId, userId)))
-      .limit(1);
+    const [row] = await withTenant(this.db, tenantId, (tx) =>
+      tx.select().from(profiles).where(and(eq(profiles.tenantId, tenantId), eq(profiles.userId, userId))).limit(1),
+    );
     return row ? toProfile(row) : undefined;
   }
 
   async listByTenant(tenantId: TenantId): Promise<Profile[]> {
-    const rows = await this.db.select().from(profiles).where(eq(profiles.tenantId, tenantId));
+    const rows = await withTenant(this.db, tenantId, (tx) =>
+      tx.select().from(profiles).where(eq(profiles.tenantId, tenantId)),
+    );
     return rows.map(toProfile);
   }
 }

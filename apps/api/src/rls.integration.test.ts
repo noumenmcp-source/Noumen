@@ -74,3 +74,54 @@ run("events RLS tenant isolation", () => {
     ).rejects.toThrow(/row-level security/i);
   });
 });
+
+/** Same isolation guarantees on the other tenant-scoped tables (migration 0009). */
+run("profiles / consent_records / audit_entries RLS isolation", () => {
+  let db!: ReturnType<typeof createDb>;
+  const pA = `t_rls2_a_${randomUUID()}`;
+  const pB = `t_rls2_b_${randomUUID()}`;
+
+  beforeAll(async () => {
+    db = createDb(url as string);
+    await db.execute(sql.raw(`DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '${ROLE}') THEN CREATE ROLE ${ROLE} NOLOGIN; END IF; END $$;`));
+    await db.execute(sql`GRANT USAGE ON SCHEMA public TO ${sql.raw(ROLE)}`);
+    await db.execute(sql`GRANT SELECT, INSERT ON "profiles", "consent_records", "audit_entries" TO ${sql.raw(ROLE)}`);
+    await db.execute(sql`INSERT INTO tenants (id, name, write_key, region, enabled_modules, created_at) VALUES (${pA}, 'A', ${`wk_${pA}`}, 'us', '[]', now()), (${pB}, 'B', ${`wk_${pB}`}, 'us', '[]', now())`);
+    // 2 rows for tenant A, 1 for tenant B, in each table.
+    await db.execute(sql`INSERT INTO profiles (id, tenant_id, traits, firmographics, intent, created_at, updated_at) VALUES (${`p_${randomUUID()}`}, ${pA}, '{}', '{}', '{}', now(), now()), (${`p_${randomUUID()}`}, ${pA}, '{}', '{}', '{}', now(), now()), (${`p_${randomUUID()}`}, ${pB}, '{}', '{}', '{}', now(), now())`);
+    await db.execute(sql`INSERT INTO consent_records (id, tenant_id, subject, state, source, prev_hash, hash, ts) VALUES (${`c_${randomUUID()}`}, ${pA}, 's', '{}', 'banner', '0', 'h1', now()), (${`c_${randomUUID()}`}, ${pA}, 's', '{}', 'banner', 'h1', 'h2', now()), (${`c_${randomUUID()}`}, ${pB}, 's', '{}', 'banner', '0', 'h3', now())`);
+    await db.execute(sql`INSERT INTO audit_entries (id, tenant_id, actor_id, actor_role, action, resource_type, resource_id, ts) VALUES (${`a_${randomUUID()}`}, ${pA}, 'u', 'owner', 'read', 'profile', 'x', now()), (${`a_${randomUUID()}`}, ${pA}, 'u', 'owner', 'read', 'profile', 'y', now()), (${`a_${randomUUID()}`}, ${pB}, 'u', 'owner', 'read', 'profile', 'z', now())`);
+  });
+
+  afterAll(async () => {
+    for (const t of ["profiles", "consent_records", "audit_entries"]) {
+      await db.execute(sql.raw(`DELETE FROM "${t}" WHERE tenant_id IN ('${pA}', '${pB}')`));
+    }
+    await db.execute(sql`DELETE FROM "tenants" WHERE id IN (${pA}, ${pB})`);
+  });
+
+  async function countUnderTenant(table: string, tenantId: string | null): Promise<number> {
+    return db.transaction(async (tx) => {
+      await tx.execute(sql`SET LOCAL ROLE ${sql.raw(ROLE)}`);
+      if (tenantId !== null) await tx.execute(sql`SELECT set_config('app.tenant_id', ${tenantId}, true)`);
+      const res = await tx.execute(sql.raw(`SELECT count(*)::int AS n FROM "${table}"`));
+      return Number((res.rows[0] as { n: number }).n);
+    });
+  }
+
+  it.each(["profiles", "consent_records", "audit_entries"])("%s isolates by tenant and fails closed", async (table) => {
+    expect(await countUnderTenant(table, pA)).toBe(2);
+    expect(await countUnderTenant(table, pB)).toBe(1);
+    expect(await countUnderTenant(table, null)).toBe(0);
+  });
+
+  it("WITH CHECK blocks a cross-tenant profile insert", async () => {
+    await expect(
+      db.transaction(async (tx) => {
+        await tx.execute(sql`SET LOCAL ROLE ${sql.raw(ROLE)}`);
+        await tx.execute(sql`SELECT set_config('app.tenant_id', ${pA}, true)`);
+        await tx.execute(sql`INSERT INTO profiles (id, tenant_id, traits, firmographics, intent, created_at, updated_at) VALUES (${`p_${randomUUID()}`}, ${pB}, '{}', '{}', '{}', now(), now())`);
+      }),
+    ).rejects.toThrow(/row-level security/i);
+  });
+});

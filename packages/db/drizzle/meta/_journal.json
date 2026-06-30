@@ -64,6 +64,13 @@
       "when": 1782580000000,
       "tag": "0008_rls_events",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1782580100000,
+      "tag": "0009_rls_profiles_consent_audit",
+      "breakpoints": true
     }
   ]
 }

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq } from "drizzle-orm";
 import type { ConsentRecord, ConsentState } from "@cdp-us/contracts";
 import { ConsentLedger, verifyChain, type AppendInput, type VerifyResult } from "@cdp-us/consent";
-import { consentRecords, type Db } from "@cdp-us/db";
+import { consentRecords, withTenant, type Db } from "@cdp-us/db";
 
 /**
  * Append-only persistence for the tamper-evident consent ledger
@@ -37,35 +37,41 @@ export class DbConsentLedgerStore implements ConsentLedgerStore {
   constructor(private readonly db: Db) {}
 
   async appendRecord(record: ConsentRecord): Promise<void> {
-    await this.db.insert(consentRecords).values({
-      id: `cr_${randomUUID()}`,
-      tenantId: record.tenantId,
-      subject: record.subject,
-      state: record.state as unknown as Record<string, boolean>,
-      source: record.source,
-      prevHash: record.prevHash,
-      hash: record.hash,
-      sig: record.sig ?? null,
-      ts: new Date(record.ts),
-    });
+    await withTenant(this.db, record.tenantId, (tx) =>
+      tx.insert(consentRecords).values({
+        id: `cr_${randomUUID()}`,
+        tenantId: record.tenantId,
+        subject: record.subject,
+        state: record.state as unknown as Record<string, boolean>,
+        source: record.source,
+        prevHash: record.prevHash,
+        hash: record.hash,
+        sig: record.sig ?? null,
+        ts: new Date(record.ts),
+      }),
+    );
   }
 
   async lastRecord(tenantId: string, subject: string): Promise<ConsentRecord | undefined> {
-    const rows = await this.db
-      .select()
-      .from(consentRecords)
-      .where(and(eq(consentRecords.tenantId, tenantId), eq(consentRecords.subject, subject)))
-      .orderBy(desc(consentRecords.ts))
-      .limit(1);
+    const rows = await withTenant(this.db, tenantId, (tx) =>
+      tx
+        .select()
+        .from(consentRecords)
+        .where(and(eq(consentRecords.tenantId, tenantId), eq(consentRecords.subject, subject)))
+        .orderBy(desc(consentRecords.ts))
+        .limit(1),
+    );
     return rows[0] ? rowToRecord(rows[0]) : undefined;
   }
 
   async chain(tenantId: string, subject: string): Promise<readonly ConsentRecord[]> {
-    const rows = await this.db
-      .select()
-      .from(consentRecords)
-      .where(and(eq(consentRecords.tenantId, tenantId), eq(consentRecords.subject, subject)))
-      .orderBy(asc(consentRecords.ts));
+    const rows = await withTenant(this.db, tenantId, (tx) =>
+      tx
+        .select()
+        .from(consentRecords)
+        .where(and(eq(consentRecords.tenantId, tenantId), eq(consentRecords.subject, subject)))
+        .orderBy(asc(consentRecords.ts)),
+    );
     return rows.map(rowToRecord);
   }
 }
