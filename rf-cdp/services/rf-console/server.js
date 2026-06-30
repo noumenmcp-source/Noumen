@@ -178,11 +178,17 @@ function send(res, code, data, type) {
   res.end(body);
 }
 
+// пути разделов — каждый отдаёт SPA-оболочку, клиент сам показывает нужный раздел (deep-link)
+const SEC_RE = /^\/(today|overview|profiles|segments|sources|email|automations|consent|services)$/;
 const server = http.createServer(async (req, res) => {
   try {
     const u = new URL(req.url, 'http://x');
     const p = u.pathname;
-    if (p === '/' || p === '/overview' || p === '/index.html') return send(res, 200, HTML, 'html');
+    if (p === '/' || p === '/index.html' || SEC_RE.test(p)) return send(res, 200, HTML, 'html');
+    if (p === '/favicon.svg' || p === '/favicon.ico') {
+      res.writeHead(200, { 'content-type': 'image/svg+xml; charset=utf-8', 'cache-control': 'public,max-age=86400' });
+      return res.end(FAV);
+    }
     if (p === '/health') return send(res, 200, { ok: true });
     const hdr = req.headers['x-cdp-tenant'];
     const locked = hdr && TENANT_RE.test(hdr) ? hdr : null;
@@ -203,10 +209,14 @@ if (require.main === module) server.listen(PORT, '0.0.0.0', () => console.log('r
 
 module.exports = { mapSource, bucketLifecycle, aggregate, profilesList, listTenants, server };
 
+// ─── favicon: брендовая марка AXIOM «∴» (золото на ink, zero-dep inline SVG) ────
+const FAV = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32"><rect width="32" height="32" rx="7" fill="#1c1510"/><g fill="#c9a84c"><circle cx="16" cy="10" r="3.4"/><circle cx="10.4" cy="21" r="3.4"/><circle cx="21.6" cy="21" r="3.4"/></g></svg>`;
+
 // ─── фронт: левое меню разделов + панели (AXIOM-стиль, SVG-чарты, zero-dep) ────
 const HTML = /* html */ `<!doctype html><html lang="ru"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Аксиома · Консоль</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;700&family=JetBrains+Mono&display=swap" rel="stylesheet">
 <style>
@@ -303,7 +313,7 @@ const rub=n=>'₽'+nf(Math.round(n||0));
 const esc=s=>(s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmtDt=t=>t?new Date(t).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit'}):'—';
 const SECTIONS=[
-  ['today','Сегодня','◆'],['overview','Обзор','▦'],['profiles','Профили','◉'],['segments','Сегменты','◑'],
+  ['overview','Обзор','▦'],['today','Сегодня','◆'],['profiles','Профили','◉'],['segments','Сегменты','◑'],
   ['sources','Источники','⇲'],['email','Email','✉'],['automations','Автоматизации','⟳'],['consent','Согласия · 152-ФЗ','⚖'],['services','Сервисы','◰']
 ];
 let TENANT=null, OV=null, cur='overview';
@@ -416,9 +426,14 @@ function renderProfiles(list){
 function showErr(e){$('#err').innerHTML=e?'<div class="err">Ошибка: '+esc(e)+'</div>':'';}
 async function j(u){const r=await fetch(u);if(!r.ok)throw new Error((await r.json().catch(()=>({}))).error||('HTTP '+r.status));return r.json();}
 
+const isSec=id=>SECTIONS.some(s=>s[0]===id);
+function secFromPath(){const seg=(location.pathname.replace(/\\/+$/,'')||'/').slice(1);return isSec(seg)?seg:'overview';}
+function navTo(id){if(!isSec(id))return;const q=location.search;if(location.pathname!=='/'+id)history.pushState({id:id},'','/'+id+q);setActive(id);}
+function syncTenantUrl(){const t=$('#tenant').value;const q=t?'?tenant='+encodeURIComponent(t):'';history.replaceState({id:cur},'','/'+cur+q);}
 function setActive(id){
   cur=id; const meta=SECTIONS.find(s=>s[0]===id);
   $('#title').textContent=meta?meta[1]:id;
+  document.title=(meta?meta[1]:id)+' · Аксиома';
   document.body.classList.remove('menu');
   document.querySelectorAll('.nav a').forEach(a=>a.classList.toggle('on',a.dataset.id===id));
   if(!OV){return;}
@@ -426,19 +441,23 @@ function setActive(id){
   if(id==='profiles') j('/api/profiles?tenant='+encodeURIComponent(TENANT)+'&limit=200').then(renderProfiles).catch(e=>showErr(e.message||e));
 }
 async function load(){
-  showErr(''); TENANT=$('#tenant').value; $('#sub').textContent='тенант: '+TENANT;
+  showErr(''); TENANT=$('#tenant').value; $('#sub').textContent='тенант: '+TENANT; syncTenantUrl();
   try{ OV=await j('/api/overview?tenant='+encodeURIComponent(TENANT)); setActive(cur); }
   catch(e){ showErr(e.message||e); }
 }
 async function init(){
-  $('#nav').innerHTML=SECTIONS.map(s=>'<a data-id="'+s[0]+'"><span class="ic">'+s[2]+'</span>'+s[1]+'</a>').join('');
-  document.querySelectorAll('.nav a').forEach(a=>a.onclick=()=>setActive(a.dataset.id));
+  cur=secFromPath();
+  $('#nav').innerHTML=SECTIONS.map(s=>'<a href="/'+s[0]+'" data-id="'+s[0]+'"><span class="ic">'+s[2]+'</span>'+s[1]+'</a>').join('');
+  document.querySelectorAll('.nav a').forEach(a=>a.onclick=e=>{if(e.metaKey||e.ctrlKey||e.shiftKey||e.button)return;e.preventDefault();navTo(a.dataset.id);});
+  window.onpopstate=()=>setActive(secFromPath());
   $('#burger').onclick=()=>document.body.classList.toggle('menu');
   $('#bd').onclick=()=>document.body.classList.remove('menu');
   try{
     const cfg=await j('/api/config'); const ts=await j('/api/tenants');
     if(!ts.length){showErr('Нет тенантов (cdp_events_* пусты)');return;}
     $('#tenant').innerHTML=ts.map(t=>'<option value="'+esc(t.tenant)+'">'+esc(t.tenant)+' ('+nf(t.docs)+')</option>').join('');
+    const qt=new URLSearchParams(location.search).get('tenant');
+    if(qt&&ts.some(t=>t.tenant===qt))$('#tenant').value=qt;
     if(cfg.locked)$('#tenant').style.display='none';
     $('#tenant').onchange=load; load();
   }catch(e){showErr(e.message||e);}

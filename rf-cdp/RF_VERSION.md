@@ -1,7 +1,7 @@
 # 🇷🇺 RF-версия платформы (CDP)
 
 > **Это РОССИЙСКАЯ (РФ) версия платформы.** Раздел перенесён из отдельного проекта
-> `cdp` (репо `pm99lvl/CDP`) в платформу Noumen (`ECO SAS` / `cdp-platform-enforcement`)
+> `cdp` (репо `pm99lvl/CDP`) в платформу Noumen (`AXIOM` / `cdp-platform-enforcement`)
 > и помечен как RF. Дата слияния: 2026-06-27.
 
 ## Что это
