@@ -7,6 +7,7 @@ import type { ConsentState, IngestEvent } from "@cdp-us/contracts";
 import { InMemoryAuditStore, type AuditStore } from "@cdp-us/audit-log";
 import { InMemorySuppressionStore, shouldSuppress, type SuppressionStore } from "@cdp-us/deliverability";
 import { createDb } from "@cdp-us/db";
+import { sql } from "drizzle-orm";
 import { redactProfile, type DsarEraser, type DsarReaders, type Subject } from "@cdp-us/data-export";
 import type { Sender as DestinationSender } from "@cdp-us/destinations";
 import { InboundRegistry } from "@cdp-us/webhooks-inbound";
@@ -166,7 +167,21 @@ export async function buildServer(
       ...(rateLimitRedis ? { redis: rateLimitRedis } : {}),
     });
   }
-  registerHealth(app);
+  // Readiness probe: when a database is configured, /v1/ready pings it so the
+  // orchestrator can pull an instance that lost its DB out of rotation.
+  const readinessDb = process.env.DATABASE_URL ? createDb(process.env.DATABASE_URL) : undefined;
+  registerHealth(app, {
+    readiness: readinessDb
+      ? async () => {
+          try {
+            await readinessDb.execute(sql`select 1`);
+            return { ok: true, checks: { database: "ok" } };
+          } catch {
+            return { ok: false, checks: { database: "fail" } };
+          }
+        }
+      : undefined,
+  });
   registerMetrics(app, createMetricsRegistry(() => ({ ...counters })));
   registerModules(app, tenantStore, tokenStore, { auditStore });
   registerSignup(app, tenantStore, tokenStore);
