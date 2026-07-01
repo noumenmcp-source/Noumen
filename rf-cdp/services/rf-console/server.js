@@ -234,6 +234,46 @@ async function resolveConsentedRecipients(tenant, cap) {
 // Реальный two-proportion z-test (та же формула, что packages/ab-testing.compare() в @cdp-us:
 // pooled-proportion standard error, значимо при |z|>1.96 т.е. 95% CI). Портировано напрямую,
 // а не импортировано как TS-пакет — rf-console остаётся zero-build ES5-сервисом.
+// Реальные user_id, у которых есть событие, удовлетворяющее query (для пересечения сегментов).
+async function usersMatchingQuery(tenant, query) {
+  const q = await es('/cdp_events_' + tenant + '/_search', {
+    size: 0,
+    query: query,
+    aggs: { u: { terms: { field: 'user_id.keyword', size: 10000 } } },
+  });
+  if (q._missing) return new Set();
+  const buckets = (q.aggregations && q.aggregations.u.buckets) || [];
+  return new Set(buckets.map((b) => b.key));
+}
+// Реальные размеры именованных аудиторий — пересечение реальных событийных множеств
+// с реальным согласием (marketing_email=verified), а не процент "на глазок" от общего числа.
+// Возвращает только те 4 сегмента, что честно вычислимы из имеющихся данных; остальные
+// (VIP по чеку, «не открывали 5+ писем») помечаются estimate:true — недостаточно данных
+// для точного правила (сложная per-profile агрегация суммы заказов / история открытий).
+async function realSegmentCounts(tenant) {
+  if (!TENANT_RE.test(tenant)) throw new Error('bad tenant');
+  const [orderedUsers30d, cartUsers72h, orderedUsers72h, mpOrderedUsers, consented] = await Promise.all([
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'order_completed' } }, { range: { ts: { gte: 'now-30d' } } }] } }),
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'add_to_cart' } }, { range: { ts: { gte: 'now-72h' } } }] } }),
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'order_completed' } }, { range: { ts: { gte: 'now-72h' } } }] } }),
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'order_completed' } }], should: [{ wildcard: { 'origin.keyword': '*wildberries*' } }, { wildcard: { 'origin.keyword': '*wb.ru*' } }, { wildcard: { 'origin.keyword': '*ozon*' } }], minimum_should_match: 1 } }),
+    resolveConsentedRecipients(tenant, 5000),
+  ]);
+  const consentedSubjects = new Set(consented.map((c) => c.subject).filter(Boolean));
+  function intersectCount(userSet) {
+    let n = 0;
+    for (const u of userSet) if (consentedSubjects.has(u)) n++;
+    return n;
+  }
+  const cartAbandoned = new Set([...cartUsers72h].filter((u) => !orderedUsers72h.has(u)));
+  return {
+    active: intersectCount(orderedUsers30d),
+    cart: intersectCount(cartAbandoned),
+    mpback: intersectCount(mpOrderedUsers),
+    consentedTotal: consentedSubjects.size,
+  };
+}
+
 function zTestCompare(sentA, openA, sentB, openB) {
   var rateA = sentA > 0 ? openA / sentA : 0;
   var rateB = sentB > 0 ? openB / sentB : 0;
@@ -469,6 +509,16 @@ const server = http.createServer(async (req, res) => {
         return send(res, 502, { error: 'stats_failed', message: String(e.message || e) });
       }
     }
+    if (p === '/api/email/segments') {
+      var segTenant = locked || u.searchParams.get('tenant');
+      if (!segTenant || !TENANT_RE.test(segTenant)) return send(res, 400, { error: 'tenant required' });
+      try {
+        var segCounts = await realSegmentCounts(segTenant);
+        return send(res, 200, Object.assign({ ok: true, tenant: segTenant }, segCounts));
+      } catch (e) {
+        return send(res, 502, { error: 'segments_failed', message: String(e.message || e) });
+      }
+    }
     if (p.indexOf('/t/o/') === 0) {
       var tokO = p.slice('/t/o/'.length).replace(/\.gif$/, '');
       var payloadO = trackVerify(tokO);
@@ -501,7 +551,7 @@ const server = http.createServer(async (req, res) => {
 });
 if (require.main === module) server.listen(PORT, '0.0.0.0', () => console.log('rf-console on :' + PORT + ' es=' + ES_URL));
 
-module.exports = { mapSource, bucketLifecycle, aggregate, profilesList, listTenants, server, trackSign, trackVerify, injectTracking, resolveConsentedRecipients, zTestCompare, abtestStats };
+module.exports = { mapSource, bucketLifecycle, aggregate, profilesList, listTenants, server, trackSign, trackVerify, injectTracking, resolveConsentedRecipients, zTestCompare, abtestStats, realSegmentCounts, usersMatchingQuery };
 
 // ─── favicon: брендовая марка AXIOM — орбита/ядро (золото на ink, zero-dep inline SVG) ────
 const FAV = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32"><circle cx="16" cy="16" r="16" fill="#1c1510"/><circle cx="16" cy="16" r="10" fill="none" stroke="#c9a84c" stroke-width="1.5"/><g fill="#c9a84c"><circle cx="16" cy="16" r="3.2"/><circle cx="16" cy="6" r="2"/><circle cx="7.34" cy="21" r="2"/><circle cx="24.66" cy="21" r="2"/></g></svg>`;
