@@ -163,6 +163,32 @@ async function createTenantAuth(tenant, fromName, fromEmail) {
   await es('/' + AUTH_INDEX + '/_refresh');
   return { tenant: tenant, token: token, fromName: doc.fromName, fromEmail: doc.fromEmail };
 }
+
+async function countRecentSignups(sinceExpr) {
+  const q = await es('/' + AUTH_INDEX + '/_search', {
+    size: 0,
+    query: { range: { createdAt: { gte: sinceExpr } } },
+  });
+  if (q._missing) return 0;
+  return (q.hits && q.hits.total && q.hits.total.value) || 0;
+}
+// Серверный HTML-escape (клиентский esc() определён только внутри HTML-литерала,
+// недоступен здесь — использовать эту версию во всех server-side email-генераторах).
+function escHtml(s) {
+  return (s == null ? '' : String(s)).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+function signupWelcomeEmailHtml(companyName, loginUrl) {
+  return '<!doctype html><html><body style="margin:0;padding:0;background:#f5f0e8">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f0e8"><tr><td align="center" style="padding:24px 12px">' +
+    '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#fffdf9;border-radius:12px;overflow:hidden">' +
+    '<tr><td style="padding:28px;font-family:Arial,Helvetica,sans-serif">' +
+    '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:22px;font-weight:700;color:#1c1510;margin-bottom:12px">Добро пожаловать в Аксиому, ' + escHtml(companyName) + '</div>' +
+    '<p style="font-size:14px;line-height:1.6;color:#1c1510">Ваша консоль готова. Перейдите по ссылке ниже, чтобы начать работу — она содержит ваш персональный ключ доступа, никому его не передавайте.</p>' +
+    '<div style="text-align:center;margin-top:20px"><a href="' + escHtml(loginUrl) + '" style="display:inline-block;background:#c4683a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px">Открыть консоль</a></div>' +
+    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">Если вы не запрашивали доступ к Аксиоме, просто проигнорируйте это письмо.</div>' +
+    '</td></tr></table></td></tr></table></body></html>';
+}
 async function resolveTenantFromToken(token) {
   if (!token) return null;
   const hash = hashToken(token);
@@ -679,6 +705,44 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, { ok: true, tenant: created.tenant, token: created.token, fromName: created.fromName, fromEmail: created.fromEmail });
       } catch (e) {
         return send(res, 502, { error: 'provision_failed', message: String(e.message || e) });
+      }
+    }
+    // ─── публичный self-signup: без ADMIN_SECRET, токен НЕ возвращается в ответе —
+    // отправляется реальным письмом на указанный email (мягкий анти-абьюз гейт +
+    // dogfooding собственного send-пайплайна). Глобальный rate-limit по времени.
+    if (p === '/api/signup' && req.method === 'POST') {
+      var signupBody;
+      try { signupBody = await readJsonBody(req, 4 * 1024); }
+      catch (e) { return send(res, 400, { error: String(e.message || e) }); }
+      var suTenant = typeof signupBody.tenant === 'string' ? signupBody.tenant.trim().toLowerCase() : '';
+      var suCompany = typeof signupBody.companyName === 'string' ? signupBody.companyName.trim().slice(0, 120) : suTenant;
+      var suEmail = typeof signupBody.contactEmail === 'string' ? signupBody.contactEmail.trim() : '';
+      if (!TENANT_RE.test(suTenant) || suTenant.length < 3) return send(res, 400, { error: 'invalid_tenant', message: 'tenant: 3+ символов, латиница/цифры/-/_' });
+      if (!suEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(suEmail)) return send(res, 400, { error: 'invalid_contact_email' });
+      var recentSignups = await countRecentSignups('now-1h');
+      if (recentSignups >= 20) return send(res, 429, { error: 'rate_limited', message: 'слишком много регистраций за последний час, попробуйте позже' });
+      var existing = await resolveTenantAuth(suTenant);
+      if (existing) return send(res, 409, { error: 'tenant_taken', message: 'это имя тенанта уже занято' });
+      try {
+        var suCreated = await createTenantAuth(suTenant, suCompany, suEmail);
+        var suBaseUrl = process.env.PUBLIC_BASE_URL || 'https://rf.axiom.rent';
+        var loginUrl = suBaseUrl + '/?token=' + encodeURIComponent(suCreated.token);
+        try {
+          await sendRealEmail({
+            to: suEmail,
+            from: 'Аксиома <hello@axiom.rent>',
+            subject: 'Добро пожаловать в Аксиому — ваш доступ готов',
+            html: signupWelcomeEmailHtml(suCompany, loginUrl),
+            tags: [{ name: 'tenant', value: suTenant }, { name: 'messageId', value: 'signup-' + suTenant }],
+          });
+        } catch (mailErr) {
+          // Тенант всё равно создан — не откатываем регистрацию из-за сбоя письма,
+          // но явно сообщаем, чтобы не выглядело как тихая потеря доступа.
+          return send(res, 200, { ok: true, tenant: suTenant, emailSent: false, warning: 'Тенант создан, но письмо с доступом не отправилось: ' + (mailErr.message || mailErr) + '. Обратитесь в поддержку.' });
+        }
+        return send(res, 200, { ok: true, tenant: suTenant, emailSent: true, message: 'Проверьте почту ' + suEmail + ' — там ссылка для входа.' });
+      } catch (e) {
+        return send(res, 502, { error: 'signup_failed', message: String(e.message || e) });
       }
     }
     if (p === '/api/tenants') {
