@@ -288,6 +288,10 @@ async function recordEmailEvent(tenant, eventType, messageId, extra) {
     ts: new Date().toISOString(),
     properties: Object.assign({ messageId: messageId, source: 'internal_pixel_or_click' }, extra || {}),
   });
+  // automation_fired несёт subjectId (user_id кандидата) — поднимаем в top-level user_id,
+  // иначе usersMatchingQuery() (агрегирует по user_id.keyword) никогда не найдёт маркер
+  // и идемпотентность триггеров молча не работает (повторная отправка на каждый прогон поллера).
+  if (extra && extra.subjectId) doc.user_id = extra.subjectId;
   try { await es('/cdp_events_' + tenant + '/_doc', doc); }
   catch (e) { console.warn('recordEmailEvent failed:', e.message || e); }
 }
