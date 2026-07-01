@@ -201,6 +201,35 @@ async function profilesList(tenant, limit) {
   });
 }
 
+// Реальные получатели кампании: последнее событие согласия на email → фильтр по
+// действующему (не отозванному) marketing_email. Источник consent, не profiles —
+// согласие первично, поведенческая активность вторична (соответствует 152-ФЗ fail-closed).
+async function resolveConsentedRecipients(tenant, cap) {
+  if (!TENANT_RE.test(tenant)) throw new Error('bad tenant');
+  const q = await es('/cdp_consent_' + tenant + '/_search', {
+    size: 0,
+    aggs: {
+      by_email: {
+        terms: { field: 'consent.email.keyword', size: Math.min(cap || 2000, 10000) },
+        aggs: {
+          latest: { top_hits: { size: 1, sort: [{ ts: 'desc' }], _source: ['consent.email', 'consent.subject', 'consent.state'] } },
+        },
+      },
+    },
+  });
+  if (q._missing) return [];
+  const buckets = (q.aggregations && q.aggregations.by_email.buckets) || [];
+  const out = [];
+  for (const b of buckets) {
+    const src = (b.latest.hits.hits[0] || {})._source;
+    if (!src || !src.consent) continue;
+    if (src.consent.state && src.consent.state.marketing_email === true) {
+      out.push({ email: src.consent.email, subject: src.consent.subject || null });
+    }
+  }
+  return out;
+}
+
 const PURPOSE_RU = {
   personal_data: 'Обработка ПДн', pdn_processing: 'Обработка ПДн', marketing: 'Маркетинг',
   marketing_email: 'Email-маркетинг', marketing_messaging: 'Мессенджеры', analytics: 'Аналитика',
@@ -316,6 +345,42 @@ const server = http.createServer(async (req, res) => {
         return send(res, 502, { error: 'send_failed', message: String(e.message || e) });
       }
     }
+    if (p === '/api/email/campaign' && req.method === 'POST') {
+      var cbody;
+      try { cbody = await readJsonBody(req, 2 * 1024 * 1024); }
+      catch (e) { return send(res, 400, { error: String(e.message || e) }); }
+      var cTenant = (typeof cbody.tenant === 'string' && TENANT_RE.test(cbody.tenant)) ? cbody.tenant : null;
+      var cSubj = typeof cbody.subject === 'string' ? cbody.subject : '';
+      var cHtml = typeof cbody.html === 'string' ? cbody.html : '';
+      var cCap = Math.min(parseInt(cbody.limit, 10) || 500, 2000);
+      var cDryRun = !!cbody.dryRun;
+      if (!cTenant) return send(res, 400, { error: 'tenant_required' });
+      if (!cSubj) return send(res, 400, { error: 'subject_required' });
+      var recipients;
+      try { recipients = await resolveConsentedRecipients(cTenant, cCap); }
+      catch (e) { return send(res, 502, { error: 'consent_lookup_failed', message: String(e.message || e) }); }
+      if (cDryRun) {
+        return send(res, 200, { ok: true, dryRun: true, wouldSend: recipients.length, sample: recipients.slice(0, 5).map((r) => r.email) });
+      }
+      var cBaseUrl = process.env.PUBLIC_BASE_URL || 'https://rf.axiom.rent';
+      var cFrom = process.env.EMAIL_FROM || 'ecoma <hello@ecoma.ru>';
+      var sent = 0, failed = 0, failures = [];
+      for (var ri = 0; ri < recipients.length; ri++) {
+        var rEmail = recipients[ri].email;
+        if (!rEmail) continue;
+        var rMsgId = crypto.randomBytes(12).toString('hex');
+        var rHtml = injectTracking(cHtml || '<p>(пусто)</p>', cTenant, rMsgId, cBaseUrl);
+        try {
+          var rResult = await sendRealEmail({ to: rEmail, from: cFrom, subject: cSubj, html: rHtml });
+          await recordEmailEvent(cTenant, 'email_sent', rMsgId, { to: rEmail, subject: cSubj, provider: rResult.provider, campaign: true });
+          sent++;
+        } catch (e) {
+          failed++;
+          if (failures.length < 10) failures.push({ email: rEmail, error: String(e.message || e) });
+        }
+      }
+      return send(res, 200, { ok: true, totalConsented: recipients.length, sent: sent, failed: failed, failures: failures });
+    }
     if (p.indexOf('/t/o/') === 0) {
       var tokO = p.slice('/t/o/'.length).replace(/\.gif$/, '');
       var payloadO = trackVerify(tokO);
@@ -338,7 +403,7 @@ const server = http.createServer(async (req, res) => {
 });
 if (require.main === module) server.listen(PORT, '0.0.0.0', () => console.log('rf-console on :' + PORT + ' es=' + ES_URL));
 
-module.exports = { mapSource, bucketLifecycle, aggregate, profilesList, listTenants, server, trackSign, trackVerify, injectTracking };
+module.exports = { mapSource, bucketLifecycle, aggregate, profilesList, listTenants, server, trackSign, trackVerify, injectTracking, resolveConsentedRecipients };
 
 // ─── favicon: брендовая марка AXIOM — орбита/ядро (золото на ink, zero-dep inline SVG) ────
 const FAV = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32"><circle cx="16" cy="16" r="16" fill="#1c1510"/><circle cx="16" cy="16" r="10" fill="none" stroke="#c9a84c" stroke-width="1.5"/><g fill="#c9a84c"><circle cx="16" cy="16" r="3.2"/><circle cx="16" cy="6" r="2"/><circle cx="7.34" cy="21" r="2"/><circle cx="24.66" cy="21" r="2"/></g></svg>`;
