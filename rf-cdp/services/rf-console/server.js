@@ -104,13 +104,14 @@ async function recordEmailEvent(tenant, eventType, messageId, extra) {
 }
 // Вставляет пиксель открытия + оборачивает <a href> в подписанные click-редиректы.
 // baseUrl — публичный origin консоли (для абсолютных ссылок в письме).
-function injectTracking(html, tenant, messageId, baseUrl) {
+// extraTok (опц.) — доп. поля в подписанный токен (напр. {v:'A', c:campaignId} для A/B-атрибуции).
+function injectTracking(html, tenant, messageId, baseUrl, extraTok) {
   var out = String(html || '');
   out = out.replace(/href="(https?:\/\/[^"]+)"/g, function (m, url) {
-    var tok = trackSign({ t: tenant, m: messageId, u: url });
+    var tok = trackSign(Object.assign({ t: tenant, m: messageId, u: url }, extraTok || {}));
     return 'href="' + baseUrl + '/t/c/' + tok + '"';
   });
-  var pixelTok = trackSign({ t: tenant, m: messageId });
+  var pixelTok = trackSign(Object.assign({ t: tenant, m: messageId }, extraTok || {}));
   var pixel = '<img src="' + baseUrl + '/t/o/' + pixelTok + '.gif" width="1" height="1" style="display:none" alt="">';
   if (/<\/body>/i.test(out)) out = out.replace(/<\/body>/i, pixel + '</body>');
   else out = out + pixel;
@@ -225,6 +226,45 @@ async function resolveConsentedRecipients(tenant, cap) {
     if (!src || !src.consent) continue;
     if (src.consent.state && src.consent.state.marketing_email === true) {
       out.push({ email: src.consent.email, subject: src.consent.subject || null });
+    }
+  }
+  return out;
+}
+
+// Реальный two-proportion z-test (та же формула, что packages/ab-testing.compare() в @cdp-us:
+// pooled-proportion standard error, значимо при |z|>1.96 т.е. 95% CI). Портировано напрямую,
+// а не импортировано как TS-пакет — rf-console остаётся zero-build ES5-сервисом.
+function zTestCompare(sentA, openA, sentB, openB) {
+  var rateA = sentA > 0 ? openA / sentA : 0;
+  var rateB = sentB > 0 ? openB / sentB : 0;
+  var lift = rateA === 0 ? (rateB === 0 ? 0 : Infinity) : (rateB - rateA) / rateA;
+  var pooled = (sentA + sentB) > 0 ? (openA + openB) / (sentA + sentB) : 0;
+  var se = Math.sqrt(pooled * (1 - pooled) * ((sentA > 0 ? 1 / sentA : 0) + (sentB > 0 ? 1 / sentB : 0)));
+  var z = se === 0 ? 0 : (rateB - rateA) / se;
+  return { rateA: rateA, rateB: rateB, lift: lift, z: z, significant: Math.abs(z) > 1.96, winner: rateB >= rateA ? 'B' : 'A' };
+}
+// Реальные агрегированные счётчики sent/opened по variant для одного campaignId.
+async function abtestStats(tenant, campaignId) {
+  if (!TENANT_RE.test(tenant)) throw new Error('bad tenant');
+  const q = await es('/cdp_events_' + tenant + '/_search', {
+    size: 0,
+    query: { term: { 'properties.campaignId.keyword': campaignId } },
+    aggs: {
+      by_event: {
+        terms: { field: 'event.keyword', size: 5 },
+        aggs: { by_variant: { terms: { field: 'properties.variant.keyword', size: 5 } } },
+      },
+    },
+  });
+  if (q._missing) return { sentA: 0, openA: 0, sentB: 0, openB: 0 };
+  var out = { sentA: 0, openA: 0, sentB: 0, openB: 0 };
+  var buckets = (q.aggregations && q.aggregations.by_event.buckets) || [];
+  for (const eb of buckets) {
+    for (const vb of eb.by_variant.buckets) {
+      if (eb.key === 'email_sent' && vb.key === 'A') out.sentA = vb.doc_count;
+      if (eb.key === 'email_sent' && vb.key === 'B') out.sentB = vb.doc_count;
+      if (eb.key === 'email_opened' && vb.key === 'A') out.openA = vb.doc_count;
+      if (eb.key === 'email_opened' && vb.key === 'B') out.openB = vb.doc_count;
     }
   }
   return out;
@@ -381,10 +421,63 @@ const server = http.createServer(async (req, res) => {
       }
       return send(res, 200, { ok: true, totalConsented: recipients.length, sent: sent, failed: failed, failures: failures });
     }
+    if (p === '/api/email/abtest/start' && req.method === 'POST') {
+      var abody;
+      try { abody = await readJsonBody(req, 2 * 1024 * 1024); }
+      catch (e) { return send(res, 400, { error: String(e.message || e) }); }
+      var abTenant = (typeof abody.tenant === 'string' && TENANT_RE.test(abody.tenant)) ? abody.tenant : null;
+      var subjA = typeof abody.subjectA === 'string' ? abody.subjectA : '';
+      var subjB = typeof abody.subjectB === 'string' ? abody.subjectB : '';
+      var abHtml = typeof abody.html === 'string' ? abody.html : '<p>(пусто)</p>';
+      var abCap = Math.min(parseInt(abody.limit, 10) || 500, 2000);
+      if (!abTenant) return send(res, 400, { error: 'tenant_required' });
+      if (!subjA || !subjB) return send(res, 400, { error: 'subjectA_and_subjectB_required' });
+      var abRecipients;
+      try { abRecipients = await resolveConsentedRecipients(abTenant, abCap); }
+      catch (e) { return send(res, 502, { error: 'consent_lookup_failed', message: String(e.message || e) }); }
+      var campaignId = crypto.randomBytes(8).toString('hex');
+      var abBaseUrl = process.env.PUBLIC_BASE_URL || 'https://rf.axiom.rent';
+      var abFrom = process.env.EMAIL_FROM || 'ecoma <hello@ecoma.ru>';
+      var abSent = { A: 0, B: 0 }, abFailed = 0;
+      for (var ai = 0; ai < abRecipients.length; ai++) {
+        var abEmail = abRecipients[ai].email;
+        if (!abEmail) continue;
+        var variant = (ai % 2 === 0) ? 'A' : 'B';
+        var abSubj = variant === 'A' ? subjA : subjB;
+        var abMsgId = crypto.randomBytes(12).toString('hex');
+        var abTrackedHtml = injectTracking(abHtml, abTenant, abMsgId, abBaseUrl, { v: variant, c: campaignId });
+        try {
+          var abResult = await sendRealEmail({ to: abEmail, from: abFrom, subject: abSubj, html: abTrackedHtml });
+          await recordEmailEvent(abTenant, 'email_sent', abMsgId, { to: abEmail, subject: abSubj, provider: abResult.provider, variant: variant, campaignId: campaignId });
+          abSent[variant]++;
+        } catch (e) {
+          abFailed++;
+        }
+      }
+      return send(res, 200, { ok: true, campaignId: campaignId, sentA: abSent.A, sentB: abSent.B, failed: abFailed });
+    }
+    if (p.indexOf('/api/email/abtest/') === 0 && req.method === 'GET') {
+      var abTenantQ = u.searchParams.get('tenant');
+      var abCampaignId = p.slice('/api/email/abtest/'.length);
+      if (!abTenantQ || !TENANT_RE.test(abTenantQ)) return send(res, 400, { error: 'tenant required as ?tenant=' });
+      if (!abCampaignId) return send(res, 400, { error: 'campaignId required in path' });
+      try {
+        var abCounts = await abtestStats(abTenantQ, abCampaignId);
+        var abStats = zTestCompare(abCounts.sentA, abCounts.openA, abCounts.sentB, abCounts.openB);
+        return send(res, 200, Object.assign({ ok: true, campaignId: abCampaignId }, abCounts, abStats));
+      } catch (e) {
+        return send(res, 502, { error: 'stats_failed', message: String(e.message || e) });
+      }
+    }
     if (p.indexOf('/t/o/') === 0) {
       var tokO = p.slice('/t/o/'.length).replace(/\.gif$/, '');
       var payloadO = trackVerify(tokO);
-      if (payloadO && payloadO.t && payloadO.m) recordEmailEvent(payloadO.t, 'email_opened', payloadO.m, {});
+      if (payloadO && payloadO.t && payloadO.m) {
+        var extraO = {};
+        if (payloadO.v) extraO.variant = payloadO.v;
+        if (payloadO.c) extraO.campaignId = payloadO.c;
+        recordEmailEvent(payloadO.t, 'email_opened', payloadO.m, extraO);
+      }
       res.writeHead(200, { 'content-type': 'image/gif', 'cache-control': 'no-store' });
       return res.end(GIF_1x1);
     }
@@ -392,7 +485,12 @@ const server = http.createServer(async (req, res) => {
       var tokC = p.slice('/t/c/'.length);
       var payloadC = trackVerify(tokC);
       if (!payloadC || !payloadC.u) return send(res, 404, { error: 'invalid_link' });
-      if (payloadC.t && payloadC.m) recordEmailEvent(payloadC.t, 'email_clicked', payloadC.m, { url: payloadC.u });
+      if (payloadC.t && payloadC.m) {
+        var extraC = { url: payloadC.u };
+        if (payloadC.v) extraC.variant = payloadC.v;
+        if (payloadC.c) extraC.campaignId = payloadC.c;
+        recordEmailEvent(payloadC.t, 'email_clicked', payloadC.m, extraC);
+      }
       res.writeHead(302, { location: payloadC.u, 'cache-control': 'no-store' });
       return res.end();
     }
@@ -403,7 +501,7 @@ const server = http.createServer(async (req, res) => {
 });
 if (require.main === module) server.listen(PORT, '0.0.0.0', () => console.log('rf-console on :' + PORT + ' es=' + ES_URL));
 
-module.exports = { mapSource, bucketLifecycle, aggregate, profilesList, listTenants, server, trackSign, trackVerify, injectTracking, resolveConsentedRecipients };
+module.exports = { mapSource, bucketLifecycle, aggregate, profilesList, listTenants, server, trackSign, trackVerify, injectTracking, resolveConsentedRecipients, zTestCompare, abtestStats };
 
 // ─── favicon: брендовая марка AXIOM — орбита/ядро (золото на ink, zero-dep inline SVG) ────
 const FAV = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32"><circle cx="16" cy="16" r="16" fill="#1c1510"/><circle cx="16" cy="16" r="10" fill="none" stroke="#c9a84c" stroke-width="1.5"/><g fill="#c9a84c"><circle cx="16" cy="16" r="3.2"/><circle cx="16" cy="6" r="2"/><circle cx="7.34" cy="21" r="2"/><circle cx="24.66" cy="21" r="2"/></g></svg>`;
