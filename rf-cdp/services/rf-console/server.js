@@ -235,6 +235,47 @@ async function resolveConsentedRecipients(tenant, cap) {
 // pooled-proportion standard error, значимо при |z|>1.96 т.е. 95% CI). Портировано напрямую,
 // а не импортировано как TS-пакет — rf-console остаётся zero-build ES5-сервисом.
 // Реальные user_id, у которых есть событие, удовлетворяющее query (для пересечения сегментов).
+// Реальная DNS-проверка SPF/DMARC/DKIM (node:dns, без внешних пакетов). Настоящий
+// resolveTxt на живой домен клиента — не парсинг уже переданной строки.
+const dns = require('dns').promises;
+async function checkDomainDeliverability(domain, dkimSelector) {
+  const out = { domain: domain, spf: { status: 'not_found' }, dmarc: { status: 'not_found' }, dkim: { status: 'not_found' }, warnings: [], errors: [] };
+  try {
+    const spfRecords = await dns.resolveTxt(domain);
+    const spf = spfRecords.map((parts) => parts.join('')).find((t) => /^v=spf1/i.test(t));
+    if (spf) {
+      out.spf = { status: 'found', record: spf };
+      if (!/[-~]all\b/.test(spf)) out.warnings.push('SPF без явного "-all"/"~all" в конце — политика не строгая');
+    }
+  } catch (e) {
+    out.errors.push('SPF lookup failed: ' + (e.code || e.message));
+  }
+  try {
+    const dmarcRecords = await dns.resolveTxt('_dmarc.' + domain);
+    const dmarc = dmarcRecords.map((parts) => parts.join('')).find((t) => /^v=DMARC1/i.test(t));
+    if (dmarc) {
+      out.dmarc = { status: 'found', record: dmarc };
+      if (/p=none/i.test(dmarc)) out.warnings.push('DMARC policy=none — только мониторинг, письма не защищены от подделки');
+    }
+  } catch (e) {
+    out.errors.push('DMARC lookup failed: ' + (e.code || e.message));
+  }
+  if (dkimSelector) {
+    try {
+      const dkimRecords = await dns.resolveTxt(dkimSelector + '._domainkey.' + domain);
+      const dkim = dkimRecords.map((parts) => parts.join(''));
+      if (dkim.length) out.dkim = { status: 'found', record: dkim.join('') };
+    } catch (e) {
+      out.errors.push('DKIM lookup failed (selector=' + dkimSelector + '): ' + (e.code || e.message));
+    }
+  } else {
+    out.warnings.push('DKIM selector не указан — проверьте у отправляющего сервиса (напр. "resend" для Resend) и повторите с ?selector=');
+  }
+  out.overall = (out.spf.status === 'found' && out.dmarc.status === 'found' && (!dkimSelector || out.dkim.status === 'found'))
+    ? 'ready' : (out.spf.status === 'found' || out.dmarc.status === 'found') ? 'warning' : 'failed';
+  return out;
+}
+
 async function usersMatchingQuery(tenant, query) {
   const q = await es('/cdp_events_' + tenant + '/_search', {
     size: 0,
@@ -519,6 +560,17 @@ const server = http.createServer(async (req, res) => {
         return send(res, 502, { error: 'segments_failed', message: String(e.message || e) });
       }
     }
+    if (p === '/api/deliverability/check') {
+      var dDomain = u.searchParams.get('domain');
+      var dSelector = u.searchParams.get('selector') || undefined;
+      if (!dDomain || !/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(dDomain)) return send(res, 400, { error: 'invalid_domain' });
+      try {
+        var dReport = await checkDomainDeliverability(dDomain, dSelector);
+        return send(res, 200, { ok: true, report: dReport });
+      } catch (e) {
+        return send(res, 502, { error: 'check_failed', message: String(e.message || e) });
+      }
+    }
     if (p.indexOf('/t/o/') === 0) {
       var tokO = p.slice('/t/o/'.length).replace(/\.gif$/, '');
       var payloadO = trackVerify(tokO);
@@ -551,7 +603,7 @@ const server = http.createServer(async (req, res) => {
 });
 if (require.main === module) server.listen(PORT, '0.0.0.0', () => console.log('rf-console on :' + PORT + ' es=' + ES_URL));
 
-module.exports = { mapSource, bucketLifecycle, aggregate, profilesList, listTenants, server, trackSign, trackVerify, injectTracking, resolveConsentedRecipients, zTestCompare, abtestStats, realSegmentCounts, usersMatchingQuery };
+module.exports = { mapSource, bucketLifecycle, aggregate, profilesList, listTenants, server, trackSign, trackVerify, injectTracking, resolveConsentedRecipients, zTestCompare, abtestStats, realSegmentCounts, usersMatchingQuery, checkDomainDeliverability };
 
 // ─── favicon: брендовая марка AXIOM — орбита/ядро (золото на ink, zero-dep inline SVG) ────
 const FAV = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32"><circle cx="16" cy="16" r="16" fill="#1c1510"/><circle cx="16" cy="16" r="10" fill="none" stroke="#c9a84c" stroke-width="1.5"/><g fill="#c9a84c"><circle cx="16" cy="16" r="3.2"/><circle cx="16" cy="6" r="2"/><circle cx="7.34" cy="21" r="2"/><circle cx="24.66" cy="21" r="2"/></g></svg>`;
