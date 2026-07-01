@@ -1992,7 +1992,7 @@ function em_builder_blockHtmlEmail(b) {
   if (b.type === 'hero') {
     return '<div style="padding:22px 24px 10px;text-align:center;' + F + '">' +
       '<div style="font-size:34px;margin-bottom:8px">' + esc(d.emoji || '🌿') + '</div>' +
-      '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:24px;font-weight:700;color:#1c1510;margin-bottom:6px">' + esc(d.title) + '</div>' +
+      '<div style="font-family:Georgia,\\'Times New Roman\\',serif;font-size:24px;font-weight:700;color:#1c1510;margin-bottom:6px">' + esc(d.title) + '</div>' +
       '<div style="font-size:14px;color:#7a6e60;line-height:1.5">' + esc(d.sub) + '</div></div>';
   }
   if (b.type === 'text') {
@@ -2019,7 +2019,7 @@ function em_builder_blockHtmlEmail(b) {
   if (b.type === 'promo') {
     return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:8px 0"><tr><td style="padding:16px 24px;text-align:center;background:#f5f0e8">' +
       '<div style="' + F + 'font-size:14px;color:#1c1510">' + esc(d.text) + '</div>' +
-      '<div style="font-family:\'Courier New\',monospace;font-size:22px;font-weight:700;color:#c4683a;letter-spacing:2px;margin:8px 0">' + esc(d.code) + '</div>' +
+      '<div style="font-family:\\'Courier New\\',monospace;font-size:22px;font-weight:700;color:#c4683a;letter-spacing:2px;margin:8px 0">' + esc(d.code) + '</div>' +
       '<div style="' + F + 'font-size:11px;color:#7a6e60">по промокоду · действует ' + esc(d.expires) + '</div>' +
       '</td></tr></table>';
   }

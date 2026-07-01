@@ -231,3 +231,23 @@ test('HTTP: / serves the AXIOM RU console; /api/overview shapes data', async () 
     assert.equal((await fetch(`${base}/health`)).status, 200);
   } finally { server.close(); await once(server, 'close'); restore(); }
 });
+
+// Regression guard: the served page embeds ~2000 lines of client JS inside a single <script>
+// tag built from a backtick template literal. A nested-escaping bug (\' surviving one string
+// level too few) once made the WHOLE script fail to parse in a real browser — silently, because
+// no test ever actually parsed the emitted script as JS (only regex-matched substrings of the
+// HTML). Found via manual browser smoke test (font-family:\'Times New Roman\' / \'Courier New\'
+// inside em_builder block renderers), fixed by double-escaping (\\'). This test parses the exact
+// bytes a browser would receive, so a reintroduced instance of this bug fails CI immediately.
+test('client <script> served to the browser is syntactically valid JS', async () => {
+  const restore = stubEs();
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const html = await (await fetch(`${base}/`)).text();
+    const m = html.match(/<script>([\s\S]*)<\/script>/);
+    assert.ok(m, 'page must contain a <script> block');
+    assert.doesNotThrow(() => new Function(m[1]), 'client script must parse as valid JS');
+  } finally { server.close(); await once(server, 'close'); restore(); }
+});
