@@ -2211,21 +2211,30 @@ const VIEWS={
     services(){
     const k=OV.kpi, c=OV.consent;
     const used=k.profiles;
-    const limProfiles = used<2000?5000 : used<8000?10000 : used<40000?50000 : 100000;
+    // AXIOM Core — лестница по числу профилей, ценам НЕ НИЖЕ Sendsay Маркетинг
+    // (их CDP-тариф) на том же диапазоне: М10=8 880₽/М20=12 640₽/М30=15 660₽/
+    // М50=21 070₽/М100=28 890₽ — мы выше на 10–14% на каждой ступени.
+    const limProfiles = used<=10000?10000 : used<=20000?20000 : used<=30000?30000 : used<=50000?50000 : 100000;
     const limEvents = limProfiles*10;
-    const planName = limProfiles<=5000?'Старт' : limProfiles<=10000?'Рост' : 'Бизнес';
+    const planName = limProfiles<=10000?'Старт' : limProfiles<=20000?'Рост' : limProfiles<=30000?'Расширенный' : limProfiles<=50000?'Масштаб' : 'Бизнес';
+    const base = limProfiles<=10000?9990 : limProfiles<=20000?13990 : limProfiles<=30000?17490 : limProfiles<=50000?23990 : 31990;
+    // Email-маркетинг · Перо — тариф модуля следует ЛЕСТНИЦЕ реального продукта
+    // «Перо» (см. axiom.rent/pero#pricing и дека): 5 990/9 990/14 990/19 990/
+    // 34 990 ₽ на 1 000/5 000/10 000/30 000/100 000 контактов — владелец
+    // задал финальные цифры для нижних 3 ступеней вручную (2026-07-01).
+    const peroTariff = k.profiles<=1000?4990 : k.profiles<=5000?9990 : k.profiles<=10000?14990 : k.profiles<=30000?19990 : k.profiles<=100000?34990 : 0;
+    const peroLbl = peroTariff?null:'по запросу — свыше 100 000 контактов';
     const mods=[
       {name:'CDP · единая база клиентов',tone:'gold',on:true,price:0,priceLbl:'основа плана',use:k.profiles,lim:limProfiles,unit:'профилей'},
       {name:'Веб-трекер · события',tone:'sage',on:true,price:0,priceLbl:'входит в план',use:k.events,lim:limEvents,unit:'событий/мес'},
       {name:'Профили и сегменты',tone:'gold',on:true,price:0,priceLbl:'входит в план',use:k.identified,lim:limProfiles,unit:'опознано'},
       {name:'Согласия · 152-ФЗ',tone:'rust',on:true,price:990,use:c.total,lim:null,unit:'записей'},
-      {name:'Email-маркетинг · Перо',tone:'rust',on:true,price:1490,use:null,lim:null,unit:''},
+      {name:'Email-маркетинг · Перо',tone:'rust',on:true,price:peroTariff,priceLbl:peroLbl,use:k.profiles,lim:1e4,unit:'контактов в базе Перо'},
       {name:'ВКонтакте · соц-сигналы',tone:'sage',on:false,price:690,use:null,lim:null,unit:''},
       {name:'Telegram · мессенджер',tone:'gold',on:false,price:690,use:null,lim:null,unit:''},
       {name:'Rutube / YouTube · видео',tone:'rust',on:false,price:590,use:null,lim:null,unit:''},
       {name:'Яндекс.Метрика · веб-аналитика',tone:'sage',on:false,price:0,priceLbl:'входит в план',use:null,lim:null,unit:''}
     ];
-    const base=2900;
     const addons=mods.filter(m=>m.on&&m.price>0).reduce((s2,m)=>s2+m.price,0);
     const total=base+addons;
     const fillPct=Math.min(100,Math.round(k.profiles/limProfiles*100));
