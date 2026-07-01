@@ -1680,6 +1680,32 @@ const SECTIONS=[
 ];
 let TENANT=null, OV=null, cur='overview';
 
+/* ── живые данные для вкладок Email (Кампании/A-B/Сегменты) — вместо фикстур ──
+   Синхронный рендер (emailRender/EMAIL_TABS.*) остаётся синхронным: liveFetch()
+   отдаёт кэш немедленно (loading при первом обращении), а по прилёту реальных
+   данных с сервера сама перерисовывает #view — если пользователь всё ещё на
+   разделе Email. Ключ кэша включает tenant — переключение тенанта не мешает данным. */
+var LIVE = {};
+function liveFetch(kind, tenant, url){
+  var key = kind+':'+tenant;
+  var slot = LIVE[key];
+  if (slot) return slot;
+  LIVE[key] = { loading:true, data:null, error:null };
+  j(url).then(function(data){
+    LIVE[key] = { loading:false, data:data, error:null };
+    if (cur==='email'){ var v=$('#view'); if(v) v.innerHTML=emailRender(); }
+  }).catch(function(e){
+    LIVE[key] = { loading:false, data:null, error:String((e&&e.message)||e) };
+    if (cur==='email'){ var v=$('#view'); if(v) v.innerHTML=emailRender(); }
+  });
+  return LIVE[key];
+}
+function em_liveNote(live, itemWord){
+  if (live.loading) return '<div class="note">Загружаем реальные данные…</div>';
+  if (live.error) return '<div class="note" style="color:'+TONE.rust+'">Не удалось загрузить: '+esc(live.error)+'</div>';
+  return '';
+}
+
 function tile(l,v,h,t){return '<div class="card tile"><p class="label">'+esc(l)+'</p><div class="v" style="color:'+(TONE[t]||TONE.ink)+'">'+esc(v)+'</div>'+(h?'<div class="h">'+esc(h)+'</div>':'')+'</div>';}
 function hbars(bars){if(!bars.length)return '<div class="muted">—</div>';const max=Math.max.apply(null,bars.map(b=>b.value).concat([1]));
   return '<div class="bars">'+bars.map(b=>'<div class="bar"><div class="tp"><span style="font-weight:600">'+esc(b.label)+'</span><span class="cap">'+esc(b.caption||nf(b.value))+'</span></div><div class="track"><div class="fill" style="width:'+Math.min(100,b.value/max*100)+'%;background:'+(TONE[b.tone]||TONE.sage)+'"></div></div></div>').join('')+'</div>';}
@@ -1738,122 +1764,30 @@ function em_campaigns_typeBadge(tp){
   if(tp==='flow') return '<span class="em-typ em-typ-flow">⤵ Flow</span>';
   return '<span class="em-typ em-typ-bc">⇶ Рассылка</span>';
 }
-function em_campaigns_model(){
-  var active   = (typeof lc==='function') ? lc('Активные') : 0;
-  var sleepers = (typeof lc==='function') ? lc('Спящие')   : 0;
-  var fresh    = (typeof lc==='function') ? lc('Новые')    : 0;
-  var lost     = (typeof lc==='function') ? lc('Потерянные') : 0;
-  var rev = (OV && OV.orders && OV.orders.revenue) ? OV.orders.revenue : 0;
-  function part(base, k){ return Math.max(0, Math.round(base*k)); }
-  var rows = [];
-  (function(){
-    var sent = part(active, 0.92);
-    rows.push({
-      name:'Июньская эко-подборка: многоразовое лето',
-      tmpl:'summer-eco-picks.liquid',
-      type:'broadcast', status:'sent',
-      when:'14.06 · 10:00', whenHint:'отправлена',
-      recipients:sent,
-      openRate:42.7, clickRate:9.8, unsubRate:0.21,
-      revenue: Math.round(rev*0.18),
-      tone:'sage', ab:null
-    });
-  })();
-  (function(){
-    var sent = part(fresh, 1.0) + part(active, 0.12);
-    rows.push({
-      name:'Знакомство с ecoma.ru: почему мы ушли с маркетплейсов',
-      tmpl:'welcome-brand-story.liquid',
-      type:'broadcast', status:'ab',
-      when:'21.06 · 12:30', whenHint:'A/B завершён',
-      recipients:sent,
-      openRate:51.4, clickRate:13.1, unsubRate:0.14,
-      revenue: Math.round(rev*0.11),
-      tone:'gold',
-      ab:{
-        a:{subj:'Почему мы ушли с Ozon и WB — и что это даёт вам', open:47.9},
-        b:{subj:'ecoma.ru теперь напрямую: −20% наценки маркетплейсов', open:54.8},
-        winner:'B', uplift:14.4
-      }
-    });
-  })();
-  (function(){
-    var sent = part(active, 0.34);
-    rows.push({
-      name:'Брошенная корзина · напоминание +3 ч',
-      tmpl:'abandoned-cart-3h.liquid',
-      type:'flow', status:'sending',
-      when:'непрерывно', whenHint:'триггер: корзина',
-      recipients:sent,
-      openRate:58.2, clickRate:21.6, unsubRate:0.09,
-      revenue: Math.round(rev*0.14),
-      tone:'rust', ab:null
-    });
-  })();
-  (function(){
-    var sent = part(sleepers, 0.78);
-    rows.push({
-      name:'Мы скучали · −15% на эко-набор',
-      tmpl:'winback-sleepers.liquid',
-      type:'flow', status:'sent',
-      when:'08.06–28.06', whenHint:'каскад 3 письма',
-      recipients:sent,
-      openRate:33.5, clickRate:7.4, unsubRate:0.62,
-      revenue: Math.round(rev*0.06),
-      tone:'gold', ab:null
-    });
-  })();
-  (function(){
-    var sent = part(active, 0.95) + part(fresh, 0.6);
-    rows.push({
-      name:'Новинки июля: бытовая химия без пластика',
-      tmpl:'july-plastic-free.liquid',
-      type:'broadcast', status:'scheduled',
-      when:'02.07 · 09:30', whenHint:'через сегмент «verified»',
-      recipients:sent,
-      openRate:0, clickRate:0, unsubRate:0,
-      revenue:0,
-      tone:'ink', ab:null, projected:true
-    });
-  })();
-  (function(){
-    rows.push({
-      name:'Гид: как читать состав эко-косметики',
-      tmpl:'guide-cosmetic-labels.liquid',
-      type:'broadcast', status:'draft',
-      when:'—', whenHint:'не отправлялась',
-      recipients:0,
-      openRate:0, clickRate:0, unsubRate:0,
-      revenue:0,
-      tone:'rust', ab:null, projected:true
-    });
-  })();
-  (function(){
-    rows.push({
-      name:'Пост-покупка · уход за многоразовым (flow)',
-      tmpl:'post-purchase-care.liquid',
-      type:'flow', status:'draft',
-      when:'—', whenHint:'настройка триггера',
-      recipients:0,
-      openRate:0, clickRate:0, unsubRate:0,
-      revenue:0,
-      tone:'rust', ab:null, projected:true
-    });
-  })();
-  return rows;
+// Реальная кампания из /api/email/campaigns → строка таблицы. Отписки и выручка честно НЕ
+// показываем цифрой — атрибуция по ним не трекается, догадка была бы фикстурой под видом факта.
+function em_campaigns_fromLive(c){
+  return {
+    name: c.subject + (c.ab ? ' · A/B' : ''),
+    tmpl: c.automated ? ('trigger: '+(c.trigger||'auto')) : (c.ab ? 'a/b тема' : '—'),
+    type: c.automated ? 'flow' : 'broadcast',
+    status: 'sent',
+    when: fmtDt(c.lastSent),
+    whenHint: c.automated ? 'триггер · авто' : (c.ab ? 'A/B по теме письма' : 'отправлена'),
+    recipients: c.sent,
+    openRate: c.openRate*100, clickRate: c.clickRate*100
+  };
 }
 EMAIL_TABS.campaigns = function(){
-  var rows = em_campaigns_model();
-  var totalSent=0, revEmail=0, wSum=0, wOpen=0, reachable=0;
+  var live = liveFetch('campaigns', TENANT, '/api/email/campaigns?tenant='+encodeURIComponent(TENANT));
+  var rows = (live.data && live.data.campaigns) ? live.data.campaigns.map(em_campaigns_fromLive) : [];
+  var totalSent=0, wSum=0, wOpen=0, reachable=0;
   var consentTotal = (OV && OV.consent && OV.consent.total) ? OV.consent.total : 0;
   for(var i=0;i<rows.length;i++){
     var r=rows[i];
-    if(r.recipients>0 && (r.status==='sent'||r.status==='sending'||r.status==='ab')){
-      totalSent += r.recipients;
-      revEmail  += r.revenue;
-      wSum      += r.recipients;
-      wOpen     += r.recipients * r.openRate;
-    }
+    totalSent += r.recipients;
+    wSum      += r.recipients;
+    wOpen     += r.recipients * r.openRate;
   }
   var avgOpen = wSum>0 ? (wOpen/wSum) : 0;
   reachable = 0;
@@ -1876,86 +1810,49 @@ EMAIL_TABS.campaigns = function(){
      + 'Доступно к рассылке: <b>'+nf(reachable)+'</b> из '+nf(profiles)+' профилей ('+reachPct+'%). '
      + 'Профили без verified-согласия исключаются из получателей автоматически; футер каждого письма содержит отписку и идентификацию рекламодателя (ст. 18 «О рекламе»).'
      + '</div>';
+  h += em_liveNote(live);
   h += '<div class="grid four" style="margin-top:14px">';
-  h += tile('Отправлено за период', nf(totalSent), rows.length+' кампаний и flow', 'ink');
+  h += tile('Отправлено за период', nf(totalSent), rows.length+' реальных кампаний', 'ink');
   h += tile('Средние открытия', em_campaigns_pct(avgOpen), 'взвешенно по объёму', 'gold');
   h += tile('Достижимо с согласием', nf(reachable), reachPct+'% базы · 152-ФЗ', 'sage');
-  h += tile('Выручка с email', rub(revEmail), 'атрибуция last-touch', 'rust');
+  h += tile('Гейт согласия', 'fail-closed', 'нет verified → пропуск', 'rust');
   h += '</div>';
   var inner = '';
-  inner += '<div class="tw"><table>';
-  inner += '<tr>'
-        + '<th>Кампания</th>'
-        + '<th>Шаблон</th>'
-        + '<th>Тип</th>'
-        + '<th>Статус</th>'
-        + '<th>Расписание</th>'
-        + '<th style="text-align:right">Получатели</th>'
-        + '<th style="text-align:right">Откр.</th>'
-        + '<th style="text-align:right">Клики</th>'
-        + '<th style="text-align:right">Отписки</th>'
-        + '<th style="text-align:right">Выручка</th>'
-        + '</tr>';
-  for(var j=0;j<rows.length;j++){
-    var c = rows[j];
-    var planned = !!c.projected;
-    inner += '<tr'+(planned?' class="em-row-soft"':'')+'>';
-    inner += '<td><span class="em-cname serif">'+esc(c.name)+'</span></td>';
-    inner += '<td><code class="em-tmpl">'+esc(c.tmpl)+'</code></td>';
-    inner += '<td>'+em_campaigns_typeBadge(c.type)+'</td>';
-    inner += '<td>'+em_campaigns_statusBadge(c.status)+'</td>';
-    inner += '<td><span class="em-when">'+esc(c.when)+'</span><span class="em-when-hint">'+esc(c.whenHint)+'</span></td>';
-    if(c.recipients>0){
+  if(!live.loading && !live.error && rows.length===0){
+    inner = '<div class="note muted">Кампаний пока не отправлялось — реальных данных нет. Отправьте кампанию во вкладке «Конструктор» или запустите A/B-тест.</div>';
+  } else {
+    inner += '<div class="tw"><table>';
+    inner += '<tr>'
+          + '<th>Кампания</th>'
+          + '<th>Метка</th>'
+          + '<th>Тип</th>'
+          + '<th>Статус</th>'
+          + '<th>Отправлена</th>'
+          + '<th style="text-align:right">Получатели</th>'
+          + '<th style="text-align:right">Откр.</th>'
+          + '<th style="text-align:right">Клики</th>'
+          + '</tr>';
+    for(var j=0;j<rows.length;j++){
+      var c = rows[j];
+      inner += '<tr>';
+      inner += '<td><span class="em-cname serif">'+esc(c.name)+'</span></td>';
+      inner += '<td><code class="em-tmpl">'+esc(c.tmpl)+'</code></td>';
+      inner += '<td>'+em_campaigns_typeBadge(c.type)+'</td>';
+      inner += '<td>'+em_campaigns_statusBadge(c.status)+'</td>';
+      inner += '<td><span class="em-when">'+esc(c.when)+'</span><span class="em-when-hint">'+esc(c.whenHint)+'</span></td>';
       inner += '<td style="text-align:right" class="em-num">'+nf(c.recipients)+'</td>';
-    } else {
-      inner += '<td style="text-align:right" class="muted">—</td>';
-    }
-    if(c.openRate>0){
       inner += '<td style="text-align:right" class="em-metric">'+em_campaigns_pct(c.openRate)+em_campaigns_bar(c.openRate,'gold')+'</td>';
       inner += '<td style="text-align:right" class="em-metric">'+em_campaigns_pct(c.clickRate)+em_campaigns_bar(c.clickRate,'sage')+'</td>';
-      inner += '<td style="text-align:right" class="em-metric">'+em_campaigns_pct(c.unsubRate)+em_campaigns_bar(c.unsubRate,'rust')+'</td>';
-    } else {
-      inner += '<td style="text-align:right" class="muted">—</td>';
-      inner += '<td style="text-align:right" class="muted">—</td>';
-      inner += '<td style="text-align:right" class="muted">—</td>';
+      inner += '</tr>';
     }
-    if(c.revenue>0){
-      inner += '<td style="text-align:right" class="em-num"><b>'+rub(c.revenue)+'</b></td>';
-    } else {
-      inner += '<td style="text-align:right" class="muted">—</td>';
-    }
-    inner += '</tr>';
-    if(c.ab){
-      var ab=c.ab;
-      inner += '<tr class="em-cab-row"><td colspan="10">';
-      inner += '<div class="em-cab">';
-      inner += '<span class="label">A/B по теме письма</span>';
-      inner += '<div class="em-cab-grid">';
-      inner += '<div class="em-cab-var'+(ab.winner==='A'?' em-cab-win':'')+'">'
-            + '<span class="em-cab-tag">A'+(ab.winner==='A'?' · победитель':'')+'</span>'
-            + '<span class="em-cab-subj">'+esc(ab.a.subj)+'</span>'
-            + '<span class="em-cab-open">открытия '+em_campaigns_pct(ab.a.open)+'</span>'
-            + em_campaigns_bar(ab.a.open,'muted')
-            + '</div>';
-      inner += '<div class="em-cab-var'+(ab.winner==='B'?' em-cab-win':'')+'">'
-            + '<span class="em-cab-tag">B'+(ab.winner==='B'?' · победитель':'')+'</span>'
-            + '<span class="em-cab-subj">'+esc(ab.b.subj)+'</span>'
-            + '<span class="em-cab-open">открытия '+em_campaigns_pct(ab.b.open)+'</span>'
-            + em_campaigns_bar(ab.b.open,'gold')
-            + '</div>';
-      inner += '</div>';
-      inner += '<span class="em-cab-uplift">Победитель <b>'+esc(ab.winner)+'</b> · прирост открытий +'+em_campaigns_pct(ab.uplift)+' — разослан на остаток сегмента автоматически.</span>';
-      inner += '</div>';
-      inner += '</td></tr>';
-    }
+    inner += '</table></div>';
+    inner += '<div class="em-legend">'
+          + '<span>'+em_campaigns_typeBadge('broadcast')+' разовая рассылка / A-B-тест</span>'
+          + '<span>'+em_campaigns_typeBadge('flow')+' триггерный сценарий (автопилот)</span>'
+          + '<span class="muted">Откр./Клики — % к отправленным, честно посчитано по messageId в Elasticsearch. Отписки и выручка пока не трекаются — не показываем догадками.</span>'
+          + '</div>';
   }
-  inner += '</table></div>';
-  inner += '<div class="em-legend">'
-        + '<span>'+em_campaigns_typeBadge('broadcast')+' разовая рассылка по сегменту</span>'
-        + '<span>'+em_campaigns_typeBadge('flow')+' триггерный сценарий (авто)</span>'
-        + '<span class="muted">Откр./Клики/Отписки — % к доставленным. Выручка — атрибуция last-touch за 14 дней.</span>'
-        + '</div>';
-  h += chart('Кампании и автоматизации', 'Рассылки и flow тенанта ecoma · только verified-получатели', inner);
+  h += chart('Кампании и автоматизации', 'Реальные отправки тенанта '+esc(TENANT)+' · только verified-получатели', inner);
   return h;
 };
 
@@ -2581,28 +2478,47 @@ function em_audiences_emailRate(){
   var em=(OV.consent.purposes.find(function(p){return /Email|marketing_email/.test(p.label)||/marketing_email/.test(p.purpose||'');})||{count:0}).count||0;
   return reach?Math.min(0.96,em/reach):0;
 }
+// 3 из 6 сегментов имеют реальный пересечённый счёт (/api/email/segments — realSegmentCounts):
+// active/cart/mpback уже отфильтрованы по согласию на сервере, поэтому size=реальное число,
+// rate=1 (не домножаем на согласие повторно). Остальные 3 (sleep/vip/noopen) требуют per-profile
+// агрегации (сумма чека / история открытий за недели), которой пока нет — честно помечены real:false
+// и текстом «оценка» в UI, а не выдаются за факт.
 function em_audiences_segments(){
   var base=em_audiences_emailRate();
   var aov=OV.orders.count?Math.round(OV.orders.revenue/OV.orders.count):1800;
+  var live=liveFetch('segments', TENANT, '/api/email/segments?tenant='+encodeURIComponent(TENANT));
+  var real=live.data||null;
   return [
-    {key:'active',name:'Активные покупатели',tone:'sage',size:lc('Активные'),rate:Math.min(0.97,base*1.18),
-      hint:'Покупали недавно — лучшая достижимость и отклик. Допродажа, новинки.',
-      rules:[{f:'событие',op:'=',v:'order_completed'},{f:'давность',op:'<',v:'30 дней'},{f:'marketing_email',op:'=',v:'verified'}]},
-    {key:'sleep',name:'Спящие 30–60 дней',tone:'rust',size:Math.round(lc('Спящие')*0.62),rate:Math.min(0.95,base*0.92),
-      hint:'Заходили, но затихли. Реактивация со скидкой или подборкой.',
+    real ?
+      {key:'active',name:'Активные покупатели',tone:'sage',size:real.active,rate:1,real:true,
+        hint:'Покупали за 30 дней и дали согласие marketing_email — реальный пересечённый счёт из Elasticsearch.',
+        rules:[{f:'событие',op:'=',v:'order_completed'},{f:'давность',op:'<',v:'30 дней'},{f:'marketing_email',op:'=',v:'verified'}]} :
+      {key:'active',name:'Активные покупатели',tone:'sage',size:lc('Активные'),rate:Math.min(0.97,base*1.18),real:false,
+        hint:'Покупали недавно — лучшая достижимость и отклик. Допродажа, новинки.',
+        rules:[{f:'событие',op:'=',v:'order_completed'},{f:'давность',op:'<',v:'30 дней'},{f:'marketing_email',op:'=',v:'verified'}]},
+    {key:'sleep',name:'Спящие 30–60 дней',tone:'rust',size:Math.round(lc('Спящие')*0.62),rate:Math.min(0.95,base*0.92),real:false,
+      hint:'Заходили, но затихли. Реактивация со скидкой или подборкой. (оценка — точного правила по глубине давности пока нет)',
       rules:[{f:'давность',op:'30–60 дн',v:'без покупки'},{f:'событие',op:'было',v:'add_to_cart'},{f:'marketing_email',op:'=',v:'verified'}]},
-    {key:'cart',name:'Брошенные корзины',tone:'gold',size:Math.round(OV.orders.count*0.40),rate:Math.min(0.96,base*1.05),
-      hint:'Добавили в корзину за 72ч, не оформили. Триггер-дожим.',
-      rules:[{f:'событие',op:'=',v:'add_to_cart'},{f:'НЕ событие',op:'≠',v:'order_completed'},{f:'давность',op:'<',v:'72 часа'},{f:'marketing_email',op:'=',v:'verified'}]},
-    {key:'vip',name:'Высокий чек · VIP',tone:'gold',size:Math.round(lc('Активные')*0.14),rate:Math.min(0.98,base*1.22),
-      hint:'Чек выше среднего ('+rub(aov)+'×2). Закрытые предложения, ранний доступ.',
+    real ?
+      {key:'cart',name:'Брошенные корзины',tone:'gold',size:real.cart,rate:1,real:true,
+        hint:'Добавили в корзину за 72ч, не оформили, дали согласие — реальный пересечённый счёт из Elasticsearch.',
+        rules:[{f:'событие',op:'=',v:'add_to_cart'},{f:'НЕ событие',op:'≠',v:'order_completed'},{f:'давность',op:'<',v:'72 часа'},{f:'marketing_email',op:'=',v:'verified'}]} :
+      {key:'cart',name:'Брошенные корзины',tone:'gold',size:Math.round(OV.orders.count*0.40),rate:Math.min(0.96,base*1.05),real:false,
+        hint:'Добавили в корзину за 72ч, не оформили. Триггер-дожим.',
+        rules:[{f:'событие',op:'=',v:'add_to_cart'},{f:'НЕ событие',op:'≠',v:'order_completed'},{f:'давность',op:'<',v:'72 часа'},{f:'marketing_email',op:'=',v:'verified'}]},
+    {key:'vip',name:'Высокий чек · VIP',tone:'gold',size:Math.round(lc('Активные')*0.14),rate:Math.min(0.98,base*1.22),real:false,
+      hint:'Чек выше среднего ('+rub(aov)+'×2). Закрытые предложения, ранний доступ. (оценка — нужна per-profile агрегация суммы заказов)',
       rules:[{f:'сумма заказов',op:'>',v:rub(aov*2)},{f:'заказов',op:'≥',v:'3'},{f:'marketing_email',op:'=',v:'verified'}]},
-    {key:'noopen',name:'Подписаны, но не открывали',tone:'muted',size:Math.round((lc('Активные')+lc('Спящие'))*0.21),rate:0.0,
-      hint:'Согласие есть, но 5+ писем без открытия → re-permission или Telegram. По email НЕ шлём.',
+    {key:'noopen',name:'Подписаны, но не открывали',tone:'muted',size:Math.round((lc('Активные')+lc('Спящие'))*0.21),rate:0.0,real:false,
+      hint:'Согласие есть, но 5+ писем без открытия → re-permission или Telegram. По email НЕ шлём. (оценка — нужна история открытий за недели)',
       rules:[{f:'marketing_email',op:'=',v:'verified'},{f:'open_rate',op:'=',v:'0 за 5 писем'},{f:'действие',op:'→',v:'re-permission'}]},
-    {key:'mpback',name:'Вернувшиеся с WB/Ozon',tone:'rust',size:lc('Потерянные'),rate:Math.min(0.90,base*0.78),
-      hint:'История покупок на маркетплейсах, перешли на свой сайт. Перенос лояльности, прямой канал.',
-      rules:[{f:'источник',op:'∈',v:'Wildberries, Ozon'},{f:'событие',op:'было',v:'order_completed'},{f:'marketing_email',op:'=',v:'verified'}]}
+    real ?
+      {key:'mpback',name:'Вернувшиеся с WB/Ozon',tone:'rust',size:real.mpback,rate:1,real:true,
+        hint:'История покупок на маркетплейсах, дали согласие — реальный пересечённый счёт из Elasticsearch.',
+        rules:[{f:'источник',op:'∈',v:'Wildberries, Ozon'},{f:'событие',op:'было',v:'order_completed'},{f:'marketing_email',op:'=',v:'verified'}]} :
+      {key:'mpback',name:'Вернувшиеся с WB/Ozon',tone:'rust',size:lc('Потерянные'),rate:Math.min(0.90,base*0.78),real:false,
+        hint:'История покупок на маркетплейсах, перешли на свой сайт. Перенос лояльности, прямой канал.',
+        rules:[{f:'источник',op:'∈',v:'Wildberries, Ozon'},{f:'событие',op:'было',v:'order_completed'},{f:'marketing_email',op:'=',v:'verified'}]}
   ];
 }
 function em_audiences_chip(rule){
@@ -2630,6 +2546,7 @@ function em_audiences_card(s){
       '<span class="em-dot" style="background:'+(TONE[s.tone]||TONE.muted)+'"></span>'+
       '<span class="em-seg-name serif">'+esc(s.name)+'</span>'+
       badge(nf(s.size)+' профилей',s.tone==='muted'?'muted':s.tone)+
+      (s.real?badge('живые данные','sage'):badge('оценка','muted'))+
     '</div>'+
     '<p class="em-seg-hint muted">'+esc(s.hint)+'</p>'+
     '<div class="em-rules">'+chips+'</div>'+
@@ -2697,12 +2614,16 @@ function em_audiences_reachDonut(){
 }
 EMAIL_TABS.audiences=function(){
   var segs=em_audiences_segments();
+  var segsLive=liveFetch('segments', TENANT, '/api/email/segments?tenant='+encodeURIComponent(TENANT));
   var totalSize=segs.reduce(function(s,x){return s+x.size;},0);
   var totalReach=segs.reduce(function(s,x){return s+Math.round(x.size*x.rate);},0);
   var sendable=segs.filter(function(x){return x.rate>0;}).length;
+  var realCount=segs.filter(function(x){return x.real;}).length;
   var cards=segs.map(em_audiences_card).join('');
   return ''+
+    em_liveNote(segsLive)+
     '<div class="note">Динамические сегменты-получатели: условия применяются к живым профилям, размер и достижимость считаются на лету. '+
+      realCount+' из '+segs.length+' сегментов — реальный пересечённый счёт из Elasticsearch, остальные помечены «оценка». '+
       '<b>Fail-closed 152-ФЗ</b> — без <b>marketing_email = verified</b> профиль в email-рассылку не попадает, даже если входит в сегмент.</div>'+
     '<div class="grid k4" style="margin-bottom:16px">'+
       tile('Сегментов',String(segs.length),sendable+' рассылаемых по email','ink')+
