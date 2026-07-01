@@ -71,6 +71,22 @@ if [ -n "$ch_mem" ] && [ "$ch_mem" -gt 90 ] 2>/dev/null; then add "CH_MEM_HIGH $
 
 [ -n "$A" ] && alert "🔴 $(hostname): $A"
 
+# ====== РЕАЛЬНЫЕ ЛИДЫ / ВНЕШНИЕ ПОСЕТИТЕЛИ (боевые тенанты; ecoma=тест исключён) ======
+# Свои IP и curl-инъекции отсеиваются в real-alert.py. Водяной знак per-index —
+# на первом запуске ставим "сейчас", чтобы не слать исторический бэклог.
+for idx in cdp_events_zavod cdp_events_aero cdp_events_axiom-ru cdp_events_axiom-us; do
+  wmf="$ST/real_wm_$idx"
+  if [ ! -f "$wmf" ]; then date -u +%FT%TZ > "$wmf"; continue; fi
+  wm=$(cat "$wmf" 2>/dev/null || echo "1970-01-01T00:00:00Z")
+  res=$(curl -s -m 8 "${ES_AUTH_ARGS[@]}" "http://127.0.0.1:9200/$idx/_search" -H 'content-type: application/json' \
+    -d "{\"size\":200,\"sort\":[{\"ts\":{\"order\":\"asc\"}}],\"query\":{\"range\":{\"ts\":{\"gt\":\"$wm\"}}},\"_source\":[\"ts\",\"event\",\"ip\",\"ua\",\"origin\"]}" 2>/dev/null)
+  parsed=$(printf '%s' "$res" | python3 /opt/cdp/monitoring/real-alert.py "${idx#cdp_events_}" 2>/dev/null)
+  [ -z "$parsed" ] && continue
+  nw=$(printf '%s\n' "$parsed" | sed -n 's/^WM=//p' | tail -1)
+  printf '%s\n' "$parsed" | sed -n 's/^MSG=//p' | while IFS= read -r m; do [ -n "$m" ] && alert "$m"; done
+  [ -n "$nw" ] && printf '%s\n' "$nw" > "$wmf"
+done
+
 # heartbeat раз в день с трафиком
 t=$(date -u +%F); if [ "$(cat "$ST/hb" 2>/dev/null)" != "$t" ]; then
   tz=$(cat "$ST/tot_zavod" 2>/dev/null||echo 0)
