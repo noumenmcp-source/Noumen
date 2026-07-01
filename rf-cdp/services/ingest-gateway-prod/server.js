@@ -210,6 +210,7 @@ function enqueue(tenant, base) {
     esIndex: base.esIndex || tenant.esIndex, // -> bulk.add(item.esIndex, doc)
     forwardUrl: forwardUrlFor(tenant),       // -> pool.submit (per-item destination)
     forwardAuth: tenant.forwardAuth,         // 'Basic ' + base64(tenant.dittofeedWriteKey)
+    noForward: base.noForward || !!tenant.noForward, // raw-only tenants skip Dittofeed forward
   });
 }
 
