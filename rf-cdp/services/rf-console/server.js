@@ -136,6 +136,29 @@ async function resolveTenantAuth(tenant) {
     return doc._source;
   } catch (e) { return null; }
 }
+
+// ─── Сохранённые шаблоны конструктора (реальная персистентность, ES, per-tenant) ───
+const TEMPLATES_INDEX = 'rf_console_templates';
+async function saveTemplate(tenant, name, subject, blocks) {
+  if (!TENANT_RE.test(tenant)) throw new Error('bad tenant');
+  const cleanName = String(name || '').trim().slice(0, 80);
+  if (!cleanName) throw new Error('template name required');
+  const docId = tenant + ':' + cleanName.toLowerCase().replace(/[^a-z0-9а-яё]+/gi, '-');
+  const doc = { tenant: tenant, name: cleanName, subject: subject || '', blocks: blocks || [], updatedAt: new Date().toISOString() };
+  await es('/' + TEMPLATES_INDEX + '/_doc/' + encodeURIComponent(docId), doc);
+  await es('/' + TEMPLATES_INDEX + '/_refresh');
+  return doc;
+}
+async function listTemplates(tenant) {
+  if (!TENANT_RE.test(tenant)) throw new Error('bad tenant');
+  const q = await es('/' + TEMPLATES_INDEX + '/_search', {
+    size: 100,
+    query: { term: { 'tenant.keyword': tenant } },
+    sort: [{ updatedAt: 'desc' }],
+  });
+  if (q._missing) return [];
+  return (q.hits && q.hits.hits || []).map((h) => h._source);
+}
 async function authenticate(req) {
   const header = req.headers['authorization'] || '';
   const m = /^Bearer\s+(.+)$/i.exec(header);
@@ -751,6 +774,30 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, Object.assign({ ok: true, tenant: segPrincipal.tenant }, segCounts));
       } catch (e) {
         return send(res, 502, { error: 'segments_failed', message: String(e.message || e) });
+      }
+    }
+    if (p === '/api/templates' && req.method === 'POST') {
+      var tplPrincipal = await authenticate(req);
+      if (!tplPrincipal) return send(res, 401, { error: 'unauthorized' });
+      var tplBody;
+      try { tplBody = await readJsonBody(req, 1024 * 1024); }
+      catch (e) { return send(res, 400, { error: String(e.message || e) }); }
+      if (!tplBody.name) return send(res, 400, { error: 'name_required' });
+      try {
+        var savedTpl = await saveTemplate(tplPrincipal.tenant, tplBody.name, tplBody.subject, tplBody.blocks);
+        return send(res, 200, { ok: true, template: savedTpl });
+      } catch (e) {
+        return send(res, 502, { error: 'save_failed', message: String(e.message || e) });
+      }
+    }
+    if (p === '/api/templates' && req.method === 'GET') {
+      var tplListPrincipal = await authenticate(req);
+      if (!tplListPrincipal) return send(res, 401, { error: 'unauthorized' });
+      try {
+        var templates = await listTemplates(tplListPrincipal.tenant);
+        return send(res, 200, { ok: true, templates: templates });
+      } catch (e) {
+        return send(res, 502, { error: 'list_failed', message: String(e.message || e) });
       }
     }
     if (p === '/api/deliverability/check') {
@@ -1844,6 +1891,34 @@ window.emSendTest = async function () {
     emFlash('Сбой сети: ' + (e && e.message || e), 4000);
   }
 };
+window.emExportLiquid = function () {
+  var html = em_builder_emailHtml(window.builderBlocks, window.builderSubject);
+  var blob = new Blob([html], { type: 'text/plain' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = (window.builderPreset || 'template') + '.liquid';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+  emFlash('Экспортирован ' + a.download + ' (' + (window.builderBlocks || []).length + ' блоков)', 4000);
+};
+window.emSaveTemplate = async function () {
+  var name = window.prompt('Название шаблона:', window.builderPreset || '');
+  if (!name) return;
+  emFlash('Сохраняем…', 8000);
+  try {
+    var res = await fetch('/api/templates', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + (window.RFC_TOKEN || '') },
+      body: JSON.stringify({ name: name, subject: window.builderSubject || '', blocks: window.builderBlocks || [] }),
+    });
+    var data = await res.json().catch(function () { return {}; });
+    if (!res.ok) { emFlash('Ошибка: ' + (data.message || data.error || res.status), 4000); return; }
+    emFlash('Шаблон «' + data.template.name + '» сохранён', 4000);
+  } catch (e) {
+    emFlash('Сбой сети: ' + (e && e.message || e), 4000);
+  }
+};
 /* алиасы для согласованного контракта renderCanvas/renderStack */
 function renderCanvas(){ return em_builder_canvasHtml(); }
 function renderStack(){ return em_builder_stackHtml(); }
@@ -1911,9 +1986,9 @@ EMAIL_TABS.builder = function () {
     '</div>';
   var actions =
     '<div class="em-actions">' +
-      '<button class="em-act em-act-primary" onclick="emFlash(\\'Шаблон сохранён в библиотеку (.liquid)\\')">Сохранить шаблон</button>' +
+      '<button class="em-act em-act-primary" onclick="emSaveTemplate()">Сохранить шаблон</button>' +
       '<button class="em-act" onclick="emSendTest()">Тест-отправка</button>' +
-      '<button class="em-act" onclick="emFlash(\\'Экспортирован liquid: ' + blkCount + ' блоков\\')">Экспорт liquid</button>' +
+      '<button class="em-act" onclick="emExportLiquid()">Экспорт liquid</button>' +
       '<span id="em-flash" class="em-flash"></span>' +
     '</div>';
   var gallery =
