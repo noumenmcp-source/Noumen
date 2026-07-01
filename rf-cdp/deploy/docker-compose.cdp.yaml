@@ -430,6 +430,7 @@ services:
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://rf.axiom.rent}
       ADMIN_SECRET: ${ADMIN_SECRET:?ADMIN_SECRET must be set — gates /api/admin/tenants and /api/tenants}
       MAX_SENDS_PER_DAY: ${MAX_SENDS_PER_DAY:-5000}
+      RESEND_WEBHOOK_SECRET: ${RESEND_WEBHOOK_SECRET:-}
     ports:
       - "127.0.0.1:8121:8121"
     networks:
