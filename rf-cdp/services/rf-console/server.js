@@ -210,6 +210,29 @@ async function resolveTenantAuth(tenant) {
   } catch (e) { return null; }
 }
 
+async function findTenantsByEmail(email) {
+  const q = await es('/' + AUTH_INDEX + '/_search', {
+    size: 20,
+    query: { term: { 'fromEmail.keyword': String(email).toLowerCase() } },
+  });
+  if (q._missing) return [];
+  return (q.hits && q.hits.hits || []).map((h) => h._source);
+}
+function recoveryEmailHtml(links) {
+  var items = links.map(function (l) {
+    return '<div style="margin:10px 0"><a href="' + escHtml(l.url) + '" style="color:#c4683a;font-weight:700">' + escHtml(l.tenant) + '</a></div>';
+  }).join('');
+  return '<!doctype html><html><body style="margin:0;padding:0;background:#f5f0e8">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f0e8"><tr><td align="center" style="padding:24px 12px">' +
+    '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#fffdf9;border-radius:12px;overflow:hidden">' +
+    '<tr><td style="padding:28px;font-family:Arial,Helvetica,sans-serif">' +
+    '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:22px;font-weight:700;color:#1c1510;margin-bottom:12px">Восстановление доступа</div>' +
+    '<p style="font-size:14px;line-height:1.6;color:#1c1510">Новая ссылка для входа (старый ключ больше не действует):</p>' +
+    items +
+    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">Если вы не запрашивали восстановление, проигнорируйте это письмо — доступ не изменится, пока вы не перейдёте по ссылке.</div>' +
+    '</td></tr></table></td></tr></table></body></html>';
+}
+
 // ─── Сохранённые шаблоны конструктора (реальная персистентность, ES, per-tenant) ───
 const TEMPLATES_INDEX = 'rf_console_templates';
 async function saveTemplate(tenant, name, subject, blocks) {
@@ -743,6 +766,39 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, { ok: true, tenant: suTenant, emailSent: true, message: 'Проверьте почту ' + suEmail + ' — там ссылка для входа.' });
       } catch (e) {
         return send(res, 502, { error: 'signup_failed', message: String(e.message || e) });
+      }
+    }
+    // ─── восстановление доступа: по email ротирует токен(ы) найденных тенантов и шлёт
+    // новую ссылку. Всегда одинаковый generic-ответ — не палит, существует ли email.
+    if (p === '/api/recover' && req.method === 'POST') {
+      var recBody;
+      try { recBody = await readJsonBody(req, 2 * 1024); }
+      catch (e) { return send(res, 400, { error: String(e.message || e) }); }
+      var recEmail = typeof recBody.email === 'string' ? recBody.email.trim().toLowerCase() : '';
+      var GENERIC_RESPONSE = { ok: true, message: 'Если этот адрес зарегистрирован, письмо с новой ссылкой уже отправлено.' };
+      if (!recEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recEmail)) return send(res, 400, { error: 'invalid_email' });
+      var recRecent = await countRecentSignups('now-1h');
+      if (recRecent >= 40) return send(res, 429, { error: 'rate_limited' });
+      try {
+        var matches = await findTenantsByEmail(recEmail);
+        if (!matches.length) return send(res, 200, GENERIC_RESPONSE);
+        var recBaseUrl = process.env.PUBLIC_BASE_URL || 'https://rf.axiom.rent';
+        var links = [];
+        for (var mi = 0; mi < matches.length; mi++) {
+          var rotated = await createTenantAuth(matches[mi].tenant, matches[mi].fromName, matches[mi].fromEmail);
+          links.push({ tenant: rotated.tenant, url: recBaseUrl + '/?token=' + encodeURIComponent(rotated.token) });
+        }
+        await sendRealEmail({
+          to: recEmail,
+          from: 'Аксиома <hello@axiom.rent>',
+          subject: 'Восстановление доступа к Аксиоме',
+          html: recoveryEmailHtml(links),
+          tags: [{ name: 'tenant', value: 'recovery' }, { name: 'messageId', value: 'recover-' + Date.now() }],
+        });
+        return send(res, 200, GENERIC_RESPONSE);
+      } catch (e) {
+        // Тоже generic — не отличать «ошибка» от «email не найден» для внешнего наблюдателя
+        return send(res, 200, GENERIC_RESPONSE);
       }
     }
     if (p === '/api/tenants') {
