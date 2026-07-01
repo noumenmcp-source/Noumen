@@ -580,12 +580,28 @@ async function usersMatchingQuery(tenant, query) {
 // для точного правила (сложная per-profile агрегация суммы заказов / история открытий).
 async function realSegmentCounts(tenant) {
   if (!TENANT_RE.test(tenant)) throw new Error('bad tenant');
-  const [orderedUsers30d, cartUsers72h, orderedUsers72h, mpOrderedUsers, consented] = await Promise.all([
+  const [orderedUsers30d, cartUsers72h, orderedUsers72h, mpOrderedUsers, consented, ov, dormancyAgg, vipAgg, sentDocs, openedDocs] = await Promise.all([
     usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'order_completed' } }, { range: { ts: { gte: 'now-30d' } } }] } }),
     usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'add_to_cart' } }, { range: { ts: { gte: 'now-72h' } } }] } }),
     usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'order_completed' } }, { range: { ts: { gte: 'now-72h' } } }] } }),
     usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'order_completed' } }], should: [{ wildcard: { 'origin.keyword': '*wildberries*' } }, { wildcard: { 'origin.keyword': '*wb.ru*' } }, { wildcard: { 'origin.keyword': '*ozon*' } }], minimum_should_match: 1 } }),
     resolveConsentedRecipients(tenant, 5000),
+    aggregate(tenant, Date.now()),
+    // Дублирует профильную часть profilesOf() (5000 профилей, order по объёму — НЕ по
+    // свежести, поэтому не вытесняется горсткой сегодняшних тестовых событий, в отличие
+    // от profilesList с его кэпом 500 + сортировкой по recency), но с user_id-привязкой,
+    // которой у profilesOf() нет — нужна для пересечения со согласием.
+    es('/cdp_events_' + tenant + '/_search', {
+      size: 0,
+      aggs: { profiles: { terms: { field: 'anonymous_id.keyword', size: 5000 }, aggs: { ls: { max: { field: 'ts' } }, uid: { terms: { field: 'user_id.keyword', size: 1 } } } } },
+    }),
+    es('/cdp_events_' + tenant + '/_search', {
+      size: 0,
+      query: { term: { 'event.keyword': 'order_completed' } },
+      aggs: { by_user: { terms: { field: 'user_id.keyword', size: 10000 }, aggs: { revenue: { sum: { field: 'properties.revenue' } } } } },
+    }),
+    es('/cdp_events_' + tenant + '/_search', { size: 5000, query: { term: { 'event.keyword': 'email_sent' } }, _source: ['anonymous_id', 'properties.to'] }),
+    es('/cdp_events_' + tenant + '/_search', { size: 5000, query: { term: { 'event.keyword': 'email_opened' } }, _source: ['anonymous_id'] }),
   ]);
   const consentedSubjects = new Set(consented.map((c) => c.subject).filter(Boolean));
   function intersectCount(userSet) {
@@ -594,10 +610,60 @@ async function realSegmentCounts(tenant) {
     return n;
   }
   const cartAbandoned = new Set([...cartUsers72h].filter((u) => !orderedUsers72h.has(u)));
+
+  // VIP: сумма заказов > 2×AOV И заказов ≥ 3 (то же правило, что было в em_audiences_segments,
+  // теперь реальная per-user агрегация вместо процента от lifecycle-бакета)
+  const aov = ov.orders && ov.orders.count ? Math.round(ov.orders.revenue / ov.orders.count) : 1800;
+  const vipThreshold = aov * 2;
+  const vipBuckets = (vipAgg.aggregations && vipAgg.aggregations.by_user.buckets) || [];
+  let vip = 0;
+  for (const b of vipBuckets) {
+    const revenue = (b.revenue && b.revenue.value) || 0;
+    if (b.doc_count >= 3 && revenue > vipThreshold && consentedSubjects.has(b.key)) vip++;
+  }
+
+  // Спящие: та же классификация 7-30 дней, что bucketLifecycle, пересечение с согласием
+  const nowMs = Date.now();
+  let sleep = 0;
+  const dormancyBuckets = (dormancyAgg.aggregations && dormancyAgg.aggregations.profiles.buckets) || [];
+  for (const b of dormancyBuckets) {
+    const lastSeen = b.ls && b.ls.value;
+    const ageLast = lastSeen ? nowMs - lastSeen : Infinity;
+    const uidBucket = (b.uid && b.uid.buckets && b.uid.buckets[0]) || null;
+    const userId = uidBucket ? uidBucket.key : null;
+    if (ageLast > 7 * DAY && ageLast <= 30 * DAY && userId && consentedSubjects.has(userId)) sleep++;
+  }
+
+  // Подписаны, но не открывали: email_sent ≥5 И ни одно ИЗ ЭТИХ КОНКРЕТНЫХ сообщений не
+  // открыто. anonymous_id трек-событий = "email:<messageId>" (уникален на отправку, НЕ на
+  // получателя) — группировать нужно по properties.to (реальный email), а сопоставление
+  // с открытиями — по конкретному messageId (иначе "отправлено ≥5" никогда не выполнится,
+  // т.к. на 1 anonymous_id всегда ровно 1 email_sent). Фаза 2 запущена только 2026-07-01,
+  // числа честно малы, пока не накопится история.
+  const openedMessageIds = new Set((openedDocs.hits && openedDocs.hits.hits || []).map((h) => h._source.anonymous_id));
+  const sentByRecipient = new Map();
+  for (const h of (sentDocs.hits && sentDocs.hits.hits || [])) {
+    const to = h._source.properties && h._source.properties.to;
+    if (!to) continue;
+    const key = String(to).toLowerCase();
+    if (!sentByRecipient.has(key)) sentByRecipient.set(key, new Set());
+    sentByRecipient.get(key).add(h._source.anonymous_id);
+  }
+  let noopen = 0;
+  for (const msgIds of sentByRecipient.values()) {
+    if (msgIds.size < 5) continue;
+    let openedAny = false;
+    for (const mid of msgIds) { if (openedMessageIds.has(mid)) { openedAny = true; break; } }
+    if (!openedAny) noopen++;
+  }
+
   return {
     active: intersectCount(orderedUsers30d),
     cart: intersectCount(cartAbandoned),
     mpback: intersectCount(mpOrderedUsers),
+    sleep: sleep,
+    vip: vip,
+    noopen: noopen,
     consentedTotal: consentedSubjects.size,
   };
 }
