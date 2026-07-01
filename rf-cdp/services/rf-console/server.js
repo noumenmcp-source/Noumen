@@ -1779,7 +1779,7 @@ function em_campaigns_fromLive(c){
   };
 }
 EMAIL_TABS.campaigns = function(){
-  var live = liveFetch('campaigns', TENANT, '/api/email/campaigns?tenant='+encodeURIComponent(TENANT));
+  var live = liveFetch('campaigns', TENANT, '/api/email/campaigns');
   var rows = (live.data && live.data.campaigns) ? live.data.campaigns.map(em_campaigns_fromLive) : [];
   var totalSent=0, wSum=0, wOpen=0, reachable=0;
   var consentTotal = (OV && OV.consent && OV.consent.total) ? OV.consent.total : 0;
@@ -2486,7 +2486,7 @@ function em_audiences_emailRate(){
 function em_audiences_segments(){
   var base=em_audiences_emailRate();
   var aov=OV.orders.count?Math.round(OV.orders.revenue/OV.orders.count):1800;
-  var live=liveFetch('segments', TENANT, '/api/email/segments?tenant='+encodeURIComponent(TENANT));
+  var live=liveFetch('segments', TENANT, '/api/email/segments');
   var real=live.data||null;
   return [
     real ?
@@ -2614,7 +2614,7 @@ function em_audiences_reachDonut(){
 }
 EMAIL_TABS.audiences=function(){
   var segs=em_audiences_segments();
-  var segsLive=liveFetch('segments', TENANT, '/api/email/segments?tenant='+encodeURIComponent(TENANT));
+  var segsLive=liveFetch('segments', TENANT, '/api/email/segments');
   var totalSize=segs.reduce(function(s,x){return s+x.size;},0);
   var totalReach=segs.reduce(function(s,x){return s+Math.round(x.size*x.rate);},0);
   var sendable=segs.filter(function(x){return x.rate>0;}).length;
@@ -2656,77 +2656,30 @@ function em_abtest_sig(conf, winner){
   if (conf >= 90) return badge('погранично · 90%', 'gold');
   return badge('мало данных', 'rust');
 }
-function em_abtest_varcell(o, c, cv, win){
-  var cls = win ? ' em-ab-win' : '';
-  return '<div class="em-ab-var'+cls+'">'+
-    '<span class="em-ab-m"><b>'+em_abtest_pct(o)+'</b><i>откр.</i></span>'+
-    '<span class="em-ab-m"><b>'+em_abtest_pct(c)+'</b><i>клик</i></span>'+
-    '<span class="em-ab-m"><b>'+em_abtest_pct(cv)+'</b><i>конв.</i></span>'+
-  '</div>';
-}
-function em_abtest_model(){
-  var baseSend = (typeof lc === 'function') ? lc('Активные') + lc('Новые') : 4200;
-  if (!baseSend || baseSend < 1) baseSend = 4200;
-  var T = [];
-  T.push({
-    name:'Тема: «Без пластика» vs «−30% на эко-набор»',
-    dim:'Тема письма',
-    status:'идёт',
-    sample: Math.round(baseSend*0.46),
-    progress: 62,
-    a:{label:'A · «Без пластика»', o:31.4, c:5.1, cv:1.2},
-    b:{label:'B · «−30% эко-набор»', o:34.8, c:6.4, cv:1.6},
-    metric:'open',
-    lift:33.3, conf:88, winner:'—'
-  });
-  T.push({
-    name:'Время: 09:00 vs 19:00 (МСК)',
-    dim:'Время отправки',
-    status:'идёт',
-    sample: Math.round(baseSend*0.51),
-    progress: 78,
-    a:{label:'A · утро 09:00', o:33.0, c:5.8, cv:1.4},
-    b:{label:'B · вечер 19:00', o:35.9, c:6.9, cv:1.7},
-    metric:'click',
-    lift:19.0, conf:93, winner:'—'
-  });
-  T.push({
-    name:'CTA: «Купить» vs «Выбрать эко-набор»',
-    dim:'CTA-кнопка',
-    status:'завершён',
-    sample: Math.round(baseSend*0.88),
-    progress: 100,
-    a:{label:'A · «Купить»', o:36.2, c:5.9, cv:1.5},
-    b:{label:'B · «Выбрать эко-набор»', o:36.4, c:7.6, cv:2.1},
-    metric:'click',
-    lift:28.8, conf:97, winner:'B'
-  });
-  T.push({
-    name:'Контент: отзыв клиента vs состав/сертификаты',
-    dim:'Контент-блок',
-    status:'завершён',
-    sample: Math.round(baseSend*0.92),
-    progress: 100,
-    a:{label:'A · отзыв клиента', o:35.1, c:6.7, cv:1.8},
-    b:{label:'B · состав + ЭКО-сертификат', o:35.6, c:7.1, cv:2.4},
-    metric:'conv',
-    lift:33.3, conf:96, winner:'B'
-  });
-  T.push({
-    name:'Тема: эмодзи 🌿 vs без эмодзи',
-    dim:'Тема письма',
-    status:'завершён',
-    sample: Math.round(baseSend*0.84),
-    progress: 100,
-    a:{label:'A · «🌿 Эко-уход дома»', o:33.8, c:6.2, cv:1.6},
-    b:{label:'B · «Эко-уход дома»', o:37.0, c:6.6, cv:1.7},
-    metric:'open',
-    lift:9.5, conf:95, winner:'B'
-  });
-  return T;
+// Реальный тест из /api/email/abtest — побеждает по open-rate, единственной метрике, которую
+// реально трекаем per-variant (клики/конверсия по вариантам пока не считаются — не показываем
+// догадками, вместо этого просто не рисуем эти колонки). "Идёт сбор", пока суммарно < 20
+// отправок с обеих сторон — на таких объёмах реальный z-тест ещё не значим.
+function em_abtest_fromLive(t){
+  var totalSent = (t.sentA||0)+(t.sentB||0);
+  var enoughData = totalSent >= 20;
+  var az = Math.abs(t.z||0);
+  var conf = az>=2.576?99:(az>=1.96?95:(az>=1.64?90:Math.round(50+az*20)));
+  return {
+    name: t.subjectA + ' vs ' + t.subjectB,
+    dim: 'Тема письма',
+    status: (enoughData && t.significant) ? 'завершён' : 'идёт',
+    sample: totalSent,
+    a:{label:'A · '+t.subjectA, o:(t.rateA||0)*100},
+    b:{label:'B · '+t.subjectB, o:(t.rateB||0)*100},
+    lift: (t.lift||0)*100,
+    conf: conf,
+    winner: enoughData ? t.winner : '—'
+  };
 }
 EMAIL_TABS.abtest = function(){
-  var T = em_abtest_model();
+  var live = liveFetch('abtest', TENANT, '/api/email/abtest');
+  var T = (live.data && live.data.tests) ? live.data.tests.map(em_abtest_fromLive) : [];
   var i, t;
   var running = 0, done = 0, liftSum = 0, liftCnt = 0;
   for (i=0;i<T.length;i++){
@@ -2735,46 +2688,31 @@ EMAIL_TABS.abtest = function(){
     if (t.winner !== '—'){ liftSum += t.lift; liftCnt++; }
   }
   var avgLift = liftCnt ? (liftSum/liftCnt) : 0;
-  var rev = (typeof OV!=='undefined' && OV.orders && OV.orders.revenue) ? OV.orders.revenue : 1200000;
-  var emailShare = Math.round(rev * 0.18);
-  var uplift = Math.round(emailShare * (avgLift/100) * 0.45);
   var out = '';
+  out += em_liveNote(live);
   out += '<div class="grid k3" style="margin-bottom:14px">';
-  out += tile('Активных тестов', nf(running), done + ' завершено за период', 'ink');
-  out += tile('Средний lift победителей', em_abtest_lift(avgLift), 'по целевой метрике', 'sage');
-  out += tile('Прирост выручки от A/B', rub(uplift), 'атрибуция к email-каналу', 'gold');
+  out += tile('Активных тестов', nf(running), done + ' завершено', 'ink');
+  out += tile('Средний lift победителей (откр.)', em_abtest_lift(avgLift), 'по значимым тестам', 'sage');
+  out += tile('Всего A/B-тестов', nf(T.length), 'реальных, тенант '+esc(TENANT), 'gold');
   out += '</div>';
-  var show = T[3];
-  var showInner = hbars([
-    {label:'A · '+show.a.label.replace('A · ',''), value:show.a.cv, tone:TONE.muted, caption:'конв. '+em_abtest_pct(show.a.cv)},
-    {label:'B · '+show.b.label.replace('B · ',''), value:show.b.cv, tone:TONE.sage, caption:'конв. '+em_abtest_pct(show.b.cv)+'  ·  '+em_abtest_lift(show.lift)}
-  ]);
-  out += chart(
-    'Showcase: ' + esc(show.name),
-    'Целевая метрика — конверсия в заказ · выборка ' + nf(show.sample) + ' · доверие 96%',
-    '<div class="em-ab-show">'+ showInner +
-      '<div class="em-ab-verdict">'+
-        badge('Победитель B', 'sage') + ' ' +
-        '<span class="muted">состав + ЭКО-сертификат поднял конверсию на </span>' +
-        '<b class="em-ab-up">'+ em_abtest_lift(show.lift) +'</b>' +
-      '</div>'+
-    '</div>'
-  );
+  if(!live.loading && !live.error && T.length===0){
+    out += chart('Реестр A/B-тестов', 'Реальных тестов пока не было', '<div class="note muted">Запустите A/B-тест во вкладке «Конструктор» — тема A vs тема B на один сегмент. Появится здесь по факту реальной отправки.</div>');
+    return out;
+  }
   var rows = '';
   for (i=0;i<T.length;i++){
     t = T[i];
     var st = (t.status === 'идёт')
-      ? badge('идёт · '+t.progress+'%', 'gold')
+      ? badge('идёт сбор', 'gold')
       : badge('завершён', 'sage');
     var winB = (t.winner === 'B');
     var winA = (t.winner === 'A');
-    var aCell = em_abtest_varcell(t.a.o, t.a.c, t.a.cv, winA);
-    var bCell = em_abtest_varcell(t.b.o, t.b.c, t.b.cv, winB);
+    var aCell = '<div class="em-ab-var'+(winA?' em-ab-win':'')+'"><span class="em-ab-m"><b>'+em_abtest_pct(t.a.o)+'</b><i>откр.</i></span></div>';
+    var bCell = '<div class="em-ab-var'+(winB?' em-ab-win':'')+'"><span class="em-ab-m"><b>'+em_abtest_pct(t.b.o)+'</b><i>откр.</i></span></div>';
     var liftCls = (t.lift>0?'em-ab-pos':'em-ab-neg');
-    var metricRu = (t.metric==='open'?'открытия':(t.metric==='click'?'клики':'конверсия'));
     rows += '<tr>'+
       '<td><div class="em-ab-name">'+esc(t.name)+'</div>'+
-          '<div class="label">'+esc(t.dim)+' · цель: '+metricRu+'</div></td>'+
+          '<div class="label">'+esc(t.dim)+' · цель: открытия</div></td>'+
       '<td>'+st+'</td>'+
       '<td>'+aCell+'</td>'+
       '<td>'+bCell+'</td>'+
@@ -2792,19 +2730,18 @@ EMAIL_TABS.abtest = function(){
         '<th>Вариант A</th>'+
         '<th>Вариант B</th>'+
         '<th class="em-ab-c">Выборка</th>'+
-        '<th class="em-ab-c">Lift</th>'+
+        '<th class="em-ab-c">Lift (откр.)</th>'+
         '<th class="em-ab-c">Победитель</th>'+
         '<th>Статзначимость</th>'+
       '</tr></thead>'+
       '<tbody>'+ rows +'</tbody>'+
     '</table></div>';
-  out += chart('Реестр A/B-тестов', running+' идёт · '+done+' завершено · доверительный порог 95%', table);
+  out += chart('Реестр A/B-тестов', running+' идёт сбор · '+done+' завершено · реальный two-proportion z-test', table);
   out += '<div class="note em-ab-note">'+
-    '<b>Как читаем результат.</b> Победитель фиксируется только при достижении статзначимости '+
-    '<b>95%</b> (p&lt;0,05) и минимальной выборке. Тесты со статусом «мало данных» не катятся в прод — '+
-    'продолжаем сбор. Рассылка по победившему варианту идёт только по верифицированному '+
-    '<span class="mono">marketing_email</span> (fail-closed, 152-ФЗ), футер с отпиской и идентификацией '+
-    'рекламодателя по ст.18 «О рекламе» сохраняется в обоих вариантах.'+
+    '<b>Как читаем результат.</b> Победитель фиксируется только при значимости <b>|z|≥1,96</b> '+
+    '(≈95%, p&lt;0,05) и выборке от 20 отправок на обе стороны. Метрика — открытия; клики и конверсия '+
+    'по вариантам пока не трекаются, поэтому не показаны. Рассылка по любому варианту идёт только по '+
+    'верифицированному <span class="mono">marketing_email</span> (fail-closed, 152-ФЗ).'+
   '</div>';
   return out;
 };
