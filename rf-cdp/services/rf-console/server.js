@@ -1162,6 +1162,78 @@ function em_builder_blockHtml(b) {
   }
   return '';
 }
+/* ─── email-safe рендер (inline-стили, без внешних CSS-классов) — то, что реально уходит получателю ─── */
+function em_builder_blockHtmlEmail(b) {
+  var d = b.data || {};
+  var F = "font-family:Arial,Helvetica,sans-serif;";
+  if (b.type === 'header') {
+    return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse"><tr>' +
+      '<td style="padding:18px 24px;' + F + 'font-size:19px;font-weight:700;color:#1c1510">🌿 ' + esc(d.brand) + '</td>' +
+      '<td style="padding:18px 24px;text-align:right;' + F + 'font-size:12px;color:#7a6e60">' + esc(d.tagline) + '</td>' +
+      '</tr></table>';
+  }
+  if (b.type === 'hero') {
+    return '<div style="padding:22px 24px 10px;text-align:center;' + F + '">' +
+      '<div style="font-size:34px;margin-bottom:8px">' + esc(d.emoji || '🌿') + '</div>' +
+      '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:24px;font-weight:700;color:#1c1510;margin-bottom:6px">' + esc(d.title) + '</div>' +
+      '<div style="font-size:14px;color:#7a6e60;line-height:1.5">' + esc(d.sub) + '</div></div>';
+  }
+  if (b.type === 'text') {
+    return '<div style="padding:14px 24px;' + F + 'font-size:14px;line-height:1.6;color:#1c1510">' + esc(d.body) + '</div>';
+  }
+  if (b.type === 'cta') {
+    return '<div style="padding:20px 24px;text-align:center">' +
+      '<a href="' + esc(d.url) + '" style="display:inline-block;background:#c4683a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px;' + F + '">' + esc(d.label) + '</a></div>';
+  }
+  if (b.type === 'products') {
+    var cells = '';
+    for (var i = 0; i < (d.items || []).length; i++) {
+      var it = d.items[i];
+      cells += '<td style="width:' + Math.floor(100 / (d.items.length || 1)) + '%;padding:8px;text-align:center;vertical-align:top;' + F + '">' +
+        '<div style="font-size:26px">🧴</div>' +
+        '<div style="font-size:13px;font-weight:700;color:#1c1510;margin-top:4px">' + esc(it.name) + '</div>' +
+        '<div style="font-size:11px;color:#7a6e60;margin-top:2px">' + esc(it.cap) + '</div>' +
+        '<div style="font-size:14px;font-weight:700;color:#c4683a;margin-top:6px">' + rub(it.price) + '</div></td>';
+    }
+    return '<div style="padding:14px 24px">' +
+      (d.title ? '<div style="font-family:Georgia,serif;font-size:16px;font-weight:700;margin-bottom:10px;color:#1c1510">' + esc(d.title) + '</div>' : '') +
+      '<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>' + cells + '</tr></table></div>';
+  }
+  if (b.type === 'promo') {
+    return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:8px 0"><tr><td style="padding:16px 24px;text-align:center;background:#f5f0e8">' +
+      '<div style="' + F + 'font-size:14px;color:#1c1510">' + esc(d.text) + '</div>' +
+      '<div style="font-family:\'Courier New\',monospace;font-size:22px;font-weight:700;color:#c4683a;letter-spacing:2px;margin:8px 0">' + esc(d.code) + '</div>' +
+      '<div style="' + F + 'font-size:11px;color:#7a6e60">по промокоду · действует ' + esc(d.expires) + '</div>' +
+      '</td></tr></table>';
+  }
+  if (b.type === 'divider') {
+    return '<div style="text-align:center;padding:10px 0;color:#c9a84c;font-size:16px">∴</div>';
+  }
+  if (b.type === 'social') {
+    return '<div style="padding:14px 24px;text-align:center;' + F + '">' +
+      '<a href="https://' + esc(d.vk) + '" style="display:inline-block;margin:0 6px;padding:8px 16px;border:1px solid #e0d8cc;border-radius:20px;color:#1c1510;text-decoration:none;font-size:12px;font-weight:700">ВК</a>' +
+      '<a href="https://' + esc(d.tg) + '" style="display:inline-block;margin:0 6px;padding:8px 16px;border:1px solid #e0d8cc;border-radius:20px;color:#1c1510;text-decoration:none;font-size:12px;font-weight:700">TG</a>' +
+      '<div style="font-size:11px;color:#7a6e60;margin-top:8px">мы в соцсетях · прямой контакт без маркетплейсов</div></div>';
+  }
+  if (b.type === 'footer') {
+    return '<div style="padding:16px 24px;border-top:1px solid #e0d8cc;' + F + 'font-size:11px;color:#7a6e60;line-height:1.5">' +
+      '<div>Рекламодатель: ' + esc(d.advertiser) + '. ' + esc(d.addr) + '.</div>' +
+      '<div style="margin-top:6px">Письмо отправлено на основании вашего согласия на получение рекламных рассылок (ст. 18 ФЗ «О рекламе», ст. 9 152-ФЗ).</div>' +
+      '<div style="margin-top:6px"><a href="{{unsubscribe_url}}" style="color:#7a6e60">Отписаться от рассылки</a> · в один клик, без подтверждений</div></div>';
+  }
+  return '';
+}
+// Полный email-safe документ (600px, table-обёртка) — то, что реально идёт в sendRealEmail.
+function em_builder_emailHtml(blocks, subject) {
+  var body = '';
+  for (var i = 0; i < blocks.length; i++) body += em_builder_blockHtmlEmail(blocks[i]);
+  return '<!doctype html><html><head><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width,initial-scale=1"><title>' + esc(subject || '') + '</title></head>' +
+    '<body style="margin:0;padding:0;background:#f5f0e8">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f0e8"><tr><td align="center" style="padding:24px 12px">' +
+    '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#fffdf9;border-radius:12px;overflow:hidden">' +
+    '<tr><td>' + body + '</td></tr></table></td></tr></table></body></html>';
+}
 function em_builder_canvasHtml() {
   em_builder_ensure();
   var bks = window.builderBlocks;
@@ -1274,7 +1346,7 @@ window.emSendTest = async function () {
         tenant: TENANT,
         to: to,
         subject: window.builderSubject || '(без темы)',
-        html: em_builder_canvasHtml(),
+        html: em_builder_emailHtml(window.builderBlocks, window.builderSubject),
       }),
     });
     var data = await res.json().catch(function () { return {}; });
