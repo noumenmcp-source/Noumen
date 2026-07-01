@@ -668,6 +668,107 @@ async function realSegmentCounts(tenant) {
   };
 }
 
+// Реальный реестр кампаний — агрегируем cdp_events_<tenant> по properties.messageId
+// (email_sent/email_opened/email_clicked пишут один и тот же messageId), группируем по теме
+// письма. A/B-варианты (variant A/B, не 'auto' автопилота) группируются по campaignId, не по теме,
+// т.к. у A/B-варианта две разные темы на одну кампанию. Пусто — значит кампаний правда не было,
+// без подмены фикстурой.
+async function realCampaignsList(tenant, limit) {
+  if (!TENANT_RE.test(tenant)) throw new Error('bad tenant');
+  const q = await es('/cdp_events_' + tenant + '/_search', {
+    size: 0,
+    query: { terms: { 'event.keyword': ['email_sent', 'email_opened', 'email_clicked'] } },
+    aggs: {
+      msg: {
+        terms: { field: 'properties.messageId.keyword', size: 10000 },
+        aggs: {
+          types: { terms: { field: 'event.keyword', size: 5 } },
+          sent_doc: {
+            filter: { term: { 'event.keyword': 'email_sent' } },
+            aggs: { hit: { top_hits: { size: 1, _source: ['properties.subject', 'properties.campaign', 'properties.automated', 'properties.trigger', 'properties.variant', 'properties.campaignId', 'ts'] } } },
+          },
+        },
+      },
+    },
+  });
+  if (q._missing) return [];
+  const buckets = (q.aggregations && q.aggregations.msg.buckets) || [];
+  const bySubject = new Map();
+  for (const b of buckets) {
+    const hits = b.sent_doc && b.sent_doc.hit && b.sent_doc.hit.hits.hits;
+    const hit = hits && hits[0];
+    if (!hit) continue;
+    const props = hit._source.properties || {};
+    const ts = hit._source.ts;
+    const isAb = !!props.variant && props.variant !== 'auto';
+    const isAuto = !!props.automated || !!props.trigger;
+    const typeKeys = new Set((b.types.buckets || []).map((t) => t.key));
+    const groupKey = isAb ? ('ab:' + (props.campaignId || props.subject)) : (props.subject || '(без темы)');
+    if (!bySubject.has(groupKey)) {
+      bySubject.set(groupKey, {
+        subject: props.subject || '(без темы)',
+        sent: 0, opened: 0, clicked: 0,
+        automated: isAuto, ab: isAb, trigger: props.trigger || null,
+        lastSent: ts || null,
+      });
+    }
+    const c = bySubject.get(groupKey);
+    c.sent++;
+    if (typeKeys.has('email_opened')) c.opened++;
+    if (typeKeys.has('email_clicked')) c.clicked++;
+    if (ts && (!c.lastSent || ts > c.lastSent)) c.lastSent = ts;
+  }
+  const list = Array.from(bySubject.values()).map((c) => ({
+    subject: c.subject,
+    sent: c.sent,
+    opened: c.opened,
+    clicked: c.clicked,
+    openRate: c.sent ? c.opened / c.sent : 0,
+    clickRate: c.sent ? c.clicked / c.sent : 0,
+    automated: c.automated,
+    ab: c.ab,
+    trigger: c.trigger,
+    lastSent: c.lastSent,
+  }));
+  list.sort((a, b) => String(b.lastSent || '').localeCompare(String(a.lastSent || '')));
+  return list.slice(0, limit || 50);
+}
+
+// Реальный реестр A/B-тестов — находим все campaignId с настоящими вариантами A/B (исключая
+// variant:'auto' автопилота — это не A/B), для каждого считаем через уже существующие
+// abtestStats()+zTestCompare() (тот же путь, что уже проверен на проде для одиночного lookup).
+async function realAbtestList(tenant, limit) {
+  if (!TENANT_RE.test(tenant)) throw new Error('bad tenant');
+  const q = await es('/cdp_events_' + tenant + '/_search', {
+    size: 0,
+    query: { bool: { filter: [{ term: { 'event.keyword': 'email_sent' } }, { terms: { 'properties.variant.keyword': ['A', 'B'] } }] } },
+    aggs: {
+      camp: {
+        terms: { field: 'properties.campaignId.keyword', size: 200 },
+        aggs: {
+          subjA: { filter: { term: { 'properties.variant.keyword': 'A' } }, aggs: { s: { terms: { field: 'properties.subject.keyword', size: 1 } } } },
+          subjB: { filter: { term: { 'properties.variant.keyword': 'B' } }, aggs: { s: { terms: { field: 'properties.subject.keyword', size: 1 } } } },
+          last: { max: { field: 'ts' } },
+        },
+      },
+    },
+  });
+  if (q._missing) return [];
+  const buckets = (q.aggregations && q.aggregations.camp.buckets) || [];
+  const out = [];
+  for (const b of buckets) {
+    const campaignId = b.key;
+    const counts = await abtestStats(tenant, campaignId);
+    const stats = zTestCompare(counts.sentA, counts.openA, counts.sentB, counts.openB);
+    const subjA = (b.subjA && b.subjA.s.buckets[0] && b.subjA.s.buckets[0].key) || '';
+    const subjB = (b.subjB && b.subjB.s.buckets[0] && b.subjB.s.buckets[0].key) || '';
+    const lastSent = (b.last && b.last.value_as_string) || null;
+    out.push(Object.assign({ campaignId: campaignId, subjectA: subjA, subjectB: subjB, lastSent: lastSent }, counts, stats));
+  }
+  out.sort((a, b) => String(b.lastSent || '').localeCompare(String(a.lastSent || '')));
+  return out.slice(0, limit || 50);
+}
+
 function zTestCompare(sentA, openA, sentB, openB) {
   var rateA = sentA > 0 ? openA / sentA : 0;
   var rateB = sentB > 0 ? openB / sentB : 0;
@@ -1009,6 +1110,26 @@ const server = http.createServer(async (req, res) => {
         return send(res, 502, { error: 'stats_failed', message: String(e.message || e) });
       }
     }
+    if (p === '/api/email/campaigns') {
+      var campTenant = locked || u.searchParams.get('tenant');
+      if (!campTenant || !TENANT_RE.test(campTenant)) return send(res, 400, { error: 'tenant required' });
+      try {
+        var campList = await realCampaignsList(campTenant, parseInt(u.searchParams.get('limit') || '50', 10));
+        return send(res, 200, { ok: true, tenant: campTenant, campaigns: campList });
+      } catch (e) {
+        return send(res, 502, { error: 'campaigns_failed', message: String(e.message || e) });
+      }
+    }
+    if (p === '/api/email/abtest') {
+      var abListTenant = locked || u.searchParams.get('tenant');
+      if (!abListTenant || !TENANT_RE.test(abListTenant)) return send(res, 400, { error: 'tenant required' });
+      try {
+        var abList = await realAbtestList(abListTenant, parseInt(u.searchParams.get('limit') || '50', 10));
+        return send(res, 200, { ok: true, tenant: abListTenant, tests: abList });
+      } catch (e) {
+        return send(res, 502, { error: 'abtest_list_failed', message: String(e.message || e) });
+      }
+    }
     if (p === '/api/email/segments') {
       var segPrincipal = await authenticate(req);
       if (!segPrincipal) return send(res, 401, { error: 'unauthorized' });
@@ -1137,7 +1258,7 @@ if (require.main === module && process.env.AUTOMATION_ENABLED === 'true') {
   }, autoIntervalMs);
 }
 
-module.exports = { mapSource, bucketLifecycle, aggregate, profilesList, listTenants, server, trackSign, trackVerify, injectTracking, resolveConsentedRecipients, zTestCompare, abtestStats, realSegmentCounts, usersMatchingQuery, checkDomainDeliverability, runAutomationPoller, verifySvixSignature, suppressEmail, isSuppressed };
+module.exports = { mapSource, bucketLifecycle, aggregate, profilesList, listTenants, server, trackSign, trackVerify, injectTracking, resolveConsentedRecipients, zTestCompare, abtestStats, realSegmentCounts, realCampaignsList, realAbtestList, usersMatchingQuery, checkDomainDeliverability, runAutomationPoller, verifySvixSignature, suppressEmail, isSuppressed };
 
 // ─── favicon: брендовая марка AXIOM — орбита/ядро (золото на ink, zero-dep inline SVG) ────
 const FAV = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32"><circle cx="16" cy="16" r="16" fill="#1c1510"/><circle cx="16" cy="16" r="10" fill="none" stroke="#c9a84c" stroke-width="1.5"/><g fill="#c9a84c"><circle cx="16" cy="16" r="3.2"/><circle cx="16" cy="6" r="2"/><circle cx="7.34" cy="21" r="2"/><circle cx="24.66" cy="21" r="2"/></g></svg>`;

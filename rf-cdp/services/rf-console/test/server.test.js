@@ -7,7 +7,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { once } = require('node:events');
-const { mapSource, bucketLifecycle, aggregate, server } = require('../server');
+const { mapSource, bucketLifecycle, aggregate, server, realCampaignsList, realAbtestList } = require('../server');
 
 const DAY = 86400000;
 const NOW = Date.parse('2026-06-30T12:00:00Z');
@@ -98,6 +98,114 @@ test('aggregate shapes RF metrics: collapses sources, detects consent grants', a
     assert.ok(pdn && pdn.count === 6 && pdn.label === 'Обработка ПДн');
     assert.equal(d.daily.length, 2);
   } finally { restore(); }
+});
+
+// stub ES for the ecoma tenant's real campaigns/abtest registry (Sendsay-parity wiring:
+// EMAIL_TABS.campaigns/abtest were fixture-only — server side now backs them with real
+// ES aggregations; these tests prove the aggregation shaping, not the client render).
+function stubEsCampaigns() {
+  const prev = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    const body = opts && opts.body ? JSON.parse(opts.body) : null;
+    const json = (o) => ({ ok: true, status: 200, text: async () => JSON.stringify(o) });
+    if (url.includes('/cdp_events_ecoma/_search') && body.aggs && body.aggs.msg) {
+      const hit = (ts, props) => ({ hit: { hits: { hits: [{ _source: { ts, properties: props } }] } } });
+      return json({
+        aggregations: {
+          msg: {
+            buckets: [
+              { key: 'm1', types: { buckets: [{ key: 'email_sent' }, { key: 'email_opened' }] }, sent_doc: hit('2026-06-20T10:00:00Z', { subject: 'Летняя подборка', messageId: 'm1' }) },
+              { key: 'm2', types: { buckets: [{ key: 'email_sent' }] }, sent_doc: hit('2026-06-21T10:00:00Z', { subject: 'Летняя подборка', messageId: 'm2' }) },
+              { key: 'm3', types: { buckets: [{ key: 'email_sent' }, { key: 'email_opened' }, { key: 'email_clicked' }] }, sent_doc: hit('2026-06-22T09:00:00Z', { subject: 'Тема А', messageId: 'm3', variant: 'A', campaignId: 'c1' }) },
+              { key: 'm4', types: { buckets: [{ key: 'email_sent' }] }, sent_doc: hit('2026-06-22T09:05:00Z', { subject: 'Тема Б', messageId: 'm4', variant: 'B', campaignId: 'c1' }) },
+              { key: 'm5', types: { buckets: [{ key: 'email_sent' }] }, sent_doc: hit('2026-06-23T09:05:00Z', { subject: 'Вы кое-что забыли в корзине', messageId: 'm5', trigger: 'abandoned_cart', automated: true }) },
+            ],
+          },
+        },
+      });
+    }
+    if (url.includes('/cdp_events_ecoma/_search') && body.aggs && body.aggs.camp) {
+      return json({
+        aggregations: {
+          camp: {
+            buckets: [{
+              key: 'c1',
+              subjA: { s: { buckets: [{ key: 'Тема А' }] } },
+              subjB: { s: { buckets: [{ key: 'Тема Б' }] } },
+              last: { value_as_string: '2026-06-22T09:05:00Z' },
+            }],
+          },
+        },
+      });
+    }
+    if (url.includes('/cdp_events_ecoma/_search') && body.query && body.query.term && body.query.term['properties.campaignId.keyword'] === 'c1') {
+      return json({
+        aggregations: {
+          by_event: {
+            buckets: [
+              { key: 'email_sent', by_variant: { buckets: [{ key: 'A', doc_count: 100 }, { key: 'B', doc_count: 100 }] } },
+              { key: 'email_opened', by_variant: { buckets: [{ key: 'A', doc_count: 40 }, { key: 'B', doc_count: 55 }] } },
+            ],
+          },
+        },
+      });
+    }
+    return prev(url, opts);
+  };
+  return () => { globalThis.fetch = prev; };
+}
+
+test('realCampaignsList groups by subject (or campaignId for A/B), joins sent/opened/clicked via messageId', async () => {
+  const restore = stubEsCampaigns();
+  try {
+    const list = await realCampaignsList('ecoma', 50);
+    assert.equal(list.length, 3, 'Летняя подборка + A/B(c1) + Брошенная корзина');
+    const summer = list.find((c) => c.subject === 'Летняя подборка');
+    assert.ok(summer, 'summer campaign present');
+    assert.equal(summer.sent, 2);
+    assert.equal(summer.opened, 1);
+    assert.equal(summer.ab, false);
+    const ab = list.find((c) => c.ab === true);
+    assert.ok(ab, 'A/B campaign grouped by campaignId, not split by subject');
+    assert.equal(ab.sent, 2);
+    assert.equal(ab.opened, 1);
+    assert.equal(ab.clicked, 1);
+    const auto = list.find((c) => c.automated === true);
+    assert.ok(auto, 'automated trigger campaign present');
+    assert.equal(auto.trigger, 'abandoned_cart');
+    assert.equal(auto.sent, 1);
+    // sorted newest-first by lastSent
+    assert.equal(list[0].subject, 'Вы кое-что забыли в корзине');
+  } finally { restore(); }
+});
+
+test('realAbtestList finds real A/B campaigns and reuses abtestStats+zTestCompare (matches known prod case z≈2.12/B wins)', async () => {
+  const restore = stubEsCampaigns();
+  try {
+    const list = await realAbtestList('ecoma', 50);
+    assert.equal(list.length, 1);
+    const t = list[0];
+    assert.equal(t.campaignId, 'c1');
+    assert.equal(t.subjectA, 'Тема А');
+    assert.equal(t.subjectB, 'Тема Б');
+    assert.equal(t.sentA, 100);
+    assert.equal(t.openA, 40);
+    assert.equal(t.sentB, 100);
+    assert.equal(t.openB, 55);
+    assert.equal(t.winner, 'B');
+    assert.equal(t.significant, true);
+    assert.ok(Math.abs(t.z - 2.1245) < 0.01, 'z≈2.1245, got ' + t.z);
+    assert.ok(Math.abs(t.lift - 0.375) < 0.001, 'lift≈0.375, got ' + t.lift);
+  } finally { restore(); }
+});
+
+test('realCampaignsList / realAbtestList return empty arrays when the index is missing (no fixture fallback)', async () => {
+  const prev = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: false, status: 404, text: async () => '' });
+  try {
+    assert.deepEqual(await realCampaignsList('ecoma', 50), []);
+    assert.deepEqual(await realAbtestList('ecoma', 50), []);
+  } finally { globalThis.fetch = prev; }
 });
 
 test('HTTP: / serves the AXIOM RU console; /api/overview shapes data', async () => {
