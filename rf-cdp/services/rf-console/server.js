@@ -91,6 +91,76 @@ function trackVerify(token) {
   try { return JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8')); }
   catch (e) { return null; }
 }
+// ─── Авторизация: per-tenant Bearer-токены, хранятся хешем в ES (без Postgres — тот же
+// принцип, что весь остальной сервис). Один токен = один тенант; сам токен показывается
+// владельцу РОВНО ОДИН РАЗ при выпуске, дальше в системе живёт только его SHA-256.
+const AUTH_INDEX = 'rf_console_auth';
+function hashToken(token) {
+  return crypto.createHash('sha256').update(String(token || '')).digest('hex');
+}
+function generateToken() {
+  return 'rfc_' + crypto.randomBytes(24).toString('hex');
+}
+async function createTenantAuth(tenant, fromName, fromEmail) {
+  if (!TENANT_RE.test(tenant)) throw new Error('bad tenant');
+  const token = generateToken();
+  const doc = {
+    tenant: tenant,
+    tokenHash: hashToken(token),
+    fromName: fromName || tenant,
+    fromEmail: fromEmail || ('hello@' + tenant + '.invalid'),
+    createdAt: new Date().toISOString(),
+  };
+  // id = tenant → upsert семантика (перевыпуск токена заменяет старый, не плодит дубли)
+  await es('/' + AUTH_INDEX + '/_doc/' + encodeURIComponent(tenant), doc);
+  await es('/' + AUTH_INDEX + '/_refresh');
+  return { tenant: tenant, token: token, fromName: doc.fromName, fromEmail: doc.fromEmail };
+}
+async function resolveTenantFromToken(token) {
+  if (!token) return null;
+  const hash = hashToken(token);
+  const q = await es('/' + AUTH_INDEX + '/_search', {
+    size: 1,
+    query: { term: { 'tokenHash.keyword': hash } },
+  });
+  if (q._missing) return null;
+  const hit = (q.hits && q.hits.hits && q.hits.hits[0]) || null;
+  return hit ? hit._source : null;
+}
+
+async function resolveTenantAuth(tenant) {
+  if (!TENANT_RE.test(tenant)) return null;
+  try {
+    const doc = await es('/' + AUTH_INDEX + '/_doc/' + encodeURIComponent(tenant));
+    if (doc._missing || !doc._source) return null;
+    return doc._source;
+  } catch (e) { return null; }
+}
+async function authenticate(req) {
+  const header = req.headers['authorization'] || '';
+  const m = /^Bearer\s+(.+)$/i.exec(header);
+  if (!m) return null;
+  try { return await resolveTenantFromToken(m[1].trim()); }
+  catch (e) { return null; }
+}
+function requireAdmin(req) {
+  const secret = process.env.ADMIN_SECRET;
+  if (!secret) return false; // fail-closed: без явно заданного секрета admin-роут выключен
+  const header = req.headers['x-admin-secret'] || '';
+  const a = Buffer.from(String(header));
+  const b = Buffer.from(secret);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+// Реальный, ES-нативный rate-limit — сколько email_sent уже улетело от тенанта за окно.
+async function sentCountSince(tenant, sinceExpr) {
+  const q = await es('/cdp_events_' + tenant + '/_search', {
+    size: 0,
+    query: { bool: { filter: [{ term: { 'event.keyword': 'email_sent' } }, { range: { ts: { gte: sinceExpr } } }] } },
+  });
+  if (q._missing) return 0;
+  return (q.hits && q.hits.total && q.hits.total.value) || 0;
+}
+
 async function recordEmailEvent(tenant, eventType, messageId, extra) {
   if (!TENANT_RE.test(tenant)) return;
   var doc = Object.assign({
@@ -305,9 +375,9 @@ function reactivationEmailHtml() {
     '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">Письмо отправлено на основании вашего согласия на получение рекламных рассылок (ст. 18 ФЗ «О рекламе», ст. 9 152-ФЗ). <a href="{{unsubscribe_url}}" style="color:#7a6e60">Отписаться</a></div>' +
     '</td></tr></table></td></tr></table></body></html>';
 }
-async function sendAutomationEmail(tenant, trigger, subject, email, subjectId) {
+async function sendAutomationEmail(tenant, trigger, subject, email, subjectId, fromName, fromEmail) {
   const baseUrl = process.env.PUBLIC_BASE_URL || 'https://rf.axiom.rent';
-  const from = process.env.EMAIL_FROM || 'ecoma <hello@ecoma.ru>';
+  const from = (fromName || tenant) + ' <' + (fromEmail || ('hello@' + tenant + '.invalid')) + '>';
   const html = trigger === 'abandoned_cart' ? abandonedCartEmailHtml() : reactivationEmailHtml();
   const messageId = crypto.randomBytes(12).toString('hex');
   const tracked = injectTracking(html, tenant, messageId, baseUrl, { v: 'auto', c: trigger });
@@ -318,6 +388,9 @@ async function sendAutomationEmail(tenant, trigger, subject, email, subjectId) {
 }
 async function runAutomationPoller(tenant) {
   if (!TENANT_RE.test(tenant)) throw new Error('bad tenant');
+  const auth = await resolveTenantAuth(tenant);
+  const fromName = auth ? auth.fromName : tenant;
+  const fromEmail = auth ? auth.fromEmail : ('hello@' + tenant + '.invalid');
   const consented = await resolveConsentedRecipients(tenant, 5000);
   const consentedMap = new Map(consented.filter((c) => c.subject).map((c) => [c.subject, c.email]));
   const out = { abandoned_cart: { checked: 0, sent: 0, failed: 0 }, reactivation: { checked: 0, sent: 0, failed: 0 } };
@@ -334,7 +407,7 @@ async function runAutomationPoller(tenant) {
     const email = consentedMap.get(userId);
     if (!email) continue;
     try {
-      await sendAutomationEmail(tenant, 'abandoned_cart', 'Вы кое-что забыли в корзине', email, userId);
+      await sendAutomationEmail(tenant, 'abandoned_cart', 'Вы кое-что забыли в корзине', email, userId, fromName, fromEmail);
       out.abandoned_cart.sent++;
     } catch (e) { out.abandoned_cart.failed++; }
   }
@@ -355,7 +428,7 @@ async function runAutomationPoller(tenant) {
     const email = consentedMap.get(userId);
     if (!email) continue;
     try {
-      await sendAutomationEmail(tenant, 'reactivation', 'Давно вас не видели — возвращайтесь за эко-новинками', email, userId);
+      await sendAutomationEmail(tenant, 'reactivation', 'Давно вас не видели — возвращайтесь за эко-новинками', email, userId, fromName, fromEmail);
       out.reactivation.sent++;
     } catch (e) { out.reactivation.failed++; }
   }
@@ -513,98 +586,132 @@ const server = http.createServer(async (req, res) => {
       return res.end(FAV);
     }
     if (p === '/health') return send(res, 200, { ok: true });
-    const hdr = req.headers['x-cdp-tenant'];
-    const locked = hdr && TENANT_RE.test(hdr) ? hdr : null;
-    if (p === '/api/config') return send(res, 200, { locked });
-    if (p === '/api/tenants') {
-      const all = await listTenants();
-      return send(res, 200, locked ? all.filter((t) => t.tenant === locked) : all);
+
+    // ─── admin: провижининг/ротация токена тенанта (fail-closed без ADMIN_SECRET) ───
+    if (p === '/api/admin/tenants' && req.method === 'POST') {
+      if (!requireAdmin(req)) return send(res, 403, { error: 'forbidden' });
+      var adminBody;
+      try { adminBody = await readJsonBody(req, 4 * 1024); }
+      catch (e) { return send(res, 400, { error: String(e.message || e) }); }
+      var newTenant = typeof adminBody.tenant === 'string' ? adminBody.tenant : '';
+      if (!TENANT_RE.test(newTenant)) return send(res, 400, { error: 'invalid_tenant' });
+      try {
+        var created = await createTenantAuth(newTenant, adminBody.fromName, adminBody.fromEmail);
+        return send(res, 200, { ok: true, tenant: created.tenant, token: created.token, fromName: created.fromName, fromEmail: created.fromEmail });
+      } catch (e) {
+        return send(res, 502, { error: 'provision_failed', message: String(e.message || e) });
+      }
     }
-    const tenant = locked || u.searchParams.get('tenant');
-    if (p === '/api/overview') { if (!tenant) return send(res, 400, { error: 'tenant required' }); return send(res, 200, await aggregate(tenant, Date.now())); }
-    if (p === '/api/profiles') { if (!tenant) return send(res, 400, { error: 'tenant required' }); return send(res, 200, await profilesList(tenant, parseInt(u.searchParams.get('limit') || '200', 10))); }
+    if (p === '/api/tenants') {
+      if (!requireAdmin(req)) return send(res, 403, { error: 'forbidden' });
+      return send(res, 200, await listTenants());
+    }
+    if (p === '/api/config') {
+      var cfgPrincipal = await authenticate(req);
+      if (!cfgPrincipal) return send(res, 401, { error: 'unauthorized' });
+      return send(res, 200, { locked: cfgPrincipal.tenant, tenant: cfgPrincipal.tenant, fromName: cfgPrincipal.fromName, fromEmail: cfgPrincipal.fromEmail });
+    }
+    if (p === '/api/overview') {
+      var ovPrincipal = await authenticate(req);
+      if (!ovPrincipal) return send(res, 401, { error: 'unauthorized' });
+      return send(res, 200, await aggregate(ovPrincipal.tenant, Date.now()));
+    }
+    if (p === '/api/profiles') {
+      var plPrincipal = await authenticate(req);
+      if (!plPrincipal) return send(res, 401, { error: 'unauthorized' });
+      return send(res, 200, await profilesList(plPrincipal.tenant, parseInt(u.searchParams.get('limit') || '200', 10)));
+    }
     if (p === '/api/email/send' && req.method === 'POST') {
+      var sendPrincipal = await authenticate(req);
+      if (!sendPrincipal) return send(res, 401, { error: 'unauthorized' });
       var body;
       try { body = await readJsonBody(req, 2 * 1024 * 1024); }
       catch (e) { return send(res, 400, { error: String(e.message || e) }); }
       var toAddr = typeof body.to === 'string' ? body.to.trim() : '';
       var subj = typeof body.subject === 'string' ? body.subject : '';
       var html = typeof body.html === 'string' ? body.html : '';
-      var sendTenant = (typeof body.tenant === 'string' && TENANT_RE.test(body.tenant)) ? body.tenant : null;
       if (!toAddr || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(toAddr)) return send(res, 400, { error: 'invalid_to' });
       if (!subj) return send(res, 400, { error: 'subject_required' });
+      var recentSingle = await sentCountSince(sendPrincipal.tenant, 'now-1m');
+      if (recentSingle >= 20) return send(res, 429, { error: 'rate_limited', message: 'слишком много отправок за минуту' });
       var messageId = crypto.randomBytes(12).toString('hex');
-      var trackedHtml = html || '<p>(пусто)</p>';
-      if (sendTenant) {
-        var baseUrl = process.env.PUBLIC_BASE_URL || 'https://rf.axiom.rent';
-        trackedHtml = injectTracking(trackedHtml, sendTenant, messageId, baseUrl);
-      }
+      var baseUrl = process.env.PUBLIC_BASE_URL || 'https://rf.axiom.rent';
+      var trackedHtml = injectTracking(html || '<p>(пусто)</p>', sendPrincipal.tenant, messageId, baseUrl);
       try {
         var result = await sendRealEmail({
           to: toAddr,
-          from: process.env.EMAIL_FROM || 'ecoma <hello@ecoma.ru>',
+          from: (sendPrincipal.fromName || sendPrincipal.tenant) + ' <' + sendPrincipal.fromEmail + '>',
           subject: subj,
           html: trackedHtml,
         });
-        if (sendTenant) await recordEmailEvent(sendTenant, 'email_sent', messageId, { to: toAddr, subject: subj, provider: result.provider });
+        await recordEmailEvent(sendPrincipal.tenant, 'email_sent', messageId, { to: toAddr, subject: subj, provider: result.provider });
         return send(res, 200, Object.assign({ messageId: messageId }, result));
       } catch (e) {
         return send(res, 502, { error: 'send_failed', message: String(e.message || e) });
       }
     }
     if (p === '/api/email/campaign' && req.method === 'POST') {
+      var campPrincipal = await authenticate(req);
+      if (!campPrincipal) return send(res, 401, { error: 'unauthorized' });
       var cbody;
       try { cbody = await readJsonBody(req, 2 * 1024 * 1024); }
       catch (e) { return send(res, 400, { error: String(e.message || e) }); }
-      var cTenant = (typeof cbody.tenant === 'string' && TENANT_RE.test(cbody.tenant)) ? cbody.tenant : null;
       var cSubj = typeof cbody.subject === 'string' ? cbody.subject : '';
       var cHtml = typeof cbody.html === 'string' ? cbody.html : '';
       var cCap = Math.min(parseInt(cbody.limit, 10) || 500, 2000);
       var cDryRun = !!cbody.dryRun;
-      if (!cTenant) return send(res, 400, { error: 'tenant_required' });
       if (!cSubj) return send(res, 400, { error: 'subject_required' });
-      var recipients;
-      try { recipients = await resolveConsentedRecipients(cTenant, cCap); }
-      catch (e) { return send(res, 502, { error: 'consent_lookup_failed', message: String(e.message || e) }); }
       if (cDryRun) {
-        return send(res, 200, { ok: true, dryRun: true, wouldSend: recipients.length, sample: recipients.slice(0, 5).map((r) => r.email) });
+        var dryRecipients;
+        try { dryRecipients = await resolveConsentedRecipients(campPrincipal.tenant, cCap); }
+        catch (e) { return send(res, 502, { error: 'consent_lookup_failed', message: String(e.message || e) }); }
+        return send(res, 200, { ok: true, dryRun: true, wouldSend: dryRecipients.length, sample: dryRecipients.slice(0, 5).map((r) => r.email) });
       }
+      var dailyCap = Math.max(1, parseInt(process.env.MAX_SENDS_PER_DAY, 10) || 5000);
+      var sentToday = await sentCountSince(campPrincipal.tenant, 'now-24h');
+      if (sentToday >= dailyCap) return send(res, 429, { error: 'daily_limit_reached', sentToday: sentToday, dailyCap: dailyCap });
+      var recipients;
+      try { recipients = await resolveConsentedRecipients(campPrincipal.tenant, Math.min(cCap, dailyCap - sentToday)); }
+      catch (e) { return send(res, 502, { error: 'consent_lookup_failed', message: String(e.message || e) }); }
       var cBaseUrl = process.env.PUBLIC_BASE_URL || 'https://rf.axiom.rent';
-      var cFrom = process.env.EMAIL_FROM || 'ecoma <hello@ecoma.ru>';
+      var cFrom = (campPrincipal.fromName || campPrincipal.tenant) + ' <' + campPrincipal.fromEmail + '>';
       var sent = 0, failed = 0, failures = [];
       for (var ri = 0; ri < recipients.length; ri++) {
         var rEmail = recipients[ri].email;
         if (!rEmail) continue;
         var rMsgId = crypto.randomBytes(12).toString('hex');
-        var rHtml = injectTracking(cHtml || '<p>(пусто)</p>', cTenant, rMsgId, cBaseUrl);
+        var rHtml = injectTracking(cHtml || '<p>(пусто)</p>', campPrincipal.tenant, rMsgId, cBaseUrl);
         try {
           var rResult = await sendRealEmail({ to: rEmail, from: cFrom, subject: cSubj, html: rHtml });
-          await recordEmailEvent(cTenant, 'email_sent', rMsgId, { to: rEmail, subject: cSubj, provider: rResult.provider, campaign: true });
+          await recordEmailEvent(campPrincipal.tenant, 'email_sent', rMsgId, { to: rEmail, subject: cSubj, provider: rResult.provider, campaign: true });
           sent++;
         } catch (e) {
           failed++;
           if (failures.length < 10) failures.push({ email: rEmail, error: String(e.message || e) });
         }
       }
-      return send(res, 200, { ok: true, totalConsented: recipients.length, sent: sent, failed: failed, failures: failures });
+      return send(res, 200, { ok: true, totalConsented: recipients.length, sent: sent, failed: failed, failures: failures, dailyCap: dailyCap, sentToday: sentToday });
     }
     if (p === '/api/email/abtest/start' && req.method === 'POST') {
+      var abPrincipal = await authenticate(req);
+      if (!abPrincipal) return send(res, 401, { error: 'unauthorized' });
       var abody;
       try { abody = await readJsonBody(req, 2 * 1024 * 1024); }
       catch (e) { return send(res, 400, { error: String(e.message || e) }); }
-      var abTenant = (typeof abody.tenant === 'string' && TENANT_RE.test(abody.tenant)) ? abody.tenant : null;
       var subjA = typeof abody.subjectA === 'string' ? abody.subjectA : '';
       var subjB = typeof abody.subjectB === 'string' ? abody.subjectB : '';
       var abHtml = typeof abody.html === 'string' ? abody.html : '<p>(пусто)</p>';
       var abCap = Math.min(parseInt(abody.limit, 10) || 500, 2000);
-      if (!abTenant) return send(res, 400, { error: 'tenant_required' });
       if (!subjA || !subjB) return send(res, 400, { error: 'subjectA_and_subjectB_required' });
+      var dailyCapAb = Math.max(1, parseInt(process.env.MAX_SENDS_PER_DAY, 10) || 5000);
+      var sentTodayAb = await sentCountSince(abPrincipal.tenant, 'now-24h');
+      if (sentTodayAb >= dailyCapAb) return send(res, 429, { error: 'daily_limit_reached', sentToday: sentTodayAb, dailyCap: dailyCapAb });
       var abRecipients;
-      try { abRecipients = await resolveConsentedRecipients(abTenant, abCap); }
+      try { abRecipients = await resolveConsentedRecipients(abPrincipal.tenant, Math.min(abCap, dailyCapAb - sentTodayAb)); }
       catch (e) { return send(res, 502, { error: 'consent_lookup_failed', message: String(e.message || e) }); }
       var campaignId = crypto.randomBytes(8).toString('hex');
       var abBaseUrl = process.env.PUBLIC_BASE_URL || 'https://rf.axiom.rent';
-      var abFrom = process.env.EMAIL_FROM || 'ecoma <hello@ecoma.ru>';
+      var abFrom = (abPrincipal.fromName || abPrincipal.tenant) + ' <' + abPrincipal.fromEmail + '>';
       var abSent = { A: 0, B: 0 }, abFailed = 0;
       for (var ai = 0; ai < abRecipients.length; ai++) {
         var abEmail = abRecipients[ai].email;
@@ -612,10 +719,10 @@ const server = http.createServer(async (req, res) => {
         var variant = (ai % 2 === 0) ? 'A' : 'B';
         var abSubj = variant === 'A' ? subjA : subjB;
         var abMsgId = crypto.randomBytes(12).toString('hex');
-        var abTrackedHtml = injectTracking(abHtml, abTenant, abMsgId, abBaseUrl, { v: variant, c: campaignId });
+        var abTrackedHtml = injectTracking(abHtml, abPrincipal.tenant, abMsgId, abBaseUrl, { v: variant, c: campaignId });
         try {
           var abResult = await sendRealEmail({ to: abEmail, from: abFrom, subject: abSubj, html: abTrackedHtml });
-          await recordEmailEvent(abTenant, 'email_sent', abMsgId, { to: abEmail, subject: abSubj, provider: abResult.provider, variant: variant, campaignId: campaignId });
+          await recordEmailEvent(abPrincipal.tenant, 'email_sent', abMsgId, { to: abEmail, subject: abSubj, provider: abResult.provider, variant: variant, campaignId: campaignId });
           abSent[variant]++;
         } catch (e) {
           abFailed++;
@@ -624,12 +731,12 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { ok: true, campaignId: campaignId, sentA: abSent.A, sentB: abSent.B, failed: abFailed });
     }
     if (p.indexOf('/api/email/abtest/') === 0 && req.method === 'GET') {
-      var abTenantQ = u.searchParams.get('tenant');
+      var abGetPrincipal = await authenticate(req);
+      if (!abGetPrincipal) return send(res, 401, { error: 'unauthorized' });
       var abCampaignId = p.slice('/api/email/abtest/'.length);
-      if (!abTenantQ || !TENANT_RE.test(abTenantQ)) return send(res, 400, { error: 'tenant required as ?tenant=' });
       if (!abCampaignId) return send(res, 400, { error: 'campaignId required in path' });
       try {
-        var abCounts = await abtestStats(abTenantQ, abCampaignId);
+        var abCounts = await abtestStats(abGetPrincipal.tenant, abCampaignId);
         var abStats = zTestCompare(abCounts.sentA, abCounts.openA, abCounts.sentB, abCounts.openB);
         return send(res, 200, Object.assign({ ok: true, campaignId: abCampaignId }, abCounts, abStats));
       } catch (e) {
@@ -637,16 +744,17 @@ const server = http.createServer(async (req, res) => {
       }
     }
     if (p === '/api/email/segments') {
-      var segTenant = locked || u.searchParams.get('tenant');
-      if (!segTenant || !TENANT_RE.test(segTenant)) return send(res, 400, { error: 'tenant required' });
+      var segPrincipal = await authenticate(req);
+      if (!segPrincipal) return send(res, 401, { error: 'unauthorized' });
       try {
-        var segCounts = await realSegmentCounts(segTenant);
-        return send(res, 200, Object.assign({ ok: true, tenant: segTenant }, segCounts));
+        var segCounts = await realSegmentCounts(segPrincipal.tenant);
+        return send(res, 200, Object.assign({ ok: true, tenant: segPrincipal.tenant }, segCounts));
       } catch (e) {
         return send(res, 502, { error: 'segments_failed', message: String(e.message || e) });
       }
     }
     if (p === '/api/deliverability/check') {
+      // публичный DNS-lookup utility-роут — не тенант-специфичен, не отдаёт приватных данных
       var dDomain = u.searchParams.get('domain');
       var dSelector = u.searchParams.get('selector') || undefined;
       if (!dDomain || !/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(dDomain)) return send(res, 400, { error: 'invalid_domain' });
@@ -658,14 +766,11 @@ const server = http.createServer(async (req, res) => {
       }
     }
     if (p === '/api/automation/run' && req.method === 'POST') {
-      var autoBody;
-      try { autoBody = await readJsonBody(req, 8 * 1024); }
-      catch (e) { return send(res, 400, { error: String(e.message || e) }); }
-      var autoTenant = (typeof autoBody.tenant === 'string' && TENANT_RE.test(autoBody.tenant)) ? autoBody.tenant : null;
-      if (!autoTenant) return send(res, 400, { error: 'tenant_required' });
+      var autoPrincipal = await authenticate(req);
+      if (!autoPrincipal) return send(res, 401, { error: 'unauthorized' });
       try {
-        var autoResult = await runAutomationPoller(autoTenant);
-        return send(res, 200, { ok: true, tenant: autoTenant, results: autoResult });
+        var autoResult = await runAutomationPoller(autoPrincipal.tenant);
+        return send(res, 200, { ok: true, tenant: autoPrincipal.tenant, results: autoResult });
       } catch (e) {
         return send(res, 502, { error: 'automation_failed', message: String(e.message || e) });
       }
@@ -1721,9 +1826,8 @@ window.emSendTest = async function () {
   try {
     var res = await fetch('/api/email/send', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + (window.RFC_TOKEN || '') },
       body: JSON.stringify({
-        tenant: TENANT,
         to: to,
         subject: window.builderSubject || '(без темы)',
         html: em_builder_emailHtml(window.builderBlocks, window.builderSubject),
@@ -2881,12 +2985,19 @@ function renderProfiles(list){
 }
 
 function showErr(e){$('#err').innerHTML=e?'<div class="err">Ошибка: '+esc(e)+'</div>':'';}
-async function j(u){const r=await fetch(u);if(!r.ok)throw new Error((await r.json().catch(()=>({}))).error||('HTTP '+r.status));return r.json();}
+// ─── авторизация: токен из ?token= (один раз) → localStorage → заголовок Authorization на каждый fetch ───
+window.RFC_TOKEN=(function(){
+  var qp=new URLSearchParams(location.search); var fromUrl=qp.get('token');
+  if(fromUrl){ localStorage.setItem('rfc_token', fromUrl); qp.delete('token'); var qs=qp.toString();
+    history.replaceState({}, '', location.pathname+(qs?'?'+qs:'')); }
+  return localStorage.getItem('rfc_token')||'';
+})();
+async function j(u){const r=await fetch(u,{headers:window.RFC_TOKEN?{authorization:'Bearer '+window.RFC_TOKEN}:{}});if(!r.ok){if(r.status===401){localStorage.removeItem('rfc_token');}throw new Error((await r.json().catch(()=>({}))).error||('HTTP '+r.status));}return r.json();}
 
 const isSec=id=>SECTIONS.some(s=>s[0]===id);
 function secFromPath(){const seg=(location.pathname.replace(/\\/+$/,'')||'/').slice(1);if(seg==='automations'){window.segTab='flows';return 'segments';}if(seg==='segments'&&window.segTab==null)window.segTab='audience';return isSec(seg)?seg:'overview';}
 function navTo(id){if(!isSec(id))return;if(id==='segments')window.segTab='audience';const q=location.search;if(location.pathname!=='/'+id)history.pushState({id:id},'','/'+id+q);setActive(id);}
-function syncTenantUrl(){var t=$('#tenant').value;var sp=new URLSearchParams(location.search);if(t)sp.set('tenant',t);else sp.delete('tenant');if(cur!=='email')sp.delete('tab');var qs=sp.toString();var bp=(cur==='segments'&&window.segTab==='flows')?'/automations':('/'+cur);history.replaceState({id:cur},'',bp+(qs?'?'+qs:''));}
+function syncTenantUrl(){var sp=new URLSearchParams(location.search);if(cur!=='email')sp.delete('tab');var qs=sp.toString();var bp=(cur==='segments'&&window.segTab==='flows')?'/automations':('/'+cur);history.replaceState({id:cur},'',bp+(qs?'?'+qs:''));}
 function setActive(id){
   cur=id; const meta=SECTIONS.find(s=>s[0]===id);
   $('#title').textContent=meta?meta[1]:id;
@@ -2895,11 +3006,11 @@ function setActive(id){
   document.querySelectorAll('.nav a').forEach(a=>a.classList.toggle('on',a.dataset.id===id));
   if(!OV){return;}
   $('#view').innerHTML=(VIEWS[id]||VIEWS.overview)();
-  if(id==='profiles') j('/api/profiles?tenant='+encodeURIComponent(TENANT)+'&limit=500').then(function(list){window.PROFILES=list||[];window.plPage=1;window.plRenderTable();}).catch(e=>showErr(e.message||e));
+  if(id==='profiles') j('/api/profiles?limit=500').then(function(list){window.PROFILES=list||[];window.plPage=1;window.plRenderTable();}).catch(e=>showErr(e.message||e));
 }
 async function load(){
-  showErr(''); TENANT=$('#tenant').value; $('#sub').textContent='тенант: '+TENANT; syncTenantUrl();
-  try{ OV=await j('/api/overview?tenant='+encodeURIComponent(TENANT)); setActive(cur); }
+  showErr(''); syncTenantUrl();
+  try{ OV=await j('/api/overview'); setActive(cur); }
   catch(e){ showErr(e.message||e); }
 }
 async function init(){
@@ -2909,15 +3020,13 @@ async function init(){
   window.onpopstate=()=>setActive(secFromPath());document.addEventListener('click',function(e){if(!e.target||!e.target.closest)return;var sg=e.target.closest('[data-segtab]');if(sg){e.preventDefault();window.segTo(sg.getAttribute('data-segtab'));return;}var pf=e.target.closest('[data-plfilter]');if(pf){e.preventDefault();window.plSetFilter(pf.getAttribute('data-plfilter'));return;}var pp=e.target.closest('[data-plpage]');if(pp){if(pp.disabled)return;e.preventDefault();window.plGo(parseInt(pp.getAttribute('data-plpage'),10));return;}});
   $('#burger').onclick=()=>document.body.classList.toggle('menu');
   $('#bd').onclick=()=>document.body.classList.remove('menu');
+  $('#tenant').style.display='none';
+  if(!window.RFC_TOKEN){ showErr('Нет токена доступа. Откройте ссылку вида /?token=ВАШ_ТОКЕН, полученную от администратора.'); return; }
   try{
-    const cfg=await j('/api/config'); const ts=await j('/api/tenants');
-    if(!ts.length){showErr('Нет тенантов (cdp_events_* пусты)');return;}
-    $('#tenant').innerHTML=ts.map(t=>'<option value="'+esc(t.tenant)+'">'+esc(t.tenant)+' ('+nf(t.docs)+')</option>').join('');
-    const qt=new URLSearchParams(location.search).get('tenant');
-    if(qt&&ts.some(t=>t.tenant===qt))$('#tenant').value=qt;
-    if(cfg.locked)$('#tenant').style.display='none';
-    $('#tenant').onchange=load; load();
-  }catch(e){showErr(e.message||e);}
+    const cfg=await j('/api/config');
+    TENANT=cfg.tenant; $('#sub').textContent='тенант: '+TENANT;
+    load();
+  }catch(e){showErr(e.message||('Токен недействителен: '+(e.message||e)));}
 }
 init();
 </script></body></html>`;
