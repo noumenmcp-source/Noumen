@@ -71,6 +71,10 @@ function stubEs() {
         { key: 'personal_data', doc_count: 6 }, { key: 'marketing', doc_count: 4 },
       ] } } });
     }
+    // any bearer token resolves to tenant 'aero' — HTTP-surface test doesn't need real hashing
+    if (url.includes('/rf_console_auth/_search')) {
+      return json({ hits: { hits: [{ _source: { tenant: 'aero', fromName: 'aero', fromEmail: 'hello@aero.invalid' } }] } });
+    }
     // not an ES call (e.g. the test client hitting the local server) → real fetch
     return prev(url, opts);
   };
@@ -219,9 +223,11 @@ test('HTTP: / serves the AXIOM RU console; /api/overview shapes data', async () 
     assert.match(html, /Жизненный цикл/);
     assert.match(html, /Источники трафика/);
     assert.match(html, /152-ФЗ/);
-    const ov = await fetch(`${base}/api/overview?tenant=aero`);
+    const authHeaders = { headers: { authorization: 'Bearer test-token' } };
+    const ov = await fetch(`${base}/api/overview`, authHeaders);
     assert.equal(ov.status, 200);
     assert.equal((await ov.json()).kpi.profiles, 7);
+    assert.equal((await fetch(`${base}/api/overview`)).status, 401, 'no token → unauthorized, tenant no longer comes from an open query param');
     assert.equal((await fetch(`${base}/health`)).status, 200);
   } finally { server.close(); await once(server, 'close'); restore(); }
 });

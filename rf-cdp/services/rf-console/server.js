@@ -1111,21 +1111,21 @@ const server = http.createServer(async (req, res) => {
       }
     }
     if (p === '/api/email/campaigns') {
-      var campTenant = locked || u.searchParams.get('tenant');
-      if (!campTenant || !TENANT_RE.test(campTenant)) return send(res, 400, { error: 'tenant required' });
+      var campPrincipal2 = await authenticate(req);
+      if (!campPrincipal2) return send(res, 401, { error: 'unauthorized' });
       try {
-        var campList = await realCampaignsList(campTenant, parseInt(u.searchParams.get('limit') || '50', 10));
-        return send(res, 200, { ok: true, tenant: campTenant, campaigns: campList });
+        var campList = await realCampaignsList(campPrincipal2.tenant, parseInt(u.searchParams.get('limit') || '50', 10));
+        return send(res, 200, { ok: true, tenant: campPrincipal2.tenant, campaigns: campList });
       } catch (e) {
         return send(res, 502, { error: 'campaigns_failed', message: String(e.message || e) });
       }
     }
     if (p === '/api/email/abtest') {
-      var abListTenant = locked || u.searchParams.get('tenant');
-      if (!abListTenant || !TENANT_RE.test(abListTenant)) return send(res, 400, { error: 'tenant required' });
+      var abListPrincipal = await authenticate(req);
+      if (!abListPrincipal) return send(res, 401, { error: 'unauthorized' });
       try {
-        var abList = await realAbtestList(abListTenant, parseInt(u.searchParams.get('limit') || '50', 10));
-        return send(res, 200, { ok: true, tenant: abListTenant, tests: abList });
+        var abList = await realAbtestList(abListPrincipal.tenant, parseInt(u.searchParams.get('limit') || '50', 10));
+        return send(res, 200, { ok: true, tenant: abListPrincipal.tenant, tests: abList });
       } catch (e) {
         return send(res, 502, { error: 'abtest_list_failed', message: String(e.message || e) });
       }
