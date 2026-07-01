@@ -19,7 +19,7 @@ const TENANT_RE = /^[a-z0-9_-]+$/i;
 const DAY = 86400000;
 
 // ─── реальная отправка email: SMTP_URL → nodemailer, иначе RESEND_API_KEY → resend, иначе fake (без сети) ───
-async function sendRealEmail({ to, from, subject, html }) {
+async function sendRealEmail({ to, from, subject, html, tags }) {
   if (process.env.SMTP_URL) {
     const nodemailer = require('nodemailer');
     const transporter = nodemailer.createTransport(process.env.SMTP_URL);
@@ -28,7 +28,7 @@ async function sendRealEmail({ to, from, subject, html }) {
   } else if (process.env.RESEND_API_KEY) {
     const { Resend } = require('resend');
     const resend = new Resend(process.env.RESEND_API_KEY);
-    const { data, error } = await resend.emails.send({ from, to, subject, html });
+    const { data, error } = await resend.emails.send({ from, to, subject, html, tags: tags || [] });
     if (error) throw new Error('Resend send failed: ' + JSON.stringify(error));
     return { ok: true, id: data.id, provider: 'resend' };
   } else {
@@ -54,6 +54,53 @@ function readJsonBody(req, maxBytes) {
     });
     req.on('error', reject);
   });
+}
+
+function readRawBody(req, maxBytes) {
+  return new Promise((resolve, reject) => {
+    var chunks = [];
+    var total = 0;
+    req.on('data', function (c) {
+      total += c.length;
+      if (total > maxBytes) { reject(new Error('body_too_large')); req.destroy(); return; }
+      chunks.push(c);
+    });
+    req.on('end', function () { resolve(Buffer.concat(chunks).toString('utf8')); });
+    req.on('error', reject);
+  });
+}
+// ─── Resend webhooks (bounce/complaint) — Svix HMAC-подпись, суппресс-лист в ES ───
+function verifySvixSignature(rawBody, headers, secret) {
+  var svixId = headers['svix-id'];
+  var svixTs = headers['svix-timestamp'];
+  var svixSig = headers['svix-signature'];
+  if (!svixId || !svixTs || !svixSig || !secret) return false;
+  var secretBytes = Buffer.from(secret.replace(/^whsec_/, ''), 'base64');
+  var signedContent = svixId + '.' + svixTs + '.' + rawBody;
+  var expected = crypto.createHmac('sha256', secretBytes).update(signedContent).digest('base64');
+  var candidates = String(svixSig).split(' ');
+  for (var i = 0; i < candidates.length; i++) {
+    var parts = candidates[i].split(',');
+    if (parts.length !== 2) continue;
+    var sig = parts[1];
+    try {
+      var a = Buffer.from(expected, 'base64'), b = Buffer.from(sig, 'base64');
+      if (a.length === b.length && crypto.timingSafeEqual(a, b)) return true;
+    } catch (e) { /* skip malformed candidate */ }
+  }
+  return false;
+}
+const SUPPRESSION_INDEX = 'rf_console_suppressions';
+async function suppressEmail(email, reason) {
+  await es('/' + SUPPRESSION_INDEX + '/_doc/' + encodeURIComponent(String(email).toLowerCase()), {
+    email: String(email).toLowerCase(), reason: reason, ts: new Date().toISOString(),
+  });
+}
+async function isSuppressed(email) {
+  try {
+    const doc = await es('/' + SUPPRESSION_INDEX + '/_doc/' + encodeURIComponent(String(email).toLowerCase()));
+    return !doc._missing && !!doc.found;
+  } catch (e) { return false; }
 }
 
 async function es(path, body) {
@@ -321,7 +368,16 @@ async function resolveConsentedRecipients(tenant, cap) {
       out.push({ email: src.consent.email, subject: src.consent.subject || null });
     }
   }
-  return out;
+  if (!out.length) return out;
+  // bulk-фильтр суппресс-листа (bounce/complaint от Resend) — один запрос, не N
+  const suppQ = await es('/' + SUPPRESSION_INDEX + '/_search', {
+    size: out.length,
+    query: { terms: { 'email.keyword': out.map((r) => String(r.email).toLowerCase()) } },
+    _source: ['email'],
+  });
+  if (suppQ._missing) return out;
+  const suppressed = new Set((suppQ.hits && suppQ.hits.hits || []).map((h) => h._source.email));
+  return out.filter((r) => !suppressed.has(String(r.email).toLowerCase()));
 }
 
 // Реальный two-proportion z-test (та же формула, что packages/ab-testing.compare() в @cdp-us:
@@ -404,7 +460,7 @@ async function sendAutomationEmail(tenant, trigger, subject, email, subjectId, f
   const html = trigger === 'abandoned_cart' ? abandonedCartEmailHtml() : reactivationEmailHtml();
   const messageId = crypto.randomBytes(12).toString('hex');
   const tracked = injectTracking(html, tenant, messageId, baseUrl, { v: 'auto', c: trigger });
-  const result = await sendRealEmail({ to: email, from: from, subject: subject, html: tracked });
+  const result = await sendRealEmail({ to: email, from: from, subject: subject, html: tracked, tags: [{ name: 'tenant', value: tenant }, { name: 'messageId', value: messageId }] });
   await recordEmailEvent(tenant, 'email_sent', messageId, { to: email, subject: subject, provider: result.provider, trigger: trigger, automated: true });
   await recordEmailEvent(tenant, 'automation_fired', messageId, { trigger: trigger, subjectId: subjectId });
   return result;
@@ -666,6 +722,7 @@ const server = http.createServer(async (req, res) => {
           from: (sendPrincipal.fromName || sendPrincipal.tenant) + ' <' + sendPrincipal.fromEmail + '>',
           subject: subj,
           html: trackedHtml,
+          tags: [{ name: 'tenant', value: sendPrincipal.tenant }, { name: 'messageId', value: messageId }],
         });
         await recordEmailEvent(sendPrincipal.tenant, 'email_sent', messageId, { to: toAddr, subject: subj, provider: result.provider });
         return send(res, 200, Object.assign({ messageId: messageId }, result));
@@ -705,7 +762,7 @@ const server = http.createServer(async (req, res) => {
         var rMsgId = crypto.randomBytes(12).toString('hex');
         var rHtml = injectTracking(cHtml || '<p>(пусто)</p>', campPrincipal.tenant, rMsgId, cBaseUrl);
         try {
-          var rResult = await sendRealEmail({ to: rEmail, from: cFrom, subject: cSubj, html: rHtml });
+          var rResult = await sendRealEmail({ to: rEmail, from: cFrom, subject: cSubj, html: rHtml, tags: [{ name: 'tenant', value: campPrincipal.tenant }, { name: 'messageId', value: rMsgId }] });
           await recordEmailEvent(campPrincipal.tenant, 'email_sent', rMsgId, { to: rEmail, subject: cSubj, provider: rResult.provider, campaign: true });
           sent++;
         } catch (e) {
@@ -744,7 +801,7 @@ const server = http.createServer(async (req, res) => {
         var abMsgId = crypto.randomBytes(12).toString('hex');
         var abTrackedHtml = injectTracking(abHtml, abPrincipal.tenant, abMsgId, abBaseUrl, { v: variant, c: campaignId });
         try {
-          var abResult = await sendRealEmail({ to: abEmail, from: abFrom, subject: abSubj, html: abTrackedHtml });
+          var abResult = await sendRealEmail({ to: abEmail, from: abFrom, subject: abSubj, html: abTrackedHtml, tags: [{ name: 'tenant', value: abPrincipal.tenant }, { name: 'messageId', value: abMsgId }] });
           await recordEmailEvent(abPrincipal.tenant, 'email_sent', abMsgId, { to: abEmail, subject: abSubj, provider: abResult.provider, variant: variant, campaignId: campaignId });
           abSent[variant]++;
         } catch (e) {
@@ -822,6 +879,30 @@ const server = http.createServer(async (req, res) => {
         return send(res, 502, { error: 'automation_failed', message: String(e.message || e) });
       }
     }
+    if (p === '/webhooks/resend' && req.method === 'POST') {
+      var whRaw;
+      try { whRaw = await readRawBody(req, 512 * 1024); }
+      catch (e) { return send(res, 400, { error: String(e.message || e) }); }
+      var whSecret = process.env.RESEND_WEBHOOK_SECRET;
+      if (!whSecret || !verifySvixSignature(whRaw, req.headers, whSecret)) {
+        return send(res, 401, { error: 'invalid_signature' });
+      }
+      var whPayload;
+      try { whPayload = JSON.parse(whRaw); } catch (e) { return send(res, 400, { error: 'invalid_json' }); }
+      var whType = whPayload.type;
+      var whData = whPayload.data || {};
+      var whTags = whData.tags || [];
+      var whTenant = (whTags.filter(function (t) { return t.name === 'tenant'; })[0] || {}).value;
+      var whMsgId = (whTags.filter(function (t) { return t.name === 'messageId'; })[0] || {}).value;
+      var whTo = Array.isArray(whData.to) ? whData.to[0] : whData.to;
+      if (whType === 'email.bounced' || whType === 'email.complained') {
+        if (whTo) { try { await suppressEmail(whTo, whType); } catch (e) { /* не блокируем 200 ack из-за сбоя суппресс-записи */ } }
+        if (whTenant && TENANT_RE.test(whTenant) && whMsgId) {
+          await recordEmailEvent(whTenant, whType === 'email.bounced' ? 'email_bounced' : 'email_complained', whMsgId, { to: whTo });
+        }
+      }
+      return send(res, 200, { ok: true });
+    }
     if (p.indexOf('/t/o/') === 0) {
       var tokO = p.slice('/t/o/'.length).replace(/\.gif$/, '');
       var payloadO = trackVerify(tokO);
@@ -870,7 +951,7 @@ if (require.main === module && process.env.AUTOMATION_ENABLED === 'true') {
   }, autoIntervalMs);
 }
 
-module.exports = { mapSource, bucketLifecycle, aggregate, profilesList, listTenants, server, trackSign, trackVerify, injectTracking, resolveConsentedRecipients, zTestCompare, abtestStats, realSegmentCounts, usersMatchingQuery, checkDomainDeliverability, runAutomationPoller };
+module.exports = { mapSource, bucketLifecycle, aggregate, profilesList, listTenants, server, trackSign, trackVerify, injectTracking, resolveConsentedRecipients, zTestCompare, abtestStats, realSegmentCounts, usersMatchingQuery, checkDomainDeliverability, runAutomationPoller, verifySvixSignature, suppressEmail, isSuppressed };
 
 // ─── favicon: брендовая марка AXIOM — орбита/ядро (золото на ink, zero-dep inline SVG) ────
 const FAV = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32"><circle cx="16" cy="16" r="16" fill="#1c1510"/><circle cx="16" cy="16" r="10" fill="none" stroke="#c9a84c" stroke-width="1.5"/><g fill="#c9a84c"><circle cx="16" cy="16" r="3.2"/><circle cx="16" cy="6" r="2"/><circle cx="7.34" cy="21" r="2"/><circle cx="24.66" cy="21" r="2"/></g></svg>`;
