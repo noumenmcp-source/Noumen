@@ -425,6 +425,10 @@ services:
       ES_URL: ${ES_URL:-http://elasticsearch:9200}
       ES_USER: ${ES_USER:-elastic}
       ES_PASSWORD: ${ES_PASSWORD:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-ecoma <hello@ecoma.ru>}
+      TRACK_SECRET: ${TRACK_SECRET:?TRACK_SECRET must be set — used to sign open/click tracking tokens}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://rf.axiom.rent}
     ports:
       - "127.0.0.1:8121:8121"
     networks:

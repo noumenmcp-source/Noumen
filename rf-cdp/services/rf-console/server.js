@@ -4,7 +4,7 @@
  * (Сегодня/Обзор/Профили/Сегменты/Источники/Email/Автоматизации/Согласия/Сервисы),
  * server-side агрегация РФ-метрик из Elasticsearch (cdp_events_<site>,
  * cdp_consent_<site>). Источники РФ (ВК/Telegram/Яндекс/Rutube/маркетплейсы).
- * Zero-dep: Node http + global fetch. ES-креды в env, в браузер не попадают.
+ * Node http + global fetch + nodemailer/resend (реальная отправка email).
  */
 const http = require('http');
 const { URL } = require('url');
@@ -18,6 +18,44 @@ const ES_AUTH = 'Basic ' + Buffer.from(ES_USER + ':' + ES_PASSWORD).toString('ba
 const TENANT_RE = /^[a-z0-9_-]+$/i;
 const DAY = 86400000;
 
+// ─── реальная отправка email: SMTP_URL → nodemailer, иначе RESEND_API_KEY → resend, иначе fake (без сети) ───
+async function sendRealEmail({ to, from, subject, html }) {
+  if (process.env.SMTP_URL) {
+    const nodemailer = require('nodemailer');
+    const transporter = nodemailer.createTransport(process.env.SMTP_URL);
+    const info = await transporter.sendMail({ from, to, subject, html });
+    return { ok: true, id: info.messageId, provider: 'smtp' };
+  } else if (process.env.RESEND_API_KEY) {
+    const { Resend } = require('resend');
+    const resend = new Resend(process.env.RESEND_API_KEY);
+    const { data, error } = await resend.emails.send({ from, to, subject, html });
+    if (error) throw new Error('Resend send failed: ' + JSON.stringify(error));
+    return { ok: true, id: data.id, provider: 'resend' };
+  } else {
+    return { ok: true, id: 'fake-' + Date.now(), provider: 'fake', warning: 'No SMTP_URL or RESEND_API_KEY configured — email was NOT actually sent.' };
+  }
+}
+function isRealSendConfigured() {
+  return Boolean(process.env.SMTP_URL || process.env.RESEND_API_KEY);
+}
+function readJsonBody(req, maxBytes) {
+  return new Promise((resolve, reject) => {
+    var chunks = [];
+    var total = 0;
+    req.on('data', function (c) {
+      total += c.length;
+      if (total > maxBytes) { reject(new Error('body_too_large')); req.destroy(); return; }
+      chunks.push(c);
+    });
+    req.on('end', function () {
+      if (!chunks.length) return resolve({});
+      try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); }
+      catch (e) { reject(new Error('invalid_json')); }
+    });
+    req.on('error', reject);
+  });
+}
+
 async function es(path, body) {
   const res = await fetch(ES_URL + path, {
     method: body ? 'POST' : 'GET',
@@ -28,6 +66,55 @@ async function es(path, body) {
   if (res.status === 404) return { _missing: true };
   if (!res.ok) throw new Error('ES ' + res.status + ': ' + text.slice(0, 200));
   return text ? JSON.parse(text) : {};
+}
+
+// ─── трекинг открытий/кликов: подписанный opaque-токен (без БД, самодостаточный) ───
+const crypto = require('crypto');
+const TRACK_SECRET = process.env.TRACK_SECRET || (function () {
+  console.warn('TRACK_SECRET не задан — используется небезопасный дефолт, задайте TRACK_SECRET в проде');
+  return 'insecure-dev-track-secret';
+})();
+const GIF_1x1 = Buffer.from('R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==', 'base64');
+
+function trackSign(payloadObj) {
+  const json = JSON.stringify(payloadObj);
+  const b64 = Buffer.from(json, 'utf8').toString('base64url');
+  const sig = crypto.createHmac('sha256', TRACK_SECRET).update(b64).digest('base64url');
+  return b64 + '.' + sig;
+}
+function trackVerify(token) {
+  var parts = String(token || '').split('.');
+  if (parts.length !== 2) return null;
+  var expected = crypto.createHmac('sha256', TRACK_SECRET).update(parts[0]).digest('base64url');
+  var a = Buffer.from(expected), b = Buffer.from(parts[1]);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  try { return JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8')); }
+  catch (e) { return null; }
+}
+async function recordEmailEvent(tenant, eventType, messageId, extra) {
+  if (!TENANT_RE.test(tenant)) return;
+  var doc = Object.assign({
+    event: eventType,
+    anonymous_id: 'email:' + messageId,
+    ts: new Date().toISOString(),
+    properties: Object.assign({ messageId: messageId, source: 'internal_pixel_or_click' }, extra || {}),
+  });
+  try { await es('/cdp_events_' + tenant + '/_doc', doc); }
+  catch (e) { console.warn('recordEmailEvent failed:', e.message || e); }
+}
+// Вставляет пиксель открытия + оборачивает <a href> в подписанные click-редиректы.
+// baseUrl — публичный origin консоли (для абсолютных ссылок в письме).
+function injectTracking(html, tenant, messageId, baseUrl) {
+  var out = String(html || '');
+  out = out.replace(/href="(https?:\/\/[^"]+)"/g, function (m, url) {
+    var tok = trackSign({ t: tenant, m: messageId, u: url });
+    return 'href="' + baseUrl + '/t/c/' + tok + '"';
+  });
+  var pixelTok = trackSign({ t: tenant, m: messageId });
+  var pixel = '<img src="' + baseUrl + '/t/o/' + pixelTok + '.gif" width="1" height="1" style="display:none" alt="">';
+  if (/<\/body>/i.test(out)) out = out.replace(/<\/body>/i, pixel + '</body>');
+  else out = out + pixel;
+  return out;
 }
 
 async function listTenants() {
@@ -200,6 +287,50 @@ const server = http.createServer(async (req, res) => {
     const tenant = locked || u.searchParams.get('tenant');
     if (p === '/api/overview') { if (!tenant) return send(res, 400, { error: 'tenant required' }); return send(res, 200, await aggregate(tenant, Date.now())); }
     if (p === '/api/profiles') { if (!tenant) return send(res, 400, { error: 'tenant required' }); return send(res, 200, await profilesList(tenant, parseInt(u.searchParams.get('limit') || '200', 10))); }
+    if (p === '/api/email/send' && req.method === 'POST') {
+      var body;
+      try { body = await readJsonBody(req, 2 * 1024 * 1024); }
+      catch (e) { return send(res, 400, { error: String(e.message || e) }); }
+      var toAddr = typeof body.to === 'string' ? body.to.trim() : '';
+      var subj = typeof body.subject === 'string' ? body.subject : '';
+      var html = typeof body.html === 'string' ? body.html : '';
+      var sendTenant = (typeof body.tenant === 'string' && TENANT_RE.test(body.tenant)) ? body.tenant : null;
+      if (!toAddr || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(toAddr)) return send(res, 400, { error: 'invalid_to' });
+      if (!subj) return send(res, 400, { error: 'subject_required' });
+      var messageId = crypto.randomBytes(12).toString('hex');
+      var trackedHtml = html || '<p>(пусто)</p>';
+      if (sendTenant) {
+        var baseUrl = process.env.PUBLIC_BASE_URL || 'https://rf.axiom.rent';
+        trackedHtml = injectTracking(trackedHtml, sendTenant, messageId, baseUrl);
+      }
+      try {
+        var result = await sendRealEmail({
+          to: toAddr,
+          from: process.env.EMAIL_FROM || 'ecoma <hello@ecoma.ru>',
+          subject: subj,
+          html: trackedHtml,
+        });
+        if (sendTenant) await recordEmailEvent(sendTenant, 'email_sent', messageId, { to: toAddr, subject: subj, provider: result.provider });
+        return send(res, 200, Object.assign({ messageId: messageId }, result));
+      } catch (e) {
+        return send(res, 502, { error: 'send_failed', message: String(e.message || e) });
+      }
+    }
+    if (p.indexOf('/t/o/') === 0) {
+      var tokO = p.slice('/t/o/'.length).replace(/\.gif$/, '');
+      var payloadO = trackVerify(tokO);
+      if (payloadO && payloadO.t && payloadO.m) recordEmailEvent(payloadO.t, 'email_opened', payloadO.m, {});
+      res.writeHead(200, { 'content-type': 'image/gif', 'cache-control': 'no-store' });
+      return res.end(GIF_1x1);
+    }
+    if (p.indexOf('/t/c/') === 0) {
+      var tokC = p.slice('/t/c/'.length);
+      var payloadC = trackVerify(tokC);
+      if (!payloadC || !payloadC.u) return send(res, 404, { error: 'invalid_link' });
+      if (payloadC.t && payloadC.m) recordEmailEvent(payloadC.t, 'email_clicked', payloadC.m, { url: payloadC.u });
+      res.writeHead(302, { location: payloadC.u, 'cache-control': 'no-store' });
+      return res.end();
+    }
     return send(res, 404, { error: 'not found' });
   } catch (e) {
     return send(res, 500, { error: String(e.message || e) });
@@ -207,7 +338,7 @@ const server = http.createServer(async (req, res) => {
 });
 if (require.main === module) server.listen(PORT, '0.0.0.0', () => console.log('rf-console on :' + PORT + ' es=' + ES_URL));
 
-module.exports = { mapSource, bucketLifecycle, aggregate, profilesList, listTenants, server };
+module.exports = { mapSource, bucketLifecycle, aggregate, profilesList, listTenants, server, trackSign, trackVerify, injectTracking };
 
 // ─── favicon: брендовая марка AXIOM — орбита/ядро (золото на ink, zero-dep inline SVG) ────
 const FAV = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32"><circle cx="16" cy="16" r="16" fill="#1c1510"/><circle cx="16" cy="16" r="10" fill="none" stroke="#c9a84c" stroke-width="1.5"/><g fill="#c9a84c"><circle cx="16" cy="16" r="3.2"/><circle cx="16" cy="6" r="2"/><circle cx="7.34" cy="21" r="2"/><circle cx="24.66" cy="21" r="2"/></g></svg>`;
@@ -1123,13 +1254,39 @@ window.emInsertVar = function (v) {
     inp.focus();
   }
 };
-window.emFlash = function (msg) {
+window.emFlash = function (msg, ms) {
   var el = document.getElementById('em-flash');
   if (!el) return;
   el.textContent = msg;
   el.style.opacity = '1';
   clearTimeout(window._emFlashT);
-  window._emFlashT = setTimeout(function () { el.style.opacity = '0'; }, 2200);
+  window._emFlashT = setTimeout(function () { el.style.opacity = '0'; }, ms || 2200);
+};
+window.emSendTest = async function () {
+  var to = window.prompt('Отправить тест на адрес:', '');
+  if (!to) return;
+  emFlash('Отправляем…', 15000);
+  try {
+    var res = await fetch('/api/email/send', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        tenant: TENANT,
+        to: to,
+        subject: window.builderSubject || '(без темы)',
+        html: em_builder_canvasHtml(),
+      }),
+    });
+    var data = await res.json().catch(function () { return {}; });
+    if (!res.ok) { emFlash('Ошибка: ' + (data.message || data.error || res.status), 4000); return; }
+    if (data.provider === 'fake') {
+      emFlash('НЕ отправлено: SMTP_URL/RESEND_API_KEY не настроены на сервере', 5000);
+    } else {
+      emFlash('Отправлено на ' + to + ' через ' + data.provider + ' (id ' + data.id + ')', 4000);
+    }
+  } catch (e) {
+    emFlash('Сбой сети: ' + (e && e.message || e), 4000);
+  }
 };
 /* алиасы для согласованного контракта renderCanvas/renderStack */
 function renderCanvas(){ return em_builder_canvasHtml(); }
@@ -1199,7 +1356,7 @@ EMAIL_TABS.builder = function () {
   var actions =
     '<div class="em-actions">' +
       '<button class="em-act em-act-primary" onclick="emFlash(\\'Шаблон сохранён в библиотеку (.liquid)\\')">Сохранить шаблон</button>' +
-      '<button class="em-act" onclick="emFlash(\\'Тест отправлен на hello@ecoma.ru · проверьте инбокс\\')">Тест-отправка</button>' +
+      '<button class="em-act" onclick="emSendTest()">Тест-отправка</button>' +
       '<button class="em-act" onclick="emFlash(\\'Экспортирован liquid: ' + blkCount + ' блоков\\')">Экспорт liquid</button>' +
       '<span id="em-flash" class="em-flash"></span>' +
     '</div>';

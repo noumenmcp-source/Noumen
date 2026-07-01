@@ -2,10 +2,14 @@
   "name": "rf-console",
   "version": "1.0.0",
   "private": true,
-  "description": "RF analytics console (AXIOM RU) — server-side ES aggregation, zero deps",
+  "description": "RF analytics console (AXIOM RU) — server-side ES aggregation + real email send (nodemailer/resend)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "test": "node --test"
+  },
+  "dependencies": {
+    "nodemailer": "^6.9.16",
+    "resend": "^4.0.1"
   }
 }

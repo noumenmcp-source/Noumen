@@ -1,10 +1,11 @@
-# RF analytics console (AXIOM RU) — plain Node, no runtime deps.
+# RF analytics console (AXIOM RU) — plain Node + nodemailer/resend for real email send.
 # Server-side aggregates RF metrics from Elasticsearch. Health: GET /health.
 FROM node:22-alpine
 ENV NODE_ENV=production \
     PORT=8121
 WORKDIR /app
 COPY package.json ./
+RUN npm install --omit=dev --no-audit --no-fund
 COPY server.js ./
 USER node
 EXPOSE 8121
