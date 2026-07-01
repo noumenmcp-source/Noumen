@@ -276,6 +276,92 @@ async function checkDomainDeliverability(domain, dkimSelector) {
   return out;
 }
 
+// ─── Автопилот-триггеры: ES-нативный поллер, без Postgres/Redis/pg-boss.
+// 2 честных триггера (не все ~33 из деки — это отдельный долгий бэклог):
+//   abandoned_cart — add_to_cart 3-24ч назад, без последующего order_completed
+//   reactivation   — профиль только что вошёл в "Спящие" (7-30 дней без визита)
+// Идемпотентность — маркер-событие automation_fired в том же ES-индексе, с окном,
+// совпадающим с окном кандидатов (после истечения окна кандидат и маркер оба "стареют"
+// синхронно — нет риска бесконечного повторного триггера на статичных данных).
+function abandonedCartEmailHtml() {
+  return '<!doctype html><html><body style="margin:0;padding:0;background:#f5f0e8">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f0e8"><tr><td align="center" style="padding:24px 12px">' +
+    '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#fffdf9;border-radius:12px;overflow:hidden">' +
+    '<tr><td style="padding:28px;font-family:Arial,Helvetica,sans-serif">' +
+    '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:22px;font-weight:700;color:#1c1510;margin-bottom:12px">Вы кое-что забыли в корзине</div>' +
+    '<p style="font-size:14px;line-height:1.6;color:#1c1510">Ваши товары всё ещё ждут вас — оформите заказ, пока они в наличии.</p>' +
+    '<div style="text-align:center;margin-top:20px"><a href="https://ecoma.ru/cart" style="display:inline-block;background:#c4683a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px">Вернуться в корзину</a></div>' +
+    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">Письмо отправлено на основании вашего согласия на получение рекламных рассылок (ст. 18 ФЗ «О рекламе», ст. 9 152-ФЗ). <a href="{{unsubscribe_url}}" style="color:#7a6e60">Отписаться</a></div>' +
+    '</td></tr></table></td></tr></table></body></html>';
+}
+function reactivationEmailHtml() {
+  return '<!doctype html><html><body style="margin:0;padding:0;background:#f5f0e8">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f0e8"><tr><td align="center" style="padding:24px 12px">' +
+    '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#fffdf9;border-radius:12px;overflow:hidden">' +
+    '<tr><td style="padding:28px;font-family:Arial,Helvetica,sans-serif">' +
+    '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:22px;font-weight:700;color:#1c1510;margin-bottom:12px">Давно вас не видели</div>' +
+    '<p style="font-size:14px;line-height:1.6;color:#1c1510">Возвращайтесь за эко-новинками — собрали то, что стоит вашего внимания.</p>' +
+    '<div style="text-align:center;margin-top:20px"><a href="https://ecoma.ru/catalog" style="display:inline-block;background:#c4683a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px">Смотреть каталог</a></div>' +
+    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">Письмо отправлено на основании вашего согласия на получение рекламных рассылок (ст. 18 ФЗ «О рекламе», ст. 9 152-ФЗ). <a href="{{unsubscribe_url}}" style="color:#7a6e60">Отписаться</a></div>' +
+    '</td></tr></table></td></tr></table></body></html>';
+}
+async function sendAutomationEmail(tenant, trigger, subject, email, subjectId) {
+  const baseUrl = process.env.PUBLIC_BASE_URL || 'https://rf.axiom.rent';
+  const from = process.env.EMAIL_FROM || 'ecoma <hello@ecoma.ru>';
+  const html = trigger === 'abandoned_cart' ? abandonedCartEmailHtml() : reactivationEmailHtml();
+  const messageId = crypto.randomBytes(12).toString('hex');
+  const tracked = injectTracking(html, tenant, messageId, baseUrl, { v: 'auto', c: trigger });
+  const result = await sendRealEmail({ to: email, from: from, subject: subject, html: tracked });
+  await recordEmailEvent(tenant, 'email_sent', messageId, { to: email, subject: subject, provider: result.provider, trigger: trigger, automated: true });
+  await recordEmailEvent(tenant, 'automation_fired', messageId, { trigger: trigger, subjectId: subjectId });
+  return result;
+}
+async function runAutomationPoller(tenant) {
+  if (!TENANT_RE.test(tenant)) throw new Error('bad tenant');
+  const consented = await resolveConsentedRecipients(tenant, 5000);
+  const consentedMap = new Map(consented.filter((c) => c.subject).map((c) => [c.subject, c.email]));
+  const out = { abandoned_cart: { checked: 0, sent: 0, failed: 0 }, reactivation: { checked: 0, sent: 0, failed: 0 } };
+
+  // --- abandoned_cart ---
+  const [cartUsers, orderedUsers24h, firedCart] = await Promise.all([
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'add_to_cart' } }, { range: { ts: { gte: 'now-24h', lte: 'now-3h' } } }] } }),
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'order_completed' } }, { range: { ts: { gte: 'now-24h' } } }] } }),
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'automation_fired' } }, { term: { 'properties.trigger.keyword': 'abandoned_cart' } }, { range: { ts: { gte: 'now-24h' } } }] } }),
+  ]);
+  for (const userId of cartUsers) {
+    out.abandoned_cart.checked++;
+    if (orderedUsers24h.has(userId) || firedCart.has(userId)) continue;
+    const email = consentedMap.get(userId);
+    if (!email) continue;
+    try {
+      await sendAutomationEmail(tenant, 'abandoned_cart', 'Вы кое-что забыли в корзине', email, userId);
+      out.abandoned_cart.sent++;
+    } catch (e) { out.abandoned_cart.failed++; }
+  }
+
+  // --- reactivation: профили в "Спящие" (7-30 дней), без automation_fired(reactivation) за 30д ---
+  const [profiles, firedReactivation] = await Promise.all([
+    profilesList(tenant, 500),
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'automation_fired' } }, { term: { 'properties.trigger.keyword': 'reactivation' } }, { range: { ts: { gte: 'now-30d' } } }] } }),
+  ]);
+  const nowMs = Date.now();
+  for (const p of profiles) {
+    const ageLast = p.lastSeen ? nowMs - Date.parse(p.lastSeen) : Infinity;
+    const isDormant = ageLast > 7 * DAY && ageLast <= 30 * DAY;
+    if (!isDormant) continue;
+    out.reactivation.checked++;
+    const userId = p.userId;
+    if (!userId || firedReactivation.has(userId)) continue;
+    const email = consentedMap.get(userId);
+    if (!email) continue;
+    try {
+      await sendAutomationEmail(tenant, 'reactivation', 'Давно вас не видели — возвращайтесь за эко-новинками', email, userId);
+      out.reactivation.sent++;
+    } catch (e) { out.reactivation.failed++; }
+  }
+  return out;
+}
+
 async function usersMatchingQuery(tenant, query) {
   const q = await es('/cdp_events_' + tenant + '/_search', {
     size: 0,
@@ -571,6 +657,19 @@ const server = http.createServer(async (req, res) => {
         return send(res, 502, { error: 'check_failed', message: String(e.message || e) });
       }
     }
+    if (p === '/api/automation/run' && req.method === 'POST') {
+      var autoBody;
+      try { autoBody = await readJsonBody(req, 8 * 1024); }
+      catch (e) { return send(res, 400, { error: String(e.message || e) }); }
+      var autoTenant = (typeof autoBody.tenant === 'string' && TENANT_RE.test(autoBody.tenant)) ? autoBody.tenant : null;
+      if (!autoTenant) return send(res, 400, { error: 'tenant_required' });
+      try {
+        var autoResult = await runAutomationPoller(autoTenant);
+        return send(res, 200, { ok: true, tenant: autoTenant, results: autoResult });
+      } catch (e) {
+        return send(res, 502, { error: 'automation_failed', message: String(e.message || e) });
+      }
+    }
     if (p.indexOf('/t/o/') === 0) {
       var tokO = p.slice('/t/o/'.length).replace(/\.gif$/, '');
       var payloadO = trackVerify(tokO);
@@ -603,7 +702,23 @@ const server = http.createServer(async (req, res) => {
 });
 if (require.main === module) server.listen(PORT, '0.0.0.0', () => console.log('rf-console on :' + PORT + ' es=' + ES_URL));
 
-module.exports = { mapSource, bucketLifecycle, aggregate, profilesList, listTenants, server, trackSign, trackVerify, injectTracking, resolveConsentedRecipients, zTestCompare, abtestStats, realSegmentCounts, usersMatchingQuery, checkDomainDeliverability };
+// Опциональный периодический автопилот — выкл по умолчанию, включается явно
+// (AUTOMATION_ENABLED=true), список тенантов через AUTOMATION_TENANTS="ecoma,other".
+if (require.main === module && process.env.AUTOMATION_ENABLED === 'true') {
+  const autoTenants = (process.env.AUTOMATION_TENANTS || 'ecoma').split(',').map((t) => t.trim()).filter(Boolean);
+  const autoIntervalMs = Math.max(60000, parseInt(process.env.AUTOMATION_INTERVAL_MS, 10) || 15 * 60 * 1000);
+  console.log('automation poller enabled: tenants=' + autoTenants.join(',') + ' interval=' + autoIntervalMs + 'ms');
+  setInterval(() => {
+    for (const t of autoTenants) {
+      runAutomationPoller(t).then(
+        (r) => console.log('automation poller[' + t + ']:', JSON.stringify(r)),
+        (e) => console.warn('automation poller[' + t + '] failed:', e.message || e),
+      );
+    }
+  }, autoIntervalMs);
+}
+
+module.exports = { mapSource, bucketLifecycle, aggregate, profilesList, listTenants, server, trackSign, trackVerify, injectTracking, resolveConsentedRecipients, zTestCompare, abtestStats, realSegmentCounts, usersMatchingQuery, checkDomainDeliverability, runAutomationPoller };
 
 // ─── favicon: брендовая марка AXIOM — орбита/ядро (золото на ink, zero-dep inline SVG) ────
 const FAV = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32"><circle cx="16" cy="16" r="16" fill="#1c1510"/><circle cx="16" cy="16" r="10" fill="none" stroke="#c9a84c" stroke-width="1.5"/><g fill="#c9a84c"><circle cx="16" cy="16" r="3.2"/><circle cx="16" cy="6" r="2"/><circle cx="7.34" cy="21" r="2"/><circle cx="24.66" cy="21" r="2"/></g></svg>`;
