@@ -3145,7 +3145,7 @@ const VIEWS={
       {nm:'Wake the dormant',big:nf(lc('Dormant')),c:'visited 7–30 days ago → re-engage',tone:'gold',cta:'campaign'},
       {nm:'Convert the new',big:nf(lc('New')),c:'first visit ≤7 days → onboarding',tone:'sage',cta:'flow'},
       {nm:'Retain the active',big:nf(lc('Active')),c:'bought recently → upsell',tone:'sage',cta:'segment'},
-      {nm:'Top source',big:(OV.sources[0]||{}).label||'—',c:'your own site beats the marketplaces',tone:'rust',cta:'attribution'}];
+      {nm:'Top source',big:(OV.sources[0]||{}).label||'—',c:(['Amazon','Marketplace'].indexOf((OV.sources[0]||{}).label)>=0?'real traffic, but they own the customer':'ahead of Amazon and Walmart'),tone:'rust',cta:'attribution'}];
     return '<div class="note">Rules match each segment to an action. Axiom drafts the copy. Ranked by volume × value below.</div><div class="grid k3">'+
       cards.map(c=>'<div class="card act"><div><div class="nm">'+esc(c.nm)+'</div><div class="big" style="color:'+TONE[c.tone]+'">'+esc(c.big)+'</div></div><div><div class="c">'+esc(c.c)+'</div><span class="cta">'+esc(c.cta)+' →</span></div></div>').join('')+'</div>';},
   overview(){const k=OV.kpi,o=OV.orders;
