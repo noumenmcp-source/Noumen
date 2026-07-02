@@ -1925,10 +1925,8 @@ EMAIL_TABS.campaigns = function(){
   var reachPct = profiles>0 ? Math.round(reachable/profiles*100) : 0;
   var h = '';
   h += '<div class="note">'
-     + '<b class="serif">Consent gate (CAN-SPAM/CCPA) - fail-closed.</b> '
-     + 'Campaigns only go to profiles with verified <code>marketing_email</code> consent. '
-     + 'Reachable: <b>'+nf(reachable)+'</b> of '+nf(profiles)+' profiles ('+reachPct+'%). '
-     + 'Profiles without verified consent are excluded from recipients automatically; every email footer carries an unsubscribe link and sender identification (CAN-SPAM).'
+     + '<b class="serif">'+nf(reachable)+' of '+nf(profiles)+' profiles ('+reachPct+'%)</b> can receive campaigns right now — verified <code>marketing_email</code> consent required. '
+     + 'No verified consent, no send. Every email includes an unsubscribe link and sender ID (CAN-SPAM).'
      + '</div>';
   h += em_liveNote(live);
   h += '<div class="grid four" style="margin-top:14px">';
@@ -1939,7 +1937,7 @@ EMAIL_TABS.campaigns = function(){
   h += '</div>';
   var inner = '';
   if(!live.loading && !live.error && rows.length===0){
-    inner = '<div class="note muted">No campaigns sent yet - there is no real data. Send a campaign from the Builder tab or start an A/B test.</div>';
+    inner = '<div class="note muted">No campaigns sent yet. Send one from the Builder tab, or start an A/B test.</div>';
   } else {
     inner += '<div class="tw"><table>';
     inner += '<tr>'
@@ -2355,8 +2353,8 @@ EMAIL_TABS.builder = function () {
   }
   var blkCount = window.builderBlocks.length;
   var head =
-    '<div class="note">Build your email by clicking: block palette on the left, live preview on the right. ' +
-    'Templates and variables below. Before sending, AXIOM checks consent (fail-closed) — we only email subscribers with a verified <b>marketing_email</b>.</div>' +
+    '<div class="note">Add blocks from the palette, then watch the live preview update. ' +
+    'Presets and merge tags are below. Sends check consent first — verified <b>marketing_email</b> only.</div>' +
     '<div class="grid k3" style="margin-bottom:16px">' +
       tile('Email-reachable', nf(reach), nf(econs) + ' with consent (fail-closed)', 'rust') +
       tile('Blocks in email', String(blkCount), 'visual builder', 'gold') +
@@ -2610,45 +2608,45 @@ function em_audiences_segments(){
   return [
     real ?
       {key:'active',name:'Active buyers',tone:'sage',size:real.active,rate:1,real:true,
-        hint:'Bought in the last 30 days and gave marketing_email consent — real intersected count from Elasticsearch.',
+        hint:'Bought in the last 30 days and consented to email.',
         rules:[{f:'event',op:'=',v:'order_completed'},{f:'recency',op:'<',v:'30 days'},{f:'marketing_email',op:'=',v:'verified'}]} :
       {key:'active',name:'Active buyers',tone:'sage',size:lc('Active'),rate:Math.min(0.97,base*1.18),real:false,
-        hint:'Bought recently — best reach and response. Upsell, new arrivals.',
+        hint:'Bought in the last 30 days.',
         rules:[{f:'event',op:'=',v:'order_completed'},{f:'recency',op:'<',v:'30 days'},{f:'marketing_email',op:'=',v:'verified'}]},
     real ?
       {key:'sleep',name:'Dormant 7–30 days',tone:'rust',size:real.sleep,rate:1,real:true,
-        hint:'Visited before, went quiet 7-30 days, gave consent — real intersected count from Elasticsearch.',
+        hint:'Active before, no visit in the last 7–30 days.',
         rules:[{f:'recency',op:'7–30 d',v:'no visit'},{f:'marketing_email',op:'=',v:'verified'}]} :
       {key:'sleep',name:'Dormant 30–60 days',tone:'rust',size:Math.round(lc('Dormant')*0.62),rate:Math.min(0.95,base*0.92),real:false,
-        hint:'Engaged once, then went quiet. Win back with a discount or a curated pick.',
+        hint:'Active before, no visit in the last 30–60 days.',
         rules:[{f:'recency',op:'30–60 d',v:'no purchase'},{f:'event',op:'had',v:'add_to_cart'},{f:'marketing_email',op:'=',v:'verified'}]},
     real ?
       {key:'cart',name:'Abandoned carts',tone:'gold',size:real.cart,rate:1,real:true,
-        hint:'Added to cart in the last 72h, never checked out, gave consent — real intersected count from Elasticsearch.',
+        hint:'Added to cart in the last 72 hours, no checkout yet.',
         rules:[{f:'event',op:'=',v:'add_to_cart'},{f:'NOT event',op:'≠',v:'order_completed'},{f:'recency',op:'<',v:'72 hours'},{f:'marketing_email',op:'=',v:'verified'}]} :
       {key:'cart',name:'Abandoned carts',tone:'gold',size:Math.round(OV.orders.count*0.40),rate:Math.min(0.96,base*1.05),real:false,
-        hint:'Added to cart in last 72h, never checked out. Trigger nudge.',
+        hint:'Added to cart in the last 72 hours, no checkout yet.',
         rules:[{f:'event',op:'=',v:'add_to_cart'},{f:'NOT event',op:'≠',v:'order_completed'},{f:'recency',op:'<',v:'72 hours'},{f:'marketing_email',op:'=',v:'verified'}]},
     real ?
       {key:'vip',name:'High AOV · VIP',tone:'gold',size:real.vip,rate:1,real:true,
-        hint:'Orders ≥3 AND total > '+rub(aov*2)+', gave consent — real per-user aggregation from Elasticsearch.',
+        hint:'3+ orders and total spend over '+rub(aov*2)+'.',
         rules:[{f:'order total',op:'>',v:rub(aov*2)},{f:'orders',op:'≥',v:'3'},{f:'marketing_email',op:'=',v:'verified'}]} :
       {key:'vip',name:'High AOV · VIP',tone:'gold',size:Math.round(lc('Active')*0.14),rate:Math.min(0.98,base*1.22),real:false,
-        hint:'Above-average order value ('+rub(aov)+'×2). Members-only offers, early access.',
+        hint:'Order total over '+rub(aov*2)+', above-average spend.',
         rules:[{f:'order total',op:'>',v:rub(aov*2)},{f:'orders',op:'≥',v:'3'},{f:'marketing_email',op:'=',v:'verified'}]},
     real ?
       {key:'noopen',name:'Subscribed, never opened',tone:'muted',size:real.noopen,rate:0.0,real:true,
-        hint:'5+ sends to a specific recipient, none opened, consent on file — real count. We do NOT send by email.',
+        hint:'Consented to email, hasn’t opened the last 5 sends.',
         rules:[{f:'marketing_email',op:'=',v:'verified'},{f:'sent',op:'≥',v:'5'},{f:'opened',op:'=',v:'0'},{f:'action',op:'→',v:'re-permission'}]} :
       {key:'noopen',name:'Subscribed, never opened',tone:'muted',size:Math.round((lc('Active')+lc('Dormant'))*0.21),rate:0.0,real:false,
-        hint:'Consent on file, but 5+ emails with no open → re-permission or TikTok. We do NOT send by email.',
+        hint:'Consented to email, hasn’t opened the last 5 sends.',
         rules:[{f:'marketing_email',op:'=',v:'verified'},{f:'open_rate',op:'=',v:'0 over 5 emails'},{f:'action',op:'→',v:'re-permission'}]},
     real ?
-      {key:'mpback',name:'Won back from Amazon/Walmart',tone:'rust',size:real.mpback,rate:1,real:true,
-        hint:'Purchase history on marketplaces, gave consent — real intersected count from Elasticsearch.',
+      {key:'mpback',name:'Marketplace shoppers',tone:'rust',size:real.mpback,rate:1,real:true,
+        hint:'Has order history on Amazon or Walmart.',
         rules:[{f:'source',op:'∈',v:'Amazon, Walmart'},{f:'event',op:'had',v:'order_completed'},{f:'marketing_email',op:'=',v:'verified'}]} :
-      {key:'mpback',name:'Won back from Amazon/Walmart',tone:'rust',size:lc('Lost'),rate:Math.min(0.90,base*0.78),real:false,
-        hint:'Purchase history on marketplaces, moved to our own site. Loyalty transfer, direct channel.',
+      {key:'mpback',name:'Marketplace shoppers',tone:'rust',size:lc('Lost'),rate:Math.min(0.90,base*0.78),real:false,
+        hint:'Has order history on Amazon or Walmart.',
         rules:[{f:'source',op:'∈',v:'Amazon, Walmart'},{f:'event',op:'had',v:'order_completed'},{f:'marketing_email',op:'=',v:'verified'}]}
   ];
 }
@@ -2750,8 +2748,8 @@ EMAIL_TABS.audiences=function(){
   var sendable=segs.filter(function(x){return x.rate>0;}).length;
   var cards=segs.map(em_audiences_card).join('');
   return ''+
-    '<div class="note">Dynamic recipient segments: conditions are applied to live profiles, and size and reach are computed on the fly. '+
-      '<b>Fail-closed CCPA/CPRA</b> — without <b>marketing_email = verified</b>, a profile never enters an email send, even if it matches the segment.</div>'+
+    '<div class="note">Segments update automatically as profiles change. '+
+      '<b>Fail-closed:</b> a profile is never emailed without verified <b>marketing_email</b>, even if it matches every rule.</div>'+
     '<div class="grid k4" style="margin-bottom:16px">'+
       tile('Segments',String(segs.length),sendable+' email-sendable','ink')+
       tile('In segments',nf(totalSize),'profiles covered by rules','gold')+
@@ -2869,10 +2867,9 @@ EMAIL_TABS.abtest = function(){
     '</table></div>';
   out += chart('A/B test registry', running+' collecting · '+done+' done · real two-proportion z-test', table);
   out += '<div class="note em-ab-note">'+
-    '<b>How to read this.</b> A winner is only declared at significance <b>|z|≥1.96</b> '+
-    '(≈95%, p&lt;0.05) and a sample of 20+ sends on each side. Metric is opens; clicks and conversion '+
-    'per variant are not tracked yet, so they are not shown. Sends of either variant go only to '+
-    'verified <span class="mono">marketing_email</span> (fail-closed, CAN-SPAM/CCPA).'+
+    '<b>How to read this.</b> We call a winner at <b>|z|≥1.96</b> '+
+    '(~95% confidence) with 20+ sends per side. Metric is opens — clicks and revenue aren’t tracked per variant yet. '+
+    'Both variants go only to verified <span class="mono">marketing_email</span> subscribers.'+
   '</div>';
   return out;
 };
@@ -2915,7 +2912,7 @@ EMAIL_TABS.deliverability = function(){
     var tone=done?TONE.sage:(i===warm.length-2?TONE.gold:TONE.muted);
     return '<div class="em-warm-step"><div class="em-warm-bar"><div class="em-warm-fill" style="height:'+w.pct+'%;background:'+tone+'"></div></div><div class="em-warm-d">'+esc(w.d)+'</div><div class="em-warm-cap">'+esc(w.cap)+'</div></div>';
   }).join('')+'</div>';
-  var warmBlock=chart('Domain warm-up','Gradual volume ramp — reputation built over 4 weeks','<div class="note">Warm-up complete: reached the target of '+nf(24000)+' emails/day with no inbox-rate drop. Further growth in steps of ≤30%/week.</div>'+warmBars);
+  var warmBlock=chart('Domain warm-up','Gradual volume ramp — reputation built over 4 weeks','<div class="note">Warm-up complete — we’re sending '+nf(24000)+' emails/day with no drop in inbox placement. From here, volume grows in steps of 30% a week or less.</div>'+warmBars);
   var prov=[
     {p:'Gmail',share:38,inbox:95,promo:4,spam:1},
     {p:'Outlook',share:34,inbox:93,promo:6,spam:1},
@@ -2958,7 +2955,7 @@ EMAIL_TABS.deliverability = function(){
     '<div class="grid two" style="margin-top:16px">'+repBlock+warmBlock+'</div>'+
     '<div style="margin-top:16px">'+placementBlock+'</div>'+
     '<div style="margin-top:16px">'+issuesBlock+'</div>'+
-    '<div class="note" style="margin-top:16px">CCPA/CPRA · CAN-SPAM: every email carries a mandatory unsubscribe link (one-click List-Unsubscribe) and sender identification (CAN-SPAM) for Ecoma Inc. We send only to verified marketing_email (fail-closed).</div>';
+    '<div class="note" style="margin-top:16px">Every email includes a one-click unsubscribe link and sender ID for Ecoma Inc. (CAN-SPAM). Sends go only to verified marketing_email subscribers.</div>';
 };
 
 /* ────────────────────────────────────────────────────────────────────────
@@ -3225,7 +3222,7 @@ function SEG_AUDIENCE(){
     '</div>'+
     '<div class="sec"><p class="label">Who needs what</p><h2 class="serif" style="font-size:18px;margin:2px 0 0">Segment → ready flow</h2></div>'+
     '<div class="grid two">'+cards+'</div>'+
-    '<div class="note" style="margin-top:16px">Segments are live: a profile shifts recency and moves to another group. Launch an action in the Flows tab — it runs only on those who consented (CCPA/CPRA gate).</div>';
+    '<div class="note" style="margin-top:16px">Segments update automatically as visit recency changes. Start a flow from the Flows tab — it only reaches subscribers who’ve consented.</div>';
 }
 function auto_relTime(iso){
   if(!iso) return 'never fired yet';
@@ -3253,7 +3250,7 @@ function auto_flowsBody(flows){
   var activeCount=flows.filter(function(x){return x.active;}).length;
   var rows=auto_flowsRows(flows);
   return '<div class="grid k3" style="margin-bottom:16px">'+tile('Flows active',String(activeCount)+' / '+flows.length,'real autopilot triggers','sage')+tile('In flight (30d)',nf(inflight),'autopilot fires','gold')+tile('CCPA gate','ON','verified marketing_email fail-closed','rust')+'</div>'+
-    '<div class="note">Flows are real autopilot triggers (ES poller), not a schedule. Channel is email only (social/SMS are not wired to the autopilot yet — honestly not shown). Conversion is an order by the same user_id within 7 days of the fire.</div>'+
+    '<div class="note">These flows run on live triggers, not a schedule. Email only for now — social and SMS aren’t connected. Conversion counts an order within 7 days of the trigger.</div>'+
     chart('Autopilot triggers','Real data · '+(inflight?('over 30 days, '+nf(inflight)+' fires'):'no fires yet in the last 30 days'),'<div class="tw"><table><thead><tr><th>Flow</th><th>Channel</th><th>In flight</th><th>Conv.</th><th>Revenue</th><th>Status</th><th>Last run</th></tr></thead><tbody>'+rows+'</tbody></table></div>');
 }
 function SEG_FLOWS(){
@@ -3334,7 +3331,7 @@ const VIEWS={
       {nm:'Convert the new',big:nf(lc('New')),c:'first visit ≤7 days → onboarding',tone:'sage',cta:'flow'},
       {nm:'Retain the active',big:nf(lc('Active')),c:'bought recently → upsell',tone:'sage',cta:'segment'},
       {nm:'Top source',big:(OV.sources[0]||{}).label||'—',c:'your own site beat the marketplaces',tone:'rust',cta:'attribution'}];
-    return '<div class="note">Where the money is: rules over segments pick the action, Axiom writes the copy. Below — priority by volume × value.</div><div class="grid k3">'+
+    return '<div class="note">Rules match each segment to an action. Axiom drafts the copy. Ranked by volume × value below.</div><div class="grid k3">'+
       cards.map(c=>'<div class="card act"><div><div class="nm">'+esc(c.nm)+'</div><div class="big" style="color:'+TONE[c.tone]+'">'+esc(c.big)+'</div></div><div><div class="c">'+esc(c.c)+'</div><span class="cta">'+esc(c.cta)+' →</span></div></div>').join('')+'</div>';},
   overview(){const k=OV.kpi,o=OV.orders;
     return '<div class="grid k4" style="margin-bottom:16px">'+
@@ -3367,7 +3364,7 @@ const VIEWS={
       tile('Top source',(src[0]||{}).label||'—',nf((src[0]||{}).value||0)+' events','gold')+
       tile('Owned vs marketplace',Math.round(own/total*100)+'%','non-marketplace share','sage')+
       tile('Social',nf(socSum),social.length+' platforms','rust')+'</div>'+
-      '<div class="note">Your own site vs marketplaces: <b>'+esc((src[0]||{}).label||'')+'</b> is bigger than Amazon and Walmart. The marketplace owns the contact — your own traffic stays yours.</div>'+
+      '<div class="note"><b>'+esc((src[0]||{}).label||'')+'</b> is your biggest channel — bigger than Amazon or Walmart. On a marketplace, they own the customer. On your own site, you do.</div>'+
       '<div class="grid two">'+
         chart('Traffic sources','Rolled up by platform',hbars(src))+
         chart('Owned vs marketplace','Who owns the customer',donut(split))+
@@ -3444,7 +3441,7 @@ const VIEWS={
       chart('Plan usage','How much of your plan limit is used','<div class="bars">'+ubar('Profiles',k.profiles,limProfiles,'profiles','gold')+ubar('Events this period',k.events,limEvents,'events','sage')+ubar('Consent records',c.total,null,'records','rust')+'</div>')+
       '<div class="sec"><p class="label">Subscription</p><h2 class="serif" style="font-size:18px;margin:2px 0 0">Connected services, cost, and limits</h2></div>'+
       '<div class="card"><div class="tw"><table><thead><tr><th>Service</th><th>Status</th><th>Usage / limit</th><th>Cost</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>'+
-      '<div class="note" style="margin-top:16px">Connected services are billed on the '+planName+' plan — '+rub(total)+'/mo. Profile limit — '+nf(limProfiles)+'; we suggest the next plan as you approach it. Available services connect in one click and add to the bill.</div>';
+      '<div class="note" style="margin-top:16px">Billed under the '+planName+' plan at '+rub(total)+'/mo. Profile limit: '+nf(limProfiles)+' — we’ll suggest an upgrade as you approach it. Add any available service in one click.</div>';
   }
 };
 
