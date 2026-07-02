@@ -772,7 +772,7 @@ async function realSegmentCounts(tenant) {
     usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'order_completed' } }, { range: { ts: { gte: 'now-30d' } } }] } }),
     usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'add_to_cart' } }, { range: { ts: { gte: 'now-72h' } } }] } }),
     usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'order_completed' } }, { range: { ts: { gte: 'now-72h' } } }] } }),
-    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'order_completed' } }], should: [{ wildcard: { 'origin.keyword': '*wildberries*' } }, { wildcard: { 'origin.keyword': '*wb.ru*' } }, { wildcard: { 'origin.keyword': '*ozon*' } }], minimum_should_match: 1 } }),
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'order_completed' } }], should: [{ wildcard: { 'origin.keyword': '*amazon*' } }, { wildcard: { 'origin.keyword': '*walmart*' } }, { wildcard: { 'origin.keyword': '*etsy*' } }], minimum_should_match: 1 } }),
     resolveConsentedRecipients(tenant, 5000),
     aggregate(tenant, Date.now()),
     // Duplicates the profile part of profilesOf() (5000 profiles, ordered by volume — NOT by
