@@ -325,7 +325,7 @@ function signupWelcomeEmailHtml(companyName, loginUrl) {
     '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#fffdf9;border-radius:12px;overflow:hidden">' +
     '<tr><td style="padding:28px;font-family:Arial,Helvetica,sans-serif">' +
     '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:22px;font-weight:700;color:#1c1510;margin-bottom:12px">Welcome to Axiom, ' + escHtml(companyName) + '</div>' +
-    '<p style="font-size:14px;line-height:1.6;color:#1c1510">Your console is ready. Follow the link below to get started — it contains your personal access key, do not share it.</p>' +
+    '<p style="font-size:14px;line-height:1.6;color:#1c1510">Your console is ready. Follow the link below to get started — it contains your personal access key — don’t share it.</p>' +
     '<div style="text-align:center;margin-top:20px"><a href="' + escHtml(loginUrl) + '" style="display:inline-block;background:#c4683a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px">Open console</a></div>' +
     '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">If you didn\'t request access to Axiom, just ignore this email.</div>' +
     '</td></tr></table></td></tr></table></body></html>';
@@ -549,7 +549,7 @@ function abandonedCartEmailHtml() {
     '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:22px;font-weight:700;color:#1c1510;margin-bottom:12px">You left something in your cart</div>' +
     '<p style="font-size:14px;line-height:1.6;color:#1c1510">Your items are still waiting — check out before they sell out.</p>' +
     '<div style="text-align:center;margin-top:20px"><a href="https://ecoma.com/cart" style="display:inline-block;background:#c4683a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px">Back to cart</a></div>' +
-    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">This email was sent based on your consent to receive marketing email (CAN-SPAM, CCPA consent). <a href="{{unsubscribe_url}}" style="color:#7a6e60">Unsubscribe</a></div>' +
+    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">You’re receiving this because you opted in to marketing emails (CAN-SPAM, CCPA). <a href="{{unsubscribe_url}}" style="color:#7a6e60">Unsubscribe</a></div>' +
     '</td></tr></table></td></tr></table></body></html>';
 }
 function reactivationEmailHtml() {
@@ -558,9 +558,9 @@ function reactivationEmailHtml() {
     '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#fffdf9;border-radius:12px;overflow:hidden">' +
     '<tr><td style="padding:28px;font-family:Arial,Helvetica,sans-serif">' +
     '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:22px;font-weight:700;color:#1c1510;margin-bottom:12px">Long time no see</div>' +
-    '<p style="font-size:14px;line-height:1.6;color:#1c1510">Come back for the newest eco-finds — we picked out what is worth your attention.</p>' +
+    '<p style="font-size:14px;line-height:1.6;color:#1c1510">Come back for the newest eco-finds — we picked out what’s worth your attention.</p>' +
     '<div style="text-align:center;margin-top:20px"><a href="https://ecoma.com/catalog" style="display:inline-block;background:#c4683a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px">Browse catalog</a></div>' +
-    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">This email was sent based on your consent to receive marketing email (CAN-SPAM, CCPA consent). <a href="{{unsubscribe_url}}" style="color:#7a6e60">Unsubscribe</a></div>' +
+    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">You’re receiving this because you opted in to marketing emails (CAN-SPAM, CCPA). <a href="{{unsubscribe_url}}" style="color:#7a6e60">Unsubscribe</a></div>' +
     '</td></tr></table></td></tr></table></body></html>';
 }
 function abandonedBrowseEmailHtml() {
@@ -569,9 +569,9 @@ function abandonedBrowseEmailHtml() {
     '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#fffdf9;border-radius:12px;overflow:hidden">' +
     '<tr><td style="padding:28px;font-family:Arial,Helvetica,sans-serif">' +
     '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:22px;font-weight:700;color:#1c1510;margin-bottom:12px">Still browsing?</div>' +
-    '<p style="font-size:14px;line-height:1.6;color:#1c1510">You recently viewed items with us — they are still in stock if you want to come back.</p>' +
+    '<p style="font-size:14px;line-height:1.6;color:#1c1510">You recently viewed items with us — they’re still in stock if you want to come back.</p>' +
     '<div style="text-align:center;margin-top:20px"><a href="https://ecoma.com/catalog" style="display:inline-block;background:#c4683a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px">Keep browsing</a></div>' +
-    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">This email was sent based on your consent to receive marketing email (CAN-SPAM, CCPA consent). <a href="{{unsubscribe_url}}" style="color:#7a6e60">Unsubscribe</a></div>' +
+    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">You’re receiving this because you opted in to marketing emails (CAN-SPAM, CCPA). <a href="{{unsubscribe_url}}" style="color:#7a6e60">Unsubscribe</a></div>' +
     '</td></tr></table></td></tr></table></body></html>';
 }
 function checkoutAbandonedEmailHtml() {
@@ -582,7 +582,7 @@ function checkoutAbandonedEmailHtml() {
     '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:22px;font-weight:700;color:#1c1510;margin-bottom:12px">Checkout wasn\'t finished</div>' +
     '<p style="font-size:14px;line-height:1.6;color:#1c1510">You started checking out, but something got in the way — come back to finish your purchase.</p>' +
     '<div style="text-align:center;margin-top:20px"><a href="https://ecoma.com/checkout" style="display:inline-block;background:#c4683a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px">Finish checkout</a></div>' +
-    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">This email was sent based on your consent to receive marketing email (CAN-SPAM, CCPA consent). <a href="{{unsubscribe_url}}" style="color:#7a6e60">Unsubscribe</a></div>' +
+    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">You’re receiving this because you opted in to marketing emails (CAN-SPAM, CCPA). <a href="{{unsubscribe_url}}" style="color:#7a6e60">Unsubscribe</a></div>' +
     '</td></tr></table></td></tr></table></body></html>';
 }
 const AUTOMATION_EMAIL_HTML = {
@@ -3129,7 +3129,7 @@ EMAIL_TABS.analytics = function(){
   H += '<div class="note">';
   H += '<div class="sec">What the data says</div>';
   H += 'Opens peak on <b>weekday evenings 7–9 PM</b> — the best send window. ';
-  H += 'Template <b>reactivation-dormant.liquid</b> drives ' + rub(Math.round(emailRev*0.31)) + ' (31% of channel revenue) on minimal volume. ';
+  H += 'Template <b>reactivation-sleeping.liquid</b> drives ' + rub(Math.round(emailRev*0.31)) + ' (31% of channel revenue) on minimal volume. ';
   H += 'Engagement drops from 62% to 19% by week 12 — dormant users deserve their own segment. ';
   H += 'All sends go only to verified <code>marketing_email</code> (fail-closed, CCPA/CPRA); promotional emails include an unsubscribe link and sender identification per CAN-SPAM.';
   H += '</div>';
@@ -3330,7 +3330,7 @@ const VIEWS={
       {nm:'Wake the dormant',big:nf(lc('Dormant')),c:'visited 7–30 days ago → re-engage',tone:'gold',cta:'campaign'},
       {nm:'Convert the new',big:nf(lc('New')),c:'first visit ≤7 days → onboarding',tone:'sage',cta:'flow'},
       {nm:'Retain the active',big:nf(lc('Active')),c:'bought recently → upsell',tone:'sage',cta:'segment'},
-      {nm:'Top source',big:(OV.sources[0]||{}).label||'—',c:'your own site beat the marketplaces',tone:'rust',cta:'attribution'}];
+      {nm:'Top source',big:(OV.sources[0]||{}).label||'—',c:'your own site beats the marketplaces',tone:'rust',cta:'attribution'}];
     return '<div class="note">Rules match each segment to an action. Axiom drafts the copy. Ranked by volume × value below.</div><div class="grid k3">'+
       cards.map(c=>'<div class="card act"><div><div class="nm">'+esc(c.nm)+'</div><div class="big" style="color:'+TONE[c.tone]+'">'+esc(c.big)+'</div></div><div><div class="c">'+esc(c.c)+'</div><span class="cta">'+esc(c.cta)+' →</span></div></div>').join('')+'</div>';},
   overview(){const k=OV.kpi,o=OV.orders;
@@ -3353,7 +3353,7 @@ const VIEWS={
     sources(){
     const src=OV.sources, total=src.reduce((s,x)=>s+x.value,0)||1;
     const val=l=>{const x=src.find(s=>s.label===l);return x?x.value:0;};
-    const mp=val('Wildberries')+val('Ozon');
+    const mp=val('Amazon')+val('Marketplace');
     const own=total-mp;
     const SOC=['Instagram','TikTok','Reddit','YouTube','X (Twitter)','Pinterest'];
     const social=src.filter(s=>SOC.indexOf(s.label)>=0);
