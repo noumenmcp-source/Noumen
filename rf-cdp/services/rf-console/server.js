@@ -802,7 +802,7 @@ async function checkDomainDeliverability(domain, dkimSelector) {
 }
 
 // ─── Автопилот-триггеры: ES-нативный поллер, без Postgres/Redis/pg-boss.
-// 8 честных триггеров (остальные ~28 из деки — wishlist/день рождения/остатки на складе и т.п. —
+// 9 честных триггеров (остальные ~27 из деки — wishlist/день рождения/остатки на складе и т.п. —
 // требуют данных или интеграций, которых у нас честно нет; не выдумываем):
 //   abandoned_cart        — add_to_cart 3-24ч назад, без последующего order_completed
 //   abandoned_browse      — product_viewed 3-24ч назад, без add_to_cart/order_completed с тех пор
@@ -812,6 +812,8 @@ async function checkDomainDeliverability(domain, dkimSelector) {
 //   post_purchase         — order_completed 1-24ч назад, забота после покупки
 //   win_back_marketplace  — заказывал на WB/Ozon (180д), не заказывал напрямую 30д
 //   re_permission         — 5+ отправок конкретному получателю, ни одна не открыта
+//   repeat_purchase       — просрочен относительно СВОЕГО среднего интервала между заказами
+//                           (не единый N дней для всех — честная персонализация, ≥2 заказа)
 // Идемпотентность — маркер-событие automation_fired в том же ES-индексе, с окном,
 // совпадающим с окном кандидатов (после истечения окна кандидат и маркер оба "стареют"
 // синхронно — нет риска бесконечного повторного триггера на статичных данных).
@@ -903,6 +905,17 @@ function rePermissionEmailHtml() {
     '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">Письмо отправлено на основании вашего согласия на получение рекламных рассылок (ст. 18 ФЗ «О рекламе», ст. 9 152-ФЗ). <a href="{{unsubscribe_url}}" style="color:#7a6e60">Отписаться</a></div>' +
     '</td></tr></table></td></tr></table></body></html>';
 }
+function repeatPurchaseEmailHtml() {
+  return '<!doctype html><html><body style="margin:0;padding:0;background:#f5f0e8">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f0e8"><tr><td align="center" style="padding:24px 12px">' +
+    '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#fffdf9;border-radius:12px;overflow:hidden">' +
+    '<tr><td style="padding:28px;font-family:Arial,Helvetica,sans-serif">' +
+    '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:22px;font-weight:700;color:#1c1510;margin-bottom:12px">Пора пополнить запасы?</div>' +
+    '<p style="font-size:14px;line-height:1.6;color:#1c1510">Судя по вашим прошлым заказам, то, что вы брали в прошлый раз, обычно заканчивается примерно сейчас — самое время заказать снова.</p>' +
+    '<div style="text-align:center;margin-top:20px"><a href="https://ecoma.ru/catalog" style="display:inline-block;background:#c4683a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px">Заказать снова</a></div>' +
+    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">Письмо отправлено на основании вашего согласия на получение рекламных рассылок (ст. 18 ФЗ «О рекламе», ст. 9 152-ФЗ). <a href="{{unsubscribe_url}}" style="color:#7a6e60">Отписаться</a></div>' +
+    '</td></tr></table></td></tr></table></body></html>';
+}
 const AUTOMATION_EMAIL_HTML = {
   abandoned_cart: abandonedCartEmailHtml,
   abandoned_browse: abandonedBrowseEmailHtml,
@@ -912,6 +925,7 @@ const AUTOMATION_EMAIL_HTML = {
   post_purchase: postPurchaseEmailHtml,
   win_back_marketplace: winBackMarketplaceEmailHtml,
   re_permission: rePermissionEmailHtml,
+  repeat_purchase: repeatPurchaseEmailHtml,
 };
 async function sendAutomationEmail(tenant, trigger, subject, email, subjectId, fromName, fromEmail) {
   const baseUrl = process.env.PUBLIC_BASE_URL || 'https://rf.axiom.rent';
@@ -931,7 +945,7 @@ async function runAutomationPoller(tenant) {
   const fromEmail = auth ? auth.fromEmail : ('hello@' + tenant + '.invalid');
   const consented = await resolveConsentedRecipients(tenant, 5000);
   const consentedMap = new Map(consented.filter((c) => c.subject).map((c) => [c.subject, c.email]));
-  const out = { abandoned_cart: { checked: 0, sent: 0, failed: 0 }, abandoned_browse: { checked: 0, sent: 0, failed: 0 }, checkout_abandoned: { checked: 0, sent: 0, failed: 0 }, reactivation: { checked: 0, sent: 0, failed: 0 }, welcome: { checked: 0, sent: 0, failed: 0 }, post_purchase: { checked: 0, sent: 0, failed: 0 }, win_back_marketplace: { checked: 0, sent: 0, failed: 0 }, re_permission: { checked: 0, sent: 0, failed: 0 } };
+  const out = { abandoned_cart: { checked: 0, sent: 0, failed: 0 }, abandoned_browse: { checked: 0, sent: 0, failed: 0 }, checkout_abandoned: { checked: 0, sent: 0, failed: 0 }, reactivation: { checked: 0, sent: 0, failed: 0 }, welcome: { checked: 0, sent: 0, failed: 0 }, post_purchase: { checked: 0, sent: 0, failed: 0 }, win_back_marketplace: { checked: 0, sent: 0, failed: 0 }, re_permission: { checked: 0, sent: 0, failed: 0 }, repeat_purchase: { checked: 0, sent: 0, failed: 0 } };
 
   // --- abandoned_cart ---
   const [cartUsers, orderedUsers24h, firedCart] = await Promise.all([
@@ -1091,6 +1105,39 @@ async function runAutomationPoller(tenant) {
     } catch (e) { out.re_permission.failed++; }
   }
 
+  // --- repeat_purchase: клиент "просрочен" относительно СВОЕГО СРЕДНЕГО интервала между
+  // заказами (не единый N дней для всех — честная персонализация; фиксированное число было бы
+  // догадкой). Нужно ≥2 заказа, чтобы вообще иметь личный интервал. Верхняя граница окна —
+  // не больше 2x среднего интервала, иначе это уже давно ушедший клиент (see reactivation), не
+  // "скоро закончится товар".
+  const orderHistoryAgg = await es('/cdp_events_' + tenant + '/_search', {
+    size: 0,
+    query: { term: { 'event.keyword': 'order_completed' } },
+    aggs: { by_user: { terms: { field: 'user_id.keyword', size: 10000 }, aggs: { first: { min: { field: 'ts' } }, last: { max: { field: 'ts' } } } } },
+  });
+  const firedRepeatPurchase = await usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'automation_fired' } }, { term: { 'properties.trigger.keyword': 'repeat_purchase' } }, { range: { ts: { gte: 'now-14d' } } }] } });
+  const nowMsRP = Date.now();
+  const repeatBuckets = (orderHistoryAgg.aggregations && orderHistoryAgg.aggregations.by_user.buckets) || [];
+  for (const b of repeatBuckets) {
+    if (b.doc_count < 2) continue;
+    const firstMs = b.first && b.first.value;
+    const lastMs = b.last && b.last.value;
+    if (!firstMs || !lastMs) continue;
+    const avgIntervalDays = (lastMs - firstMs) / DAY / (b.doc_count - 1);
+    if (avgIntervalDays <= 0) continue;
+    const daysSinceLast = (nowMsRP - lastMs) / DAY;
+    if (daysSinceLast < avgIntervalDays || daysSinceLast > avgIntervalDays * 2) continue;
+    out.repeat_purchase.checked++;
+    const userId = b.key;
+    if (firedRepeatPurchase.has(userId)) continue;
+    const email = consentedMap.get(userId);
+    if (!email) continue;
+    try {
+      await sendAutomationEmail(tenant, 'repeat_purchase', 'Пора пополнить запасы?', email, userId, fromName, fromEmail);
+      out.repeat_purchase.sent++;
+    } catch (e) { out.repeat_purchase.failed++; }
+  }
+
   return out;
 }
 
@@ -1103,6 +1150,7 @@ const AUTOMATION_TRIGGER_META = {
   post_purchase: { name: 'Спасибо за заказ', sub: 'retention · через час после оформления', channel: 'Email' },
   win_back_marketplace: { name: 'Возврат с маркетплейса', sub: 'win-back · заказывал на WB/Ozon, не заказывал напрямую 30д', channel: 'Email' },
   re_permission: { name: 'Подтверждение интереса', sub: 're-permission · 5+ писем без единого открытия', channel: 'Email' },
+  repeat_purchase: { name: 'Повторная покупка', sub: 'retention · просрочен относительно своего среднего интервала между заказами (≥2 заказа)', channel: 'Email' },
 };
 // Реальная статистика по автопилот-сценариям (заменяет фикстуру SEG_FLOWS/em_flows_model
 // с придуманными conv/revenue и фейковым "последний запуск").

@@ -7,7 +7,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { once } = require('node:events');
-const { mapSource, bucketLifecycle, aggregate, server, realCampaignsList, realAbtestList, formUserId, formStats, formWidgetScript, enrichProfile, tierDistribution, getFormConfig, saveFormConfig, sendTelegramMessage, sendVkMessage, sendSmsMessage, channelsConfigured, telegramUserId, createTelegramConnectToken, resolveTelegramConnectToken, recordTelegramConnection } = require('../server');
+const { mapSource, bucketLifecycle, aggregate, server, realCampaignsList, realAbtestList, formUserId, formStats, formWidgetScript, enrichProfile, tierDistribution, getFormConfig, saveFormConfig, sendTelegramMessage, sendVkMessage, sendSmsMessage, channelsConfigured, telegramUserId, createTelegramConnectToken, resolveTelegramConnectToken, recordTelegramConnection, runAutomationPoller } = require('../server');
 
 const DAY = 86400000;
 const NOW = Date.parse('2026-06-30T12:00:00Z');
@@ -595,4 +595,65 @@ test('HTTP: /api/channels/status requires auth; /webhooks/telegram requires the 
     if (prevSecret === undefined) delete process.env.TELEGRAM_WEBHOOK_SECRET; else process.env.TELEGRAM_WEBHOOK_SECRET = prevSecret;
     server.close(); await once(server, 'close'); restore();
   }
+});
+
+// ── repeat_purchase: персональный интервал между заказами, не единый N для всех ──
+function stubEsRepeatPurchase() {
+  const prev = globalThis.fetch;
+  const DAY_MS = 86400000;
+  const now = Date.now();
+  globalThis.fetch = async (url, opts) => {
+    const body = opts && opts.body ? JSON.parse(opts.body) : null;
+    const json = (o) => ({ ok: true, status: 200, text: async () => JSON.stringify(o) });
+    if (url.includes('/cdp_events_ecoma/_search') && body && body.aggs && body.aggs.by_user) {
+      // due_user: orders at -30d,-20d,-10d -> avgInterval=10d, daysSinceLast=10 -> in [10,20] -> FIRES
+      // too_soon_user: orders at -10d,-2d -> avgInterval=8d, daysSinceLast=2 -> 2<8 -> skipped
+      // too_late_user: orders at -60d,-50d -> avgInterval=10d, daysSinceLast=50 -> 50>20 -> skipped
+      // one_order_user: single order -> doc_count=1 -> skipped (no personal interval)
+      return json({
+        aggregations: {
+          by_user: {
+            buckets: [
+              { key: 'u_due', doc_count: 3, first: { value: now - 30 * DAY_MS }, last: { value: now - 10 * DAY_MS } },
+              { key: 'u_too_soon', doc_count: 2, first: { value: now - 10 * DAY_MS }, last: { value: now - 2 * DAY_MS } },
+              { key: 'u_too_late', doc_count: 2, first: { value: now - 60 * DAY_MS }, last: { value: now - 50 * DAY_MS } },
+              { key: 'u_one_order', doc_count: 1, first: { value: now - 5 * DAY_MS }, last: { value: now - 5 * DAY_MS } },
+            ],
+          },
+        },
+      });
+    }
+    if (url.includes('/cdp_consent_ecoma/_search') && body && body.aggs && body.aggs.by_email) {
+      const mk = (subject, email) => ({ key: email, latest: { hits: { hits: [{ _source: { consent: { email, subject, state: { marketing_email: true } } } }] } } });
+      return json({ aggregations: { by_email: { buckets: [
+        mk('u_due', 'due@example.com'),
+        mk('u_too_soon', 'toosoon@example.com'),
+        mk('u_too_late', 'toolate@example.com'),
+        mk('u_one_order', 'oneorder@example.com'),
+      ] } } });
+    }
+    if (url.includes('/' ) && (!opts || opts.method !== 'GET') && url.includes('_doc') && !url.includes('_search')) {
+      return json({ result: 'created' }); // recordEmailEvent writes (email_sent, automation_fired)
+    }
+    // rf_console_auth (fromName/fromEmail lookup), suppression list, and every other
+    // trigger's candidate query -> honestly empty, isolates this test to repeat_purchase.
+    return { ok: false, status: 404, text: async () => '' };
+  };
+  return () => { globalThis.fetch = prev; };
+}
+
+test('repeat_purchase fires only for the customer overdue relative to THEIR OWN average order interval (not a fixed N for everyone)', async () => {
+  const restore = stubEsRepeatPurchase();
+  try {
+    const result = await runAutomationPoller('ecoma');
+    assert.ok(result.repeat_purchase, 'trigger present in poller output');
+    assert.equal(result.repeat_purchase.checked, 1, 'only u_due passes the personal-interval window (too_soon/too_late/one_order excluded)');
+    assert.equal(result.repeat_purchase.sent, 1, 'u_due has consent+email -> real send attempted');
+    assert.equal(result.repeat_purchase.failed, 0);
+    // every other trigger sees an honestly empty candidate set from this stub — confirms
+    // the repeat_purchase logic doesn't leak into or double-count other triggers
+    for (const key of ['abandoned_cart', 'abandoned_browse', 'checkout_abandoned', 'reactivation', 'welcome', 'post_purchase', 'win_back_marketplace', 're_permission']) {
+      assert.equal(result[key].checked, 0, `${key} should see zero candidates in this stub`);
+    }
+  } finally { restore(); }
 });
