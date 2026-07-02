@@ -7,7 +7,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { once } = require('node:events');
-const { mapSource, bucketLifecycle, aggregate, server, realCampaignsList, realAbtestList } = require('../server');
+const { mapSource, bucketLifecycle, aggregate, server, realCampaignsList, realAbtestList, formUserId, formStats, formWidgetScript, enrichProfile, tierDistribution } = require('../server');
 
 const DAY = 86400000;
 const NOW = Date.parse('2026-06-30T12:00:00Z');
@@ -212,6 +212,149 @@ test('realCampaignsList / realAbtestList return empty arrays when the index is m
   } finally { globalThis.fetch = prev; }
 });
 
+// ── Формы сбора ──
+test('formUserId is deterministic per tenant+email (case-insensitive), differs across tenants', () => {
+  const a = formUserId('ecoma', 'Test@Example.com');
+  const b = formUserId('ecoma', 'test@example.com');
+  const c = formUserId('other', 'test@example.com');
+  assert.equal(a, b, 'same tenant+email (case-insensitive) -> same id');
+  assert.notEqual(a, c, 'different tenant -> different id even for same email');
+  assert.match(a, /^u_form_[0-9a-f]{16}$/);
+});
+
+test('formWidgetScript returns valid parseable JS for all 3 variants, embeds tenant/type/baseUrl', () => {
+  const prevEnv = process.env.PUBLIC_BASE_URL;
+  process.env.PUBLIC_BASE_URL = 'https://rf.axiom.rent';
+  try {
+    for (const type of ['popup', 'slideout', 'embedded']) {
+      const script = formWidgetScript('ecoma', type);
+      assert.doesNotThrow(() => new Function(script), `${type} widget script must parse`);
+      assert.ok(script.includes(JSON.stringify(type)), 'embeds its own type');
+      assert.ok(script.includes(JSON.stringify('ecoma')), 'embeds the tenant slug');
+      assert.ok(script.includes('https://rf.axiom.rent'), 'embeds the real base URL');
+      assert.ok(script.includes('/api/forms/submit'), 'posts to the real submit endpoint');
+    }
+  } finally { process.env.PUBLIC_BASE_URL = prevEnv; }
+});
+
+function stubEsForms() {
+  const prev = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    const body = opts && opts.body ? JSON.parse(opts.body) : null;
+    const json = (o) => ({ ok: true, status: 200, text: async () => JSON.stringify(o) });
+    if (url.includes('/cdp_events_ecoma/_search') && body.aggs && body.aggs.by_type) {
+      return json({ hits: { total: { value: 7 } }, aggregations: { by_type: { buckets: [
+        { key: 'popup', doc_count: 4 }, { key: 'embedded', doc_count: 3 },
+      ] } } });
+    }
+    return prev(url, opts);
+  };
+  return () => { globalThis.fetch = prev; };
+}
+
+test('formStats aggregates real signup events by form type', async () => {
+  const restore = stubEsForms();
+  try {
+    const stats = await formStats('ecoma');
+    assert.equal(stats.total, 7);
+    assert.equal(stats.byType.popup, 4);
+    assert.equal(stats.byType.embedded, 3);
+    assert.equal(stats.byType.slideout, 0, 'form type with zero submissions still present as 0, not missing');
+  } finally { restore(); }
+});
+
+test('formStats returns zeroed shape when the index is missing (no fixture fallback)', async () => {
+  const prev = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: false, status: 404, text: async () => '' });
+  try {
+    const stats = await formStats('ecoma');
+    assert.equal(stats.total, 0);
+    assert.deepEqual(stats.byType, {});
+  } finally { globalThis.fetch = prev; }
+});
+
+// ── Обогащение профилей (первичные данные, не покупка у 3-х лиц) ──
+function stubEsEnrichment() {
+  const prev = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    const body = opts && opts.body ? JSON.parse(opts.body) : null;
+    const json = (o) => ({ ok: true, status: 200, text: async () => JSON.stringify(o) });
+    if (url.includes('/cdp_events_ecoma/_search') && body.query && body.query.bool && body.aggs && body.aggs.revenue) {
+      const isVip = JSON.stringify(body.query).includes('u_vip');
+      if (isVip) {
+        return json({ hits: { total: { value: 6 } }, aggregations: {
+          revenue: { value: 60000 },
+          first: { value: Date.parse('2026-01-01T00:00:00Z'), value_as_string: '2026-01-01T00:00:00Z' },
+          last: { value: Date.parse('2026-06-25T00:00:00Z'), value_as_string: '2026-06-25T00:00:00Z' },
+        } });
+      }
+      return json({ hits: { total: { value: 0 } }, aggregations: { revenue: { value: 0 }, first: { value: null }, last: { value: null } } });
+    }
+    if (url.includes('/cdp_events_ecoma/_search') && body.query && body.query.term && body.aggs && body.aggs.by_user) {
+      return json({ aggregations: { by_user: { buckets: [
+        { key: 'u_vip', doc_count: 6 }, { key: 'u_repeat', doc_count: 3 }, { key: 'u_one', doc_count: 1 },
+      ] } } });
+    }
+    return prev(url, opts);
+  };
+  return () => { globalThis.fetch = prev; };
+}
+
+test('enrichProfile computes real order-history stats for a VIP-tier user', async () => {
+  const restore = stubEsEnrichment();
+  try {
+    const e = await enrichProfile('ecoma', 'u_vip');
+    assert.equal(e.orderCount, 6);
+    assert.equal(e.totalRevenue, 60000);
+    assert.equal(e.avgOrderValue, 10000);
+    assert.equal(e.tier, 'vip');
+    assert.ok(e.daysSinceLastOrder !== null);
+  } finally { restore(); }
+});
+
+test('enrichProfile returns the honest empty shape for a user with zero orders', async () => {
+  const restore = stubEsEnrichment();
+  try {
+    const e = await enrichProfile('ecoma', 'u_nobody');
+    assert.deepEqual(e, { userId: 'u_nobody', orderCount: 0, totalRevenue: 0, avgOrderValue: 0, daysSinceLastOrder: null, tier: 'new', firstOrder: null, lastOrder: null });
+  } finally { restore(); }
+});
+
+test('tierDistribution buckets all customers by order count in one aggregation', async () => {
+  const restore = stubEsEnrichment();
+  try {
+    const t = await tierDistribution('ecoma');
+    assert.equal(t.vip, 1, 'u_vip: 6 orders >= 5');
+    assert.equal(t.repeat, 1, 'u_repeat: 3 orders, 2<=n<5');
+    assert.equal(t.one_time, 1, 'u_one: 1 order');
+    assert.equal(t.customersTotal, 3);
+  } finally { restore(); }
+});
+
+test('HTTP: /api/forms/submit validates input and sets CORS headers (public unauthenticated route)', async () => {
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const preflight = await fetch(`${base}/api/forms/submit`, { method: 'OPTIONS' });
+    assert.equal(preflight.status, 204);
+    assert.equal(preflight.headers.get('access-control-allow-origin'), '*');
+
+    const badTenant = await fetch(`${base}/api/forms/submit`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ tenant: 'not a slug!', email: 'a@b.com' }),
+    });
+    assert.equal(badTenant.status, 400);
+
+    const badEmail = await fetch(`${base}/api/forms/submit`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ tenant: 'ecoma', email: 'not-an-email' }),
+    });
+    assert.equal(badEmail.status, 400);
+    assert.equal(badEmail.headers.get('access-control-allow-origin'), '*', 'CORS header present even on validation errors');
+  } finally { server.close(); await once(server, 'close'); }
+});
+
 test('HTTP: / serves the AXIOM RU console; /api/overview shapes data', async () => {
   const restore = stubEs();
   server.listen(0, '127.0.0.1');
@@ -233,12 +376,22 @@ test('HTTP: / serves the AXIOM RU console; /api/overview shapes data', async () 
 });
 
 // Regression guard: the served page embeds ~2000 lines of client JS inside a single <script>
-// tag built from a backtick template literal. A nested-escaping bug (\' surviving one string
-// level too few) once made the WHOLE script fail to parse in a real browser — silently, because
-// no test ever actually parsed the emitted script as JS (only regex-matched substrings of the
-// HTML). Found via manual browser smoke test (font-family:\'Times New Roman\' / \'Courier New\'
-// inside em_builder block renderers), fixed by double-escaping (\\'). This test parses the exact
-// bytes a browser would receive, so a reintroduced instance of this bug fails CI immediately.
+// tag built from a backtick template literal. TWO distinct nested-escaping bugs have shipped
+// from this pattern already:
+//  1. \' surviving one string level too few (font-family:\'Times New Roman\'/\'Courier New\'
+//     inside em_builder block renderers) — the OUTER template consumes the backslash before
+//     it reaches the browser, leaving a bare ' that closes the client string early.
+//  2. An embed-snippet string containing a literal '</script>' (meant as example HTML for
+//     users to copy) — an HTML tokenizer does NOT care about JS string context; the raw byte
+//     sequence '</script' anywhere inside the outer <script> block closes it immediately,
+//     regardless of nesting. The naive greedy regex below (`m[1]`) MASKED this bug: it matches
+//     from the first '<script>' to the LAST '</script>' in the page, so it happily "parsed"
+//     valid JS even when a spurious mid-document '</script>' had already truncated the block
+//     as far as a real browser's HTML tokenizer is concerned. This is why the second check
+//     (byte-exact '</script' occurrence count) exists — it would have caught bug #2 when the
+//     first check did not.
+// Both fixed by escaping one extra level (\\' and <\\/script> respectively) so the backslash
+// itself survives into the raw HTML bytes.
 test('client <script> served to the browser is syntactically valid JS', async () => {
   const restore = stubEs();
   server.listen(0, '127.0.0.1');
@@ -246,6 +399,8 @@ test('client <script> served to the browser is syntactically valid JS', async ()
   const base = `http://127.0.0.1:${server.address().port}`;
   try {
     const html = await (await fetch(`${base}/`)).text();
+    const scriptCloseCount = (html.match(/<\/script/gi) || []).length;
+    assert.equal(scriptCloseCount, 1, 'exactly one </script — a stray one inside a JS string would silently truncate the block for a real HTML parser (regex-based extraction below cannot catch this)');
     const m = html.match(/<script>([\s\S]*)<\/script>/);
     assert.ok(m, 'page must contain a <script> block');
     assert.doesNotThrow(() => new Function(m[1]), 'client script must parse as valid JS');
