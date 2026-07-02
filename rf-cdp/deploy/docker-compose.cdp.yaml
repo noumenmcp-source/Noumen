@@ -435,6 +435,38 @@ services:
       - "127.0.0.1:8121:8121"
     networks:
       - dittofeed-network-lite
+
+  # ---------------------------------------------------------------------------
+  # US analytics console (AXIOM US) — server-side ES aggregation dashboard
+  # (US metrics + US sources, English, CAN-SPAM/CCPA). Shares the same ES and
+  # the same RESEND_API_KEY/TRACK_SECRET/ADMIN_SECRET as rf-console — one
+  # Resend account, one admin, separate tenant namespace (real per-tenant auth).
+  # ---------------------------------------------------------------------------
+  us-console:
+    build:
+      context: ../services/us-console
+      dockerfile: Dockerfile
+    image: cdp/us-console:local
+    restart: always
+    logging:
+      driver: "local"
+    depends_on:
+      - elasticsearch
+    environment:
+      PORT: 8122
+      ES_URL: ${ES_URL:-http://elasticsearch:9200}
+      ES_USER: ${ES_USER:-elastic}
+      ES_PASSWORD: ${ES_PASSWORD:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      TRACK_SECRET: ${TRACK_SECRET:?TRACK_SECRET must be set — used to sign open/click tracking tokens}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL_US:-https://en-console.axiom.rent}
+      ADMIN_SECRET: ${ADMIN_SECRET:?ADMIN_SECRET must be set — gates /api/admin/tenants and /api/tenants}
+      MAX_SENDS_PER_DAY: ${MAX_SENDS_PER_DAY:-5000}
+      RESEND_WEBHOOK_SECRET: ${RESEND_WEBHOOK_SECRET_US:-}
+    ports:
+      - "127.0.0.1:8122:8122"
+    networks:
+      - dittofeed-network-lite
 volumes:
   postgres:
   clickhouse_lib:

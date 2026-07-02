@@ -1,10 +1,11 @@
-# US analytics console (AXIOM US, English) — plain Node, no runtime deps.
+# US analytics console (AXIOM US, English) — plain Node + nodemailer/resend for real email send.
 # Server-side aggregates US metrics from Elasticsearch. Health: GET /health.
 FROM node:22-alpine
 ENV NODE_ENV=production \
     PORT=8122
 WORKDIR /app
 COPY package.json ./
+RUN npm install --omit=dev --no-audit --no-fund
 COPY server.js ./
 USER node
 EXPOSE 8122

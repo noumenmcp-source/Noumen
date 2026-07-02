@@ -172,6 +172,828 @@ async function aggregate(tenant, nowMs) {
   };
 }
 
+
+async function sendRealEmail({ to, from, subject, html, tags }) {
+  if (process.env.SMTP_URL) {
+    const nodemailer = require('nodemailer');
+    const transporter = nodemailer.createTransport(process.env.SMTP_URL);
+    const info = await transporter.sendMail({ from, to, subject, html });
+    return { ok: true, id: info.messageId, provider: 'smtp' };
+  } else if (process.env.RESEND_API_KEY) {
+    const { Resend } = require('resend');
+    const resend = new Resend(process.env.RESEND_API_KEY);
+    const { data, error } = await resend.emails.send({ from, to, subject, html, tags: tags || [] });
+    if (error) throw new Error('Resend send failed: ' + JSON.stringify(error));
+    return { ok: true, id: data.id, provider: 'resend' };
+  } else {
+    return { ok: true, id: 'fake-' + Date.now(), provider: 'fake', warning: 'No SMTP_URL or RESEND_API_KEY configured — email was NOT actually sent.' };
+  }
+}
+function isRealSendConfigured() {
+  return Boolean(process.env.SMTP_URL || process.env.RESEND_API_KEY);
+}
+function readJsonBody(req, maxBytes) {
+  return new Promise((resolve, reject) => {
+    var chunks = [];
+    var total = 0;
+    req.on('data', function (c) {
+      total += c.length;
+      if (total > maxBytes) { reject(new Error('body_too_large')); req.destroy(); return; }
+      chunks.push(c);
+    });
+    req.on('end', function () {
+      if (!chunks.length) return resolve({});
+      try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); }
+      catch (e) { reject(new Error('invalid_json')); }
+    });
+    req.on('error', reject);
+  });
+}
+
+function readRawBody(req, maxBytes) {
+  return new Promise((resolve, reject) => {
+    var chunks = [];
+    var total = 0;
+    req.on('data', function (c) {
+      total += c.length;
+      if (total > maxBytes) { reject(new Error('body_too_large')); req.destroy(); return; }
+      chunks.push(c);
+    });
+    req.on('end', function () { resolve(Buffer.concat(chunks).toString('utf8')); });
+    req.on('error', reject);
+  });
+}
+// ─── Resend webhooks (bounce/complaint) — Svix HMAC signature, suppression list in ES ───
+function verifySvixSignature(rawBody, headers, secret) {
+  var svixId = headers['svix-id'];
+  var svixTs = headers['svix-timestamp'];
+  var svixSig = headers['svix-signature'];
+  if (!svixId || !svixTs || !svixSig || !secret) return false;
+  var secretBytes = Buffer.from(secret.replace(/^whsec_/, ''), 'base64');
+  var signedContent = svixId + '.' + svixTs + '.' + rawBody;
+  var expected = crypto.createHmac('sha256', secretBytes).update(signedContent).digest('base64');
+  var candidates = String(svixSig).split(' ');
+  for (var i = 0; i < candidates.length; i++) {
+    var parts = candidates[i].split(',');
+    if (parts.length !== 2) continue;
+    var sig = parts[1];
+    try {
+      var a = Buffer.from(expected, 'base64'), b = Buffer.from(sig, 'base64');
+      if (a.length === b.length && crypto.timingSafeEqual(a, b)) return true;
+    } catch (e) { /* skip malformed candidate */ }
+  }
+  return false;
+}
+const SUPPRESSION_INDEX = 'rf_console_suppressions';
+async function suppressEmail(email, reason) {
+  await es('/' + SUPPRESSION_INDEX + '/_doc/' + encodeURIComponent(String(email).toLowerCase()), {
+    email: String(email).toLowerCase(), reason: reason, ts: new Date().toISOString(),
+  });
+}
+async function isSuppressed(email) {
+  try {
+    const doc = await es('/' + SUPPRESSION_INDEX + '/_doc/' + encodeURIComponent(String(email).toLowerCase()));
+    return !doc._missing && !!doc.found;
+  } catch (e) { return false; }
+}
+
+const crypto = require('crypto');
+const TRACK_SECRET = process.env.TRACK_SECRET || (function () {
+  console.warn('TRACK_SECRET not set — using an insecure default, set TRACK_SECRET in prod');
+  return 'insecure-dev-track-secret';
+})();
+const GIF_1x1 = Buffer.from('R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==', 'base64');
+
+function trackSign(payloadObj) {
+  const json = JSON.stringify(payloadObj);
+  const b64 = Buffer.from(json, 'utf8').toString('base64url');
+  const sig = crypto.createHmac('sha256', TRACK_SECRET).update(b64).digest('base64url');
+  return b64 + '.' + sig;
+}
+function trackVerify(token) {
+  var parts = String(token || '').split('.');
+  if (parts.length !== 2) return null;
+  var expected = crypto.createHmac('sha256', TRACK_SECRET).update(parts[0]).digest('base64url');
+  var a = Buffer.from(expected), b = Buffer.from(parts[1]);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  try { return JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8')); }
+  catch (e) { return null; }
+}
+// ─── Auth: per-tenant Bearer tokens, stored hashed in ES (no Postgres — same
+// principle as the rest of the service). One token = one tenant; the raw token is shown
+// to the owner EXACTLY ONCE at issuance; only its SHA-256 lives in the system after that.
+const AUTH_INDEX = 'rf_console_auth';
+function hashToken(token) {
+  return crypto.createHash('sha256').update(String(token || '')).digest('hex');
+}
+function generateToken() {
+  return 'rfc_' + crypto.randomBytes(24).toString('hex');
+}
+async function createTenantAuth(tenant, fromName, fromEmail) {
+  if (!TENANT_RE.test(tenant)) throw new Error('bad tenant');
+  const token = generateToken();
+  const doc = {
+    tenant: tenant,
+    tokenHash: hashToken(token),
+    fromName: fromName || tenant,
+    fromEmail: fromEmail || ('hello@' + tenant + '.invalid'),
+    createdAt: new Date().toISOString(),
+  };
+  // id = tenant → upsert semantics (reissuing a token replaces the old one, no duplicates)
+  await es('/' + AUTH_INDEX + '/_doc/' + encodeURIComponent(tenant), doc);
+  await es('/' + AUTH_INDEX + '/_refresh');
+  return { tenant: tenant, token: token, fromName: doc.fromName, fromEmail: doc.fromEmail };
+}
+
+async function countRecentSignups(sinceExpr) {
+  const q = await es('/' + AUTH_INDEX + '/_search', {
+    size: 0,
+    query: { range: { createdAt: { gte: sinceExpr } } },
+  });
+  if (q._missing) return 0;
+  return (q.hits && q.hits.total && q.hits.total.value) || 0;
+}
+// Server-side HTML-escape (the client esc() is only defined inside the HTML literal,
+// unavailable here — use this version in all server-side email generators).
+function escHtml(s) {
+  return (s == null ? '' : String(s)).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+function signupWelcomeEmailHtml(companyName, loginUrl) {
+  return '<!doctype html><html><body style="margin:0;padding:0;background:#f5f0e8">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f0e8"><tr><td align="center" style="padding:24px 12px">' +
+    '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#fffdf9;border-radius:12px;overflow:hidden">' +
+    '<tr><td style="padding:28px;font-family:Arial,Helvetica,sans-serif">' +
+    '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:22px;font-weight:700;color:#1c1510;margin-bottom:12px">Welcome to Axiom, ' + escHtml(companyName) + '</div>' +
+    '<p style="font-size:14px;line-height:1.6;color:#1c1510">Your console is ready. Follow the link below to get started — it contains your personal access key, do not share it.</p>' +
+    '<div style="text-align:center;margin-top:20px"><a href="' + escHtml(loginUrl) + '" style="display:inline-block;background:#c4683a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px">Open console</a></div>' +
+    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">If you didn\'t request access to Axiom, just ignore this email.</div>' +
+    '</td></tr></table></td></tr></table></body></html>';
+}
+async function resolveTenantFromToken(token) {
+  if (!token) return null;
+  const hash = hashToken(token);
+  const q = await es('/' + AUTH_INDEX + '/_search', {
+    size: 1,
+    query: { term: { 'tokenHash.keyword': hash } },
+  });
+  if (q._missing) return null;
+  const hit = (q.hits && q.hits.hits && q.hits.hits[0]) || null;
+  return hit ? hit._source : null;
+}
+
+async function resolveTenantAuth(tenant) {
+  if (!TENANT_RE.test(tenant)) return null;
+  try {
+    const doc = await es('/' + AUTH_INDEX + '/_doc/' + encodeURIComponent(tenant));
+    if (doc._missing || !doc._source) return null;
+    return doc._source;
+  } catch (e) { return null; }
+}
+
+async function findTenantsByEmail(email) {
+  const q = await es('/' + AUTH_INDEX + '/_search', {
+    size: 20,
+    query: { term: { 'fromEmail.keyword': String(email).toLowerCase() } },
+  });
+  if (q._missing) return [];
+  return (q.hits && q.hits.hits || []).map((h) => h._source);
+}
+function recoveryEmailHtml(links) {
+  var items = links.map(function (l) {
+    return '<div style="margin:10px 0"><a href="' + escHtml(l.url) + '" style="color:#c4683a;font-weight:700">' + escHtml(l.tenant) + '</a></div>';
+  }).join('');
+  return '<!doctype html><html><body style="margin:0;padding:0;background:#f5f0e8">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f0e8"><tr><td align="center" style="padding:24px 12px">' +
+    '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#fffdf9;border-radius:12px;overflow:hidden">' +
+    '<tr><td style="padding:28px;font-family:Arial,Helvetica,sans-serif">' +
+    '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:22px;font-weight:700;color:#1c1510;margin-bottom:12px">Account recovery</div>' +
+    '<p style="font-size:14px;line-height:1.6;color:#1c1510">New sign-in link (the old key no longer works):</p>' +
+    items +
+    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">If you didn\'t request recovery, ignore this email — access stays unchanged until you follow the link.</div>' +
+    '</td></tr></table></td></tr></table></body></html>';
+}
+
+// ─── Saved builder templates (real persistence, ES, per-tenant) ───
+const TEMPLATES_INDEX = 'rf_console_templates';
+async function saveTemplate(tenant, name, subject, blocks) {
+  if (!TENANT_RE.test(tenant)) throw new Error('bad tenant');
+  const cleanName = String(name || '').trim().slice(0, 80);
+  if (!cleanName) throw new Error('template name required');
+  const docId = tenant + ':' + cleanName.toLowerCase().replace(/[^a-z0-9]+/gi, '-');
+  const doc = { tenant: tenant, name: cleanName, subject: subject || '', blocks: blocks || [], updatedAt: new Date().toISOString() };
+  await es('/' + TEMPLATES_INDEX + '/_doc/' + encodeURIComponent(docId), doc);
+  await es('/' + TEMPLATES_INDEX + '/_refresh');
+  return doc;
+}
+async function listTemplates(tenant) {
+  if (!TENANT_RE.test(tenant)) throw new Error('bad tenant');
+  const q = await es('/' + TEMPLATES_INDEX + '/_search', {
+    size: 100,
+    query: { term: { 'tenant.keyword': tenant } },
+    sort: [{ updatedAt: 'desc' }],
+  });
+  if (q._missing) return [];
+  return (q.hits && q.hits.hits || []).map((h) => h._source);
+}
+async function authenticate(req) {
+  const header = req.headers['authorization'] || '';
+  const m = /^Bearer\s+(.+)$/i.exec(header);
+  if (!m) return null;
+  try { return await resolveTenantFromToken(m[1].trim()); }
+  catch (e) { return null; }
+}
+function requireAdmin(req) {
+  const secret = process.env.ADMIN_SECRET;
+  if (!secret) return false; // fail-closed: admin route disabled without an explicit secret
+  const header = req.headers['x-admin-secret'] || '';
+  const a = Buffer.from(String(header));
+  const b = Buffer.from(secret);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+// Real, ES-native rate limit — how many email_sent already went out for the tenant in the window.
+async function sentCountSince(tenant, sinceExpr) {
+  const q = await es('/cdp_events_' + tenant + '/_search', {
+    size: 0,
+    query: { bool: { filter: [{ term: { 'event.keyword': 'email_sent' } }, { range: { ts: { gte: sinceExpr } } }] } },
+  });
+  if (q._missing) return 0;
+  return (q.hits && q.hits.total && q.hits.total.value) || 0;
+}
+
+async function recordEmailEvent(tenant, eventType, messageId, extra) {
+  if (!TENANT_RE.test(tenant)) return;
+  var doc = Object.assign({
+    event: eventType,
+    anonymous_id: 'email:' + messageId,
+    ts: new Date().toISOString(),
+    properties: Object.assign({ messageId: messageId, source: 'internal_pixel_or_click' }, extra || {}),
+  });
+  // automation_fired carries subjectId (candidate user_id) — promoted to top-level user_id,
+  // otherwise usersMatchingQuery() (aggregates on user_id.keyword) would never find the marker
+  // and trigger idempotency would silently break (resend on every poller run).
+  if (extra && extra.subjectId) doc.user_id = extra.subjectId;
+  try { await es('/cdp_events_' + tenant + '/_doc', doc); }
+  catch (e) { console.warn('recordEmailEvent failed:', e.message || e); }
+}
+// Injects an open pixel + wraps <a href> in signed click redirects.
+// baseUrl — the console's public origin (for absolute links in the email).
+// extraTok (optional) — extra fields in the signed token (e.g. {v:'A', c:campaignId} for A/B attribution).
+function injectTracking(html, tenant, messageId, baseUrl, extraTok) {
+  var out = String(html || '');
+  out = out.replace(/href="(https?:\/\/[^"]+)"/g, function (m, url) {
+    var tok = trackSign(Object.assign({ t: tenant, m: messageId, u: url }, extraTok || {}));
+    return 'href="' + baseUrl + '/t/c/' + tok + '"';
+  });
+  var pixelTok = trackSign(Object.assign({ t: tenant, m: messageId }, extraTok || {}));
+  var pixel = '<img src="' + baseUrl + '/t/o/' + pixelTok + '.gif" width="1" height="1" style="display:none" alt="">';
+  if (/<\/body>/i.test(out)) out = out.replace(/<\/body>/i, pixel + '</body>');
+  else out = out + pixel;
+  return out;
+}
+
+async function resolveConsentedRecipients(tenant, cap) {
+  if (!TENANT_RE.test(tenant)) throw new Error('bad tenant');
+  const q = await es('/cdp_consent_' + tenant + '/_search', {
+    size: 0,
+    aggs: {
+      by_email: {
+        terms: { field: 'consent.email.keyword', size: Math.min(cap || 2000, 10000) },
+        aggs: {
+          latest: { top_hits: { size: 1, sort: [{ ts: 'desc' }], _source: ['consent.email', 'consent.subject', 'consent.state'] } },
+        },
+      },
+    },
+  });
+  if (q._missing) return [];
+  const buckets = (q.aggregations && q.aggregations.by_email.buckets) || [];
+  const out = [];
+  for (const b of buckets) {
+    const src = (b.latest.hits.hits[0] || {})._source;
+    if (!src || !src.consent) continue;
+    if (src.consent.state && src.consent.state.marketing_email === true) {
+      out.push({ email: src.consent.email, subject: src.consent.subject || null });
+    }
+  }
+  if (!out.length) return out;
+  // bulk-filters the suppression list (bounce/complaint from Resend) — one query, not N
+  const suppQ = await es('/' + SUPPRESSION_INDEX + '/_search', {
+    size: out.length,
+    query: { terms: { 'email.keyword': out.map((r) => String(r.email).toLowerCase()) } },
+    _source: ['email'],
+  });
+  if (suppQ._missing) return out;
+  const suppressed = new Set((suppQ.hits && suppQ.hits.hits || []).map((h) => h._source.email));
+  return out.filter((r) => !suppressed.has(String(r.email).toLowerCase()));
+}
+
+// Real two-proportion z-test (same formula as packages/ab-testing.compare() in @cdp-us:
+// pooled-proportion standard error, significant at |z|>1.96 i.e. 95% CI). Ported directly,
+// rather than imported as a TS package — this console stays a zero-build ES5 service.
+// Real user_ids that have an event matching the query (for segment intersection).
+// Real SPF/DMARC/DKIM check (node:dns, no external packages). An actual
+// resolveTxt on the customer's live domain — not parsing an already-given string.
+const dns = require('dns').promises;
+async function checkDomainDeliverability(domain, dkimSelector) {
+  const out = { domain: domain, spf: { status: 'not_found' }, dmarc: { status: 'not_found' }, dkim: { status: 'not_found' }, warnings: [], errors: [] };
+  try {
+    const spfRecords = await dns.resolveTxt(domain);
+    const spf = spfRecords.map((parts) => parts.join('')).find((t) => /^v=spf1/i.test(t));
+    if (spf) {
+      out.spf = { status: 'found', record: spf };
+      if (!/[-~]all\b/.test(spf)) out.warnings.push('SPF has no explicit "-all"/"~all" at the end — policy is not strict');
+    }
+  } catch (e) {
+    out.errors.push('SPF lookup failed: ' + (e.code || e.message));
+  }
+  try {
+    const dmarcRecords = await dns.resolveTxt('_dmarc.' + domain);
+    const dmarc = dmarcRecords.map((parts) => parts.join('')).find((t) => /^v=DMARC1/i.test(t));
+    if (dmarc) {
+      out.dmarc = { status: 'found', record: dmarc };
+      if (/p=none/i.test(dmarc)) out.warnings.push('DMARC policy=none — monitoring only, emails are not protected from spoofing');
+    }
+  } catch (e) {
+    out.errors.push('DMARC lookup failed: ' + (e.code || e.message));
+  }
+  if (dkimSelector) {
+    try {
+      const dkimRecords = await dns.resolveTxt(dkimSelector + '._domainkey.' + domain);
+      const dkim = dkimRecords.map((parts) => parts.join(''));
+      if (dkim.length) out.dkim = { status: 'found', record: dkim.join('') };
+    } catch (e) {
+      out.errors.push('DKIM lookup failed (selector=' + dkimSelector + '): ' + (e.code || e.message));
+    }
+  } else {
+    out.warnings.push('DKIM selector not specified — check with your sending service (e.g. "resend" for Resend) and retry with ?selector=');
+  }
+  out.overall = (out.spf.status === 'found' && out.dmarc.status === 'found' && (!dkimSelector || out.dkim.status === 'found'))
+    ? 'ready' : (out.spf.status === 'found' || out.dmarc.status === 'found') ? 'warning' : 'failed';
+  return out;
+}
+
+// ─── Autopilot triggers: ES-native poller, no Postgres/Redis/pg-boss.
+// 4 honest triggers (not all ~33 from the deck — that is a separate long backlog):
+//   abandoned_cart      — add_to_cart 3-24h ago, no subsequent order_completed
+//   abandoned_browse    — product_viewed 3-24h ago, no add_to_cart/order_completed since
+//   checkout_abandoned  — checkout_started 3-24h ago, no subsequent order_completed
+//   reactivation        — profile just entered "Dormant" (7-30 days without a visit)
+// Idempotency — an automation_fired marker event in the same ES index, with a window
+// matching the candidate window (once the window expires, both candidate and marker "age out"
+// in sync — no risk of an endless repeat trigger on static data).
+function abandonedCartEmailHtml() {
+  return '<!doctype html><html><body style="margin:0;padding:0;background:#f5f0e8">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f0e8"><tr><td align="center" style="padding:24px 12px">' +
+    '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#fffdf9;border-radius:12px;overflow:hidden">' +
+    '<tr><td style="padding:28px;font-family:Arial,Helvetica,sans-serif">' +
+    '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:22px;font-weight:700;color:#1c1510;margin-bottom:12px">You left something in your cart</div>' +
+    '<p style="font-size:14px;line-height:1.6;color:#1c1510">Your items are still waiting — check out before they sell out.</p>' +
+    '<div style="text-align:center;margin-top:20px"><a href="https://ecoma.com/cart" style="display:inline-block;background:#c4683a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px">Back to cart</a></div>' +
+    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">This email was sent based on your consent to receive marketing email (CAN-SPAM, CCPA consent). <a href="{{unsubscribe_url}}" style="color:#7a6e60">Unsubscribe</a></div>' +
+    '</td></tr></table></td></tr></table></body></html>';
+}
+function reactivationEmailHtml() {
+  return '<!doctype html><html><body style="margin:0;padding:0;background:#f5f0e8">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f0e8"><tr><td align="center" style="padding:24px 12px">' +
+    '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#fffdf9;border-radius:12px;overflow:hidden">' +
+    '<tr><td style="padding:28px;font-family:Arial,Helvetica,sans-serif">' +
+    '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:22px;font-weight:700;color:#1c1510;margin-bottom:12px">Long time no see</div>' +
+    '<p style="font-size:14px;line-height:1.6;color:#1c1510">Come back for the newest eco-finds — we picked out what is worth your attention.</p>' +
+    '<div style="text-align:center;margin-top:20px"><a href="https://ecoma.com/catalog" style="display:inline-block;background:#c4683a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px">Browse catalog</a></div>' +
+    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">This email was sent based on your consent to receive marketing email (CAN-SPAM, CCPA consent). <a href="{{unsubscribe_url}}" style="color:#7a6e60">Unsubscribe</a></div>' +
+    '</td></tr></table></td></tr></table></body></html>';
+}
+function abandonedBrowseEmailHtml() {
+  return '<!doctype html><html><body style="margin:0;padding:0;background:#f5f0e8">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f0e8"><tr><td align="center" style="padding:24px 12px">' +
+    '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#fffdf9;border-radius:12px;overflow:hidden">' +
+    '<tr><td style="padding:28px;font-family:Arial,Helvetica,sans-serif">' +
+    '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:22px;font-weight:700;color:#1c1510;margin-bottom:12px">Still browsing?</div>' +
+    '<p style="font-size:14px;line-height:1.6;color:#1c1510">You recently viewed items with us — they are still in stock if you want to come back.</p>' +
+    '<div style="text-align:center;margin-top:20px"><a href="https://ecoma.com/catalog" style="display:inline-block;background:#c4683a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px">Keep browsing</a></div>' +
+    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">This email was sent based on your consent to receive marketing email (CAN-SPAM, CCPA consent). <a href="{{unsubscribe_url}}" style="color:#7a6e60">Unsubscribe</a></div>' +
+    '</td></tr></table></td></tr></table></body></html>';
+}
+function checkoutAbandonedEmailHtml() {
+  return '<!doctype html><html><body style="margin:0;padding:0;background:#f5f0e8">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f0e8"><tr><td align="center" style="padding:24px 12px">' +
+    '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#fffdf9;border-radius:12px;overflow:hidden">' +
+    '<tr><td style="padding:28px;font-family:Arial,Helvetica,sans-serif">' +
+    '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:22px;font-weight:700;color:#1c1510;margin-bottom:12px">Checkout wasn\'t finished</div>' +
+    '<p style="font-size:14px;line-height:1.6;color:#1c1510">You started checking out, but something got in the way — come back to finish your purchase.</p>' +
+    '<div style="text-align:center;margin-top:20px"><a href="https://ecoma.com/checkout" style="display:inline-block;background:#c4683a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px">Finish checkout</a></div>' +
+    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">This email was sent based on your consent to receive marketing email (CAN-SPAM, CCPA consent). <a href="{{unsubscribe_url}}" style="color:#7a6e60">Unsubscribe</a></div>' +
+    '</td></tr></table></td></tr></table></body></html>';
+}
+const AUTOMATION_EMAIL_HTML = {
+  abandoned_cart: abandonedCartEmailHtml,
+  abandoned_browse: abandonedBrowseEmailHtml,
+  checkout_abandoned: checkoutAbandonedEmailHtml,
+  reactivation: reactivationEmailHtml,
+};
+async function sendAutomationEmail(tenant, trigger, subject, email, subjectId, fromName, fromEmail) {
+  const baseUrl = process.env.PUBLIC_BASE_URL || 'https://rf.axiom.rent';
+  const from = (fromName || tenant) + ' <' + (fromEmail || ('hello@' + tenant + '.invalid')) + '>';
+  const html = (AUTOMATION_EMAIL_HTML[trigger] || reactivationEmailHtml)();
+  const messageId = crypto.randomBytes(12).toString('hex');
+  const tracked = injectTracking(html, tenant, messageId, baseUrl, { v: 'auto', c: trigger });
+  const result = await sendRealEmail({ to: email, from: from, subject: subject, html: tracked, tags: [{ name: 'tenant', value: tenant }, { name: 'messageId', value: messageId }] });
+  await recordEmailEvent(tenant, 'email_sent', messageId, { to: email, subject: subject, provider: result.provider, trigger: trigger, automated: true });
+  await recordEmailEvent(tenant, 'automation_fired', messageId, { trigger: trigger, subjectId: subjectId });
+  return result;
+}
+async function runAutomationPoller(tenant) {
+  if (!TENANT_RE.test(tenant)) throw new Error('bad tenant');
+  const auth = await resolveTenantAuth(tenant);
+  const fromName = auth ? auth.fromName : tenant;
+  const fromEmail = auth ? auth.fromEmail : ('hello@' + tenant + '.invalid');
+  const consented = await resolveConsentedRecipients(tenant, 5000);
+  const consentedMap = new Map(consented.filter((c) => c.subject).map((c) => [c.subject, c.email]));
+  const out = { abandoned_cart: { checked: 0, sent: 0, failed: 0 }, abandoned_browse: { checked: 0, sent: 0, failed: 0 }, checkout_abandoned: { checked: 0, sent: 0, failed: 0 }, reactivation: { checked: 0, sent: 0, failed: 0 } };
+
+  // --- abandoned_cart ---
+  const [cartUsers, orderedUsers24h, firedCart] = await Promise.all([
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'add_to_cart' } }, { range: { ts: { gte: 'now-24h', lte: 'now-3h' } } }] } }),
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'order_completed' } }, { range: { ts: { gte: 'now-24h' } } }] } }),
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'automation_fired' } }, { term: { 'properties.trigger.keyword': 'abandoned_cart' } }, { range: { ts: { gte: 'now-24h' } } }] } }),
+  ]);
+  for (const userId of cartUsers) {
+    out.abandoned_cart.checked++;
+    if (orderedUsers24h.has(userId) || firedCart.has(userId)) continue;
+    const email = consentedMap.get(userId);
+    if (!email) continue;
+    try {
+      await sendAutomationEmail(tenant, 'abandoned_cart', 'You left something in your cart', email, userId, fromName, fromEmail);
+      out.abandoned_cart.sent++;
+    } catch (e) { out.abandoned_cart.failed++; }
+  }
+
+  // --- abandoned_browse: viewed a product 3-24h ago, no add_to_cart and no order_completed since ---
+  const [browseUsers, cartUsers24h, orderedUsersBrowse24h, firedBrowse] = await Promise.all([
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'product_viewed' } }, { range: { ts: { gte: 'now-24h', lte: 'now-3h' } } }] } }),
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'add_to_cart' } }, { range: { ts: { gte: 'now-24h' } } }] } }),
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'order_completed' } }, { range: { ts: { gte: 'now-24h' } } }] } }),
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'automation_fired' } }, { term: { 'properties.trigger.keyword': 'abandoned_browse' } }, { range: { ts: { gte: 'now-24h' } } }] } }),
+  ]);
+  for (const userId of browseUsers) {
+    out.abandoned_browse.checked++;
+    if (cartUsers24h.has(userId) || orderedUsersBrowse24h.has(userId) || firedBrowse.has(userId)) continue;
+    const email = consentedMap.get(userId);
+    if (!email) continue;
+    try {
+      await sendAutomationEmail(tenant, 'abandoned_browse', 'Still browsing?', email, userId, fromName, fromEmail);
+      out.abandoned_browse.sent++;
+    } catch (e) { out.abandoned_browse.failed++; }
+  }
+
+  // --- checkout_abandoned: checkout_started 3-24h ago, no order_completed since ---
+  const [checkoutUsers, orderedUsersCheckout24h, firedCheckout] = await Promise.all([
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'checkout_started' } }, { range: { ts: { gte: 'now-24h', lte: 'now-3h' } } }] } }),
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'order_completed' } }, { range: { ts: { gte: 'now-24h' } } }] } }),
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'automation_fired' } }, { term: { 'properties.trigger.keyword': 'checkout_abandoned' } }, { range: { ts: { gte: 'now-24h' } } }] } }),
+  ]);
+  for (const userId of checkoutUsers) {
+    out.checkout_abandoned.checked++;
+    if (orderedUsersCheckout24h.has(userId) || firedCheckout.has(userId)) continue;
+    const email = consentedMap.get(userId);
+    if (!email) continue;
+    try {
+      await sendAutomationEmail(tenant, 'checkout_abandoned', 'Checkout wasn\'t finished', email, userId, fromName, fromEmail);
+      out.checkout_abandoned.sent++;
+    } catch (e) { out.checkout_abandoned.failed++; }
+  }
+
+  // --- reactivation: profiles in "Dormant" (7-30 days), no automation_fired(reactivation) in 30d ---
+  const [profiles, firedReactivation] = await Promise.all([
+    profilesList(tenant, 500),
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'automation_fired' } }, { term: { 'properties.trigger.keyword': 'reactivation' } }, { range: { ts: { gte: 'now-30d' } } }] } }),
+  ]);
+  const nowMs = Date.now();
+  for (const p of profiles) {
+    const ageLast = p.lastSeen ? nowMs - Date.parse(p.lastSeen) : Infinity;
+    const isDormant = ageLast > 7 * DAY && ageLast <= 30 * DAY;
+    if (!isDormant) continue;
+    out.reactivation.checked++;
+    const userId = p.userId;
+    if (!userId || firedReactivation.has(userId)) continue;
+    const email = consentedMap.get(userId);
+    if (!email) continue;
+    try {
+      await sendAutomationEmail(tenant, 'reactivation', 'Long time no see — come back for the newest eco-finds', email, userId, fromName, fromEmail);
+      out.reactivation.sent++;
+    } catch (e) { out.reactivation.failed++; }
+  }
+  return out;
+}
+
+const AUTOMATION_TRIGGER_META = {
+  abandoned_cart: { name: 'Abandoned cart', sub: 'recovery · add_to_cart without checkout', channel: 'Email' },
+  abandoned_browse: { name: 'Abandoned browse', sub: 'recovery · product_viewed without add-to-cart', channel: 'Email' },
+  checkout_abandoned: { name: 'Checkout abandoned', sub: 'recovery · checkout_started without payment', channel: 'Email' },
+  reactivation: { name: 'Win-back (dormant)', sub: 'win-back · 7-30 days without a visit', channel: 'Email' },
+};
+// Real automation-scenario stats (replaces the SEG_FLOWS/em_flows_model fixture
+// with made-up conv/revenue and a fake "last run").
+// inflow — automation_fired count over 30d, conv — share of those with an order_completed
+// for the same user_id within 7d AFTER the trigger fired (raw-doc correlation, same
+// trick as noopen in realSegmentCounts — anonymous_id is unique per send, so we count
+// by user_id + ts comparison), revenue — sum of those orders. lastFired — the real
+// timestamp of the last trigger, not a made-up "today 08:40".
+async function automationFlowStats(tenant) {
+  if (!TENANT_RE.test(tenant)) throw new Error('bad tenant');
+  const triggers = Object.keys(AUTOMATION_TRIGGER_META);
+  const [firedDocs, orderDocs] = await Promise.all([
+    es('/cdp_events_' + tenant + '/_search', {
+      size: 5000,
+      query: { bool: { filter: [{ term: { event: 'automation_fired' } }, { range: { ts: { gte: 'now-30d' } } }] } },
+      _source: ['user_id', 'ts', 'properties.trigger'],
+      sort: [{ ts: 'desc' }],
+    }),
+    es('/cdp_events_' + tenant + '/_search', {
+      size: 5000,
+      query: { bool: { filter: [{ term: { 'event.keyword': 'order_completed' } }, { range: { ts: { gte: 'now-37d' } } }] } },
+      _source: ['user_id', 'ts', 'properties.revenue'],
+    }),
+  ]);
+  const orders = (orderDocs.hits && orderDocs.hits.hits || [])
+    .map((h) => ({ userId: h._source.user_id, ts: Date.parse(h._source.ts), revenue: (h._source.properties && h._source.properties.revenue) || 0 }))
+    .filter((o) => o.userId);
+  const byTrigger = {};
+  for (const t of triggers) byTrigger[t] = [];
+  for (const h of (firedDocs.hits && firedDocs.hits.hits || [])) {
+    const trig = h._source.properties && h._source.properties.trigger;
+    if (!byTrigger[trig]) continue;
+    byTrigger[trig].push({ userId: h._source.user_id, ts: Date.parse(h._source.ts) });
+  }
+  const out = [];
+  for (const t of triggers) {
+    const fires = byTrigger[t];
+    let converted = 0, revenue = 0, lastFiredTs = null;
+    for (const f of fires) {
+      if (lastFiredTs === null || f.ts > lastFiredTs) lastFiredTs = f.ts;
+      if (!f.userId) continue;
+      const match = orders.find((o) => o.userId === f.userId && o.ts > f.ts && o.ts <= f.ts + 7 * DAY);
+      if (match) { converted++; revenue += match.revenue; }
+    }
+    out.push({
+      key: t,
+      name: AUTOMATION_TRIGGER_META[t].name,
+      sub: AUTOMATION_TRIGGER_META[t].sub,
+      channel: AUTOMATION_TRIGGER_META[t].channel,
+      active: true,
+      inflow: fires.length,
+      converted: converted,
+      convRate: fires.length ? Math.round((converted / fires.length) * 1000) / 10 : 0,
+      revenue: revenue,
+      lastFired: lastFiredTs ? new Date(lastFiredTs).toISOString() : null,
+    });
+  }
+  return out;
+}
+
+async function usersMatchingQuery(tenant, query) {
+  const q = await es('/cdp_events_' + tenant + '/_search', {
+    size: 0,
+    query: query,
+    aggs: { u: { terms: { field: 'user_id.keyword', size: 10000 } } },
+  });
+  if (q._missing) return new Set();
+  const buckets = (q.aggregations && q.aggregations.u.buckets) || [];
+  return new Set(buckets.map((b) => b.key));
+}
+// Real sizes for named audiences — intersection of real event sets
+// with real consent (marketing_email=verified), not an eyeballed percentage of the total.
+// Returns only the 4 segments that are honestly computable from available data; the rest
+// (VIP by spend, "never opened 5+ emails") are marked estimate:true — not enough data
+// for an exact rule (complex per-profile order-sum aggregation / open history).
+async function realSegmentCounts(tenant) {
+  if (!TENANT_RE.test(tenant)) throw new Error('bad tenant');
+  const [orderedUsers30d, cartUsers72h, orderedUsers72h, mpOrderedUsers, consented, ov, dormancyAgg, vipAgg, sentDocs, openedDocs] = await Promise.all([
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'order_completed' } }, { range: { ts: { gte: 'now-30d' } } }] } }),
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'add_to_cart' } }, { range: { ts: { gte: 'now-72h' } } }] } }),
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'order_completed' } }, { range: { ts: { gte: 'now-72h' } } }] } }),
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'order_completed' } }], should: [{ wildcard: { 'origin.keyword': '*wildberries*' } }, { wildcard: { 'origin.keyword': '*wb.ru*' } }, { wildcard: { 'origin.keyword': '*ozon*' } }], minimum_should_match: 1 } }),
+    resolveConsentedRecipients(tenant, 5000),
+    aggregate(tenant, Date.now()),
+    // Duplicates the profile part of profilesOf() (5000 profiles, ordered by volume — NOT by
+    // recency, so it is not crowded out by a handful of today's test events, unlike
+    // profilesList with its 500 cap + recency sort), but with a user_id binding
+    // that profilesOf() lacks — needed to intersect with consent.
+    es('/cdp_events_' + tenant + '/_search', {
+      size: 0,
+      aggs: { profiles: { terms: { field: 'anonymous_id.keyword', size: 5000 }, aggs: { ls: { max: { field: 'ts' } }, uid: { terms: { field: 'user_id.keyword', size: 1 } } } } },
+    }),
+    es('/cdp_events_' + tenant + '/_search', {
+      size: 0,
+      query: { term: { 'event.keyword': 'order_completed' } },
+      aggs: { by_user: { terms: { field: 'user_id.keyword', size: 10000 }, aggs: { revenue: { sum: { field: 'properties.revenue' } } } } },
+    }),
+    es('/cdp_events_' + tenant + '/_search', { size: 5000, query: { term: { 'event.keyword': 'email_sent' } }, _source: ['anonymous_id', 'properties.to'] }),
+    es('/cdp_events_' + tenant + '/_search', { size: 5000, query: { term: { 'event.keyword': 'email_opened' } }, _source: ['anonymous_id'] }),
+  ]);
+  const consentedSubjects = new Set(consented.map((c) => c.subject).filter(Boolean));
+  function intersectCount(userSet) {
+    let n = 0;
+    for (const u of userSet) if (consentedSubjects.has(u)) n++;
+    return n;
+  }
+  const cartAbandoned = new Set([...cartUsers72h].filter((u) => !orderedUsers72h.has(u)));
+
+  // VIP: order sum > 2×AOV AND orders ≥ 3 (same rule as em_audiences_segments used to have,
+  // now a real per-user aggregation instead of a percentage of the lifecycle bucket)
+  const aov = ov.orders && ov.orders.count ? Math.round(ov.orders.revenue / ov.orders.count) : 1800;
+  const vipThreshold = aov * 2;
+  const vipBuckets = (vipAgg.aggregations && vipAgg.aggregations.by_user.buckets) || [];
+  let vip = 0;
+  for (const b of vipBuckets) {
+    const revenue = (b.revenue && b.revenue.value) || 0;
+    if (b.doc_count >= 3 && revenue > vipThreshold && consentedSubjects.has(b.key)) vip++;
+  }
+
+  // Dormant: the same 7-30 day classification as bucketLifecycle, intersected with consent
+  const nowMs = Date.now();
+  let sleep = 0;
+  const dormancyBuckets = (dormancyAgg.aggregations && dormancyAgg.aggregations.profiles.buckets) || [];
+  for (const b of dormancyBuckets) {
+    const lastSeen = b.ls && b.ls.value;
+    const ageLast = lastSeen ? nowMs - lastSeen : Infinity;
+    const uidBucket = (b.uid && b.uid.buckets && b.uid.buckets[0]) || null;
+    const userId = uidBucket ? uidBucket.key : null;
+    if (ageLast > 7 * DAY && ageLast <= 30 * DAY && userId && consentedSubjects.has(userId)) sleep++;
+  }
+
+  // Subscribed but never opened: email_sent ≥5 AND none of THESE SPECIFIC messages
+  // was opened. Tracking anonymous_id = "email:<messageId>" (unique per send, NOT per
+  // recipient) — must group by properties.to (the real email), and match
+  // to opens by the specific messageId (otherwise "sent ≥5" would never be true,
+  // since 1 anonymous_id always has exactly 1 email_sent). Real sending just went live,
+  // numbers are honestly small until history accumulates.
+  const openedMessageIds = new Set((openedDocs.hits && openedDocs.hits.hits || []).map((h) => h._source.anonymous_id));
+  const sentByRecipient = new Map();
+  for (const h of (sentDocs.hits && sentDocs.hits.hits || [])) {
+    const to = h._source.properties && h._source.properties.to;
+    if (!to) continue;
+    const key = String(to).toLowerCase();
+    if (!sentByRecipient.has(key)) sentByRecipient.set(key, new Set());
+    sentByRecipient.get(key).add(h._source.anonymous_id);
+  }
+  let noopen = 0;
+  for (const msgIds of sentByRecipient.values()) {
+    if (msgIds.size < 5) continue;
+    let openedAny = false;
+    for (const mid of msgIds) { if (openedMessageIds.has(mid)) { openedAny = true; break; } }
+    if (!openedAny) noopen++;
+  }
+
+  return {
+    active: intersectCount(orderedUsers30d),
+    cart: intersectCount(cartAbandoned),
+    mpback: intersectCount(mpOrderedUsers),
+    sleep: sleep,
+    vip: vip,
+    noopen: noopen,
+    consentedTotal: consentedSubjects.size,
+  };
+}
+
+// Real campaign registry — aggregates cdp_events_<tenant> by properties.messageId
+// (email_sent/email_opened/email_clicked write the same messageId), grouped by subject
+// line. A/B variants (variant A/B, not autopilot's 'auto') group by campaignId, not subject,
+// since an A/B variant has two different subject lines for one campaign. Empty means there really were no campaigns,
+// not a fixture standing in.
+async function realCampaignsList(tenant, limit) {
+  if (!TENANT_RE.test(tenant)) throw new Error('bad tenant');
+  const q = await es('/cdp_events_' + tenant + '/_search', {
+    size: 0,
+    query: { terms: { 'event.keyword': ['email_sent', 'email_opened', 'email_clicked'] } },
+    aggs: {
+      msg: {
+        terms: { field: 'properties.messageId.keyword', size: 10000 },
+        aggs: {
+          types: { terms: { field: 'event.keyword', size: 5 } },
+          sent_doc: {
+            filter: { term: { 'event.keyword': 'email_sent' } },
+            aggs: { hit: { top_hits: { size: 1, _source: ['properties.subject', 'properties.campaign', 'properties.automated', 'properties.trigger', 'properties.variant', 'properties.campaignId', 'ts'] } } },
+          },
+        },
+      },
+    },
+  });
+  if (q._missing) return [];
+  const buckets = (q.aggregations && q.aggregations.msg.buckets) || [];
+  const bySubject = new Map();
+  for (const b of buckets) {
+    const hits = b.sent_doc && b.sent_doc.hit && b.sent_doc.hit.hits.hits;
+    const hit = hits && hits[0];
+    if (!hit) continue;
+    const props = hit._source.properties || {};
+    const ts = hit._source.ts;
+    const isAb = !!props.variant && props.variant !== 'auto';
+    const isAuto = !!props.automated || !!props.trigger;
+    const typeKeys = new Set((b.types.buckets || []).map((t) => t.key));
+    const groupKey = isAb ? ('ab:' + (props.campaignId || props.subject)) : (props.subject || '(no subject)');
+    if (!bySubject.has(groupKey)) {
+      bySubject.set(groupKey, {
+        subject: props.subject || '(no subject)',
+        sent: 0, opened: 0, clicked: 0,
+        automated: isAuto, ab: isAb, trigger: props.trigger || null,
+        lastSent: ts || null,
+      });
+    }
+    const c = bySubject.get(groupKey);
+    c.sent++;
+    if (typeKeys.has('email_opened')) c.opened++;
+    if (typeKeys.has('email_clicked')) c.clicked++;
+    if (ts && (!c.lastSent || ts > c.lastSent)) c.lastSent = ts;
+  }
+  const list = Array.from(bySubject.values()).map((c) => ({
+    subject: c.subject,
+    sent: c.sent,
+    opened: c.opened,
+    clicked: c.clicked,
+    openRate: c.sent ? c.opened / c.sent : 0,
+    clickRate: c.sent ? c.clicked / c.sent : 0,
+    automated: c.automated,
+    ab: c.ab,
+    trigger: c.trigger,
+    lastSent: c.lastSent,
+  }));
+  list.sort((a, b) => String(b.lastSent || '').localeCompare(String(a.lastSent || '')));
+  return list.slice(0, limit || 50);
+}
+
+// Real A/B test registry — finds every campaignId with real A/B variants (excluding
+// autopilot's variant:'auto' — that isn't A/B), computing each via the already-
+// existing abtestStats()+zTestCompare() (same path already verified in prod for single lookups).
+async function realAbtestList(tenant, limit) {
+  if (!TENANT_RE.test(tenant)) throw new Error('bad tenant');
+  const q = await es('/cdp_events_' + tenant + '/_search', {
+    size: 0,
+    query: { bool: { filter: [{ term: { 'event.keyword': 'email_sent' } }, { terms: { 'properties.variant.keyword': ['A', 'B'] } }] } },
+    aggs: {
+      camp: {
+        terms: { field: 'properties.campaignId.keyword', size: 200 },
+        aggs: {
+          subjA: { filter: { term: { 'properties.variant.keyword': 'A' } }, aggs: { s: { terms: { field: 'properties.subject.keyword', size: 1 } } } },
+          subjB: { filter: { term: { 'properties.variant.keyword': 'B' } }, aggs: { s: { terms: { field: 'properties.subject.keyword', size: 1 } } } },
+          last: { max: { field: 'ts' } },
+        },
+      },
+    },
+  });
+  if (q._missing) return [];
+  const buckets = (q.aggregations && q.aggregations.camp.buckets) || [];
+  const out = [];
+  for (const b of buckets) {
+    const campaignId = b.key;
+    const counts = await abtestStats(tenant, campaignId);
+    const stats = zTestCompare(counts.sentA, counts.openA, counts.sentB, counts.openB);
+    const subjA = (b.subjA && b.subjA.s.buckets[0] && b.subjA.s.buckets[0].key) || '';
+    const subjB = (b.subjB && b.subjB.s.buckets[0] && b.subjB.s.buckets[0].key) || '';
+    const lastSent = (b.last && b.last.value_as_string) || null;
+    out.push(Object.assign({ campaignId: campaignId, subjectA: subjA, subjectB: subjB, lastSent: lastSent }, counts, stats));
+  }
+  out.sort((a, b) => String(b.lastSent || '').localeCompare(String(a.lastSent || '')));
+  return out.slice(0, limit || 50);
+}
+
+function zTestCompare(sentA, openA, sentB, openB) {
+  var rateA = sentA > 0 ? openA / sentA : 0;
+  var rateB = sentB > 0 ? openB / sentB : 0;
+  var lift = rateA === 0 ? (rateB === 0 ? 0 : Infinity) : (rateB - rateA) / rateA;
+  var pooled = (sentA + sentB) > 0 ? (openA + openB) / (sentA + sentB) : 0;
+  var se = Math.sqrt(pooled * (1 - pooled) * ((sentA > 0 ? 1 / sentA : 0) + (sentB > 0 ? 1 / sentB : 0)));
+  var z = se === 0 ? 0 : (rateB - rateA) / se;
+  return { rateA: rateA, rateB: rateB, lift: lift, z: z, significant: Math.abs(z) > 1.96, winner: rateB >= rateA ? 'B' : 'A' };
+}
+// Real aggregated sent/opened counters by variant for one campaignId.
+async function abtestStats(tenant, campaignId) {
+  if (!TENANT_RE.test(tenant)) throw new Error('bad tenant');
+  const q = await es('/cdp_events_' + tenant + '/_search', {
+    size: 0,
+    query: { term: { 'properties.campaignId.keyword': campaignId } },
+    aggs: {
+      by_event: {
+        terms: { field: 'event.keyword', size: 5 },
+        aggs: { by_variant: { terms: { field: 'properties.variant.keyword', size: 5 } } },
+      },
+    },
+  });
+  if (q._missing) return { sentA: 0, openA: 0, sentB: 0, openB: 0 };
+  var out = { sentA: 0, openA: 0, sentB: 0, openB: 0 };
+  var buckets = (q.aggregations && q.aggregations.by_event.buckets) || [];
+  for (const eb of buckets) {
+    for (const vb of eb.by_variant.buckets) {
+      if (eb.key === 'email_sent' && vb.key === 'A') out.sentA = vb.doc_count;
+      if (eb.key === 'email_sent' && vb.key === 'B') out.sentB = vb.doc_count;
+      if (eb.key === 'email_opened' && vb.key === 'A') out.openA = vb.doc_count;
+      if (eb.key === 'email_opened' && vb.key === 'B') out.openB = vb.doc_count;
+    }
+  }
+  return out;
+}
+
+
 function send(res, code, data, type) {
   const body = type === 'html' ? data : JSON.stringify(data);
   res.writeHead(code, { 'content-type': type === 'html' ? 'text/html; charset=utf-8' : 'application/json; charset=utf-8', 'cache-control': 'no-store' });
@@ -190,16 +1012,370 @@ const server = http.createServer(async (req, res) => {
       return res.end(FAV);
     }
     if (p === '/health') return send(res, 200, { ok: true });
-    const hdr = req.headers['x-cdp-tenant'];
-    const locked = hdr && TENANT_RE.test(hdr) ? hdr : null;
-    if (p === '/api/config') return send(res, 200, { locked });
-    if (p === '/api/tenants') {
-      const all = await listTenants();
-      return send(res, 200, locked ? all.filter((t) => t.tenant === locked) : all);
+
+    // ─── admin: tenant provisioning/token rotation (fail-closed without ADMIN_SECRET) ───
+    if (p === '/api/admin/tenants' && req.method === 'POST') {
+      if (!requireAdmin(req)) return send(res, 403, { error: 'forbidden' });
+      var adminBody;
+      try { adminBody = await readJsonBody(req, 4 * 1024); }
+      catch (e) { return send(res, 400, { error: String(e.message || e) }); }
+      var newTenant = typeof adminBody.tenant === 'string' ? adminBody.tenant : '';
+      if (!TENANT_RE.test(newTenant)) return send(res, 400, { error: 'invalid_tenant' });
+      try {
+        var created = await createTenantAuth(newTenant, adminBody.fromName, adminBody.fromEmail);
+        return send(res, 200, { ok: true, tenant: created.tenant, token: created.token, fromName: created.fromName, fromEmail: created.fromEmail });
+      } catch (e) {
+        return send(res, 502, { error: 'provision_failed', message: String(e.message || e) });
+      }
     }
-    const tenant = locked || u.searchParams.get('tenant');
-    if (p === '/api/overview') { if (!tenant) return send(res, 400, { error: 'tenant required' }); return send(res, 200, await aggregate(tenant, Date.now())); }
-    if (p === '/api/profiles') { if (!tenant) return send(res, 400, { error: 'tenant required' }); return send(res, 200, await profilesList(tenant, parseInt(u.searchParams.get('limit') || '200', 10))); }
+    // ─── public self-signup: no ADMIN_SECRET, the token is NOT returned in the response —
+    // it's emailed to the given address instead (a soft anti-abuse gate +
+    // dogfooding our own send pipeline). Time-windowed global rate limit.
+    if (p === '/api/signup' && req.method === 'POST') {
+      var signupBody;
+      try { signupBody = await readJsonBody(req, 4 * 1024); }
+      catch (e) { return send(res, 400, { error: String(e.message || e) }); }
+      var suTenant = typeof signupBody.tenant === 'string' ? signupBody.tenant.trim().toLowerCase() : '';
+      var suCompany = typeof signupBody.companyName === 'string' ? signupBody.companyName.trim().slice(0, 120) : suTenant;
+      var suEmail = typeof signupBody.contactEmail === 'string' ? signupBody.contactEmail.trim() : '';
+      if (!TENANT_RE.test(suTenant) || suTenant.length < 3) return send(res, 400, { error: 'invalid_tenant', message: 'tenant: 3+ chars, letters/digits/-/_'  });
+      if (!suEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(suEmail)) return send(res, 400, { error: 'invalid_contact_email' });
+      var recentSignups = await countRecentSignups('now-1h');
+      if (recentSignups >= 20) return send(res, 429, { error: 'rate_limited', message: 'too many signups in the last hour, try again later' });
+      var existing = await resolveTenantAuth(suTenant);
+      if (existing) return send(res, 409, { error: 'tenant_taken', message: 'this tenant name is already taken' });
+      try {
+        var suCreated = await createTenantAuth(suTenant, suCompany, suEmail);
+        var suBaseUrl = process.env.PUBLIC_BASE_URL || 'https://rf.axiom.rent';
+        var loginUrl = suBaseUrl + '/?token=' + encodeURIComponent(suCreated.token);
+        try {
+          await sendRealEmail({
+            to: suEmail,
+            from: 'Axiom <hello@axiom.rent>',
+            subject: 'Welcome to Axiom — your access is ready',
+            html: signupWelcomeEmailHtml(suCompany, loginUrl),
+            tags: [{ name: 'tenant', value: suTenant }, { name: 'messageId', value: 'signup-' + suTenant }],
+          });
+        } catch (mailErr) {
+          // The tenant is created either way — we don't roll back signup because of a mail failure,
+          // but we say so explicitly so it doesn't look like silent loss of access.
+          return send(res, 200, { ok: true, tenant: suTenant, emailSent: false, warning: 'Tenant created, but the access email failed to send: ' + (mailErr.message || mailErr) + '. Contact support.' });
+        }
+        return send(res, 200, { ok: true, tenant: suTenant, emailSent: true, message: 'Check ' + suEmail + ' for the sign-in link.' });
+      } catch (e) {
+        return send(res, 502, { error: 'signup_failed', message: String(e.message || e) });
+      }
+    }
+    // ─── account recovery: rotates the token(s) of matching tenants by email and sends
+    // a new link. Always the same generic response — doesn't leak whether the email exists.
+    if (p === '/api/recover' && req.method === 'POST') {
+      var recBody;
+      try { recBody = await readJsonBody(req, 2 * 1024); }
+      catch (e) { return send(res, 400, { error: String(e.message || e) }); }
+      var recEmail = typeof recBody.email === 'string' ? recBody.email.trim().toLowerCase() : '';
+      var GENERIC_RESPONSE = { ok: true, message: 'If this address is registered, an email with a new link has been sent.' };
+      if (!recEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recEmail)) return send(res, 400, { error: 'invalid_email' });
+      var recRecent = await countRecentSignups('now-1h');
+      if (recRecent >= 40) return send(res, 429, { error: 'rate_limited' });
+      try {
+        var matches = await findTenantsByEmail(recEmail);
+        if (!matches.length) return send(res, 200, GENERIC_RESPONSE);
+        var recBaseUrl = process.env.PUBLIC_BASE_URL || 'https://rf.axiom.rent';
+        var links = [];
+        for (var mi = 0; mi < matches.length; mi++) {
+          var rotated = await createTenantAuth(matches[mi].tenant, matches[mi].fromName, matches[mi].fromEmail);
+          links.push({ tenant: rotated.tenant, url: recBaseUrl + '/?token=' + encodeURIComponent(rotated.token) });
+        }
+        await sendRealEmail({
+          to: recEmail,
+          from: 'Axiom <hello@axiom.rent>',
+          subject: 'Axiom account recovery',
+          html: recoveryEmailHtml(links),
+          tags: [{ name: 'tenant', value: 'recovery' }, { name: 'messageId', value: 'recover-' + Date.now() }],
+        });
+        return send(res, 200, GENERIC_RESPONSE);
+      } catch (e) {
+        // Also generic — don't let an outside observer distinguish "error" from "email not found"
+        return send(res, 200, GENERIC_RESPONSE);
+      }
+    }
+    if (p === '/api/tenants') {
+      if (!requireAdmin(req)) return send(res, 403, { error: 'forbidden' });
+      return send(res, 200, await listTenants());
+    }
+    if (p === '/api/config') {
+      var cfgPrincipal = await authenticate(req);
+      if (!cfgPrincipal) return send(res, 401, { error: 'unauthorized' });
+      return send(res, 200, { locked: cfgPrincipal.tenant, tenant: cfgPrincipal.tenant, fromName: cfgPrincipal.fromName, fromEmail: cfgPrincipal.fromEmail });
+    }
+    if (p === '/api/overview') {
+      var ovPrincipal = await authenticate(req);
+      if (!ovPrincipal) return send(res, 401, { error: 'unauthorized' });
+      return send(res, 200, await aggregate(ovPrincipal.tenant, Date.now()));
+    }
+    if (p === '/api/profiles') {
+      var plPrincipal = await authenticate(req);
+      if (!plPrincipal) return send(res, 401, { error: 'unauthorized' });
+      return send(res, 200, await profilesList(plPrincipal.tenant, parseInt(u.searchParams.get('limit') || '200', 10)));
+    }
+    if (p === '/api/email/send' && req.method === 'POST') {
+      var sendPrincipal = await authenticate(req);
+      if (!sendPrincipal) return send(res, 401, { error: 'unauthorized' });
+      var body;
+      try { body = await readJsonBody(req, 2 * 1024 * 1024); }
+      catch (e) { return send(res, 400, { error: String(e.message || e) }); }
+      var toAddr = typeof body.to === 'string' ? body.to.trim() : '';
+      var subj = typeof body.subject === 'string' ? body.subject : '';
+      var html = typeof body.html === 'string' ? body.html : '';
+      if (!toAddr || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(toAddr)) return send(res, 400, { error: 'invalid_to' });
+      if (!subj) return send(res, 400, { error: 'subject_required' });
+      var recentSingle = await sentCountSince(sendPrincipal.tenant, 'now-1m');
+      if (recentSingle >= 20) return send(res, 429, { error: 'rate_limited', message: 'too many sends per minute' });
+      var messageId = crypto.randomBytes(12).toString('hex');
+      var baseUrl = process.env.PUBLIC_BASE_URL || 'https://rf.axiom.rent';
+      var trackedHtml = injectTracking(html || '<p>(empty)</p>', sendPrincipal.tenant, messageId, baseUrl);
+      try {
+        var result = await sendRealEmail({
+          to: toAddr,
+          from: (sendPrincipal.fromName || sendPrincipal.tenant) + ' <' + sendPrincipal.fromEmail + '>',
+          subject: subj,
+          html: trackedHtml,
+          tags: [{ name: 'tenant', value: sendPrincipal.tenant }, { name: 'messageId', value: messageId }],
+        });
+        await recordEmailEvent(sendPrincipal.tenant, 'email_sent', messageId, { to: toAddr, subject: subj, provider: result.provider });
+        return send(res, 200, Object.assign({ messageId: messageId }, result));
+      } catch (e) {
+        return send(res, 502, { error: 'send_failed', message: String(e.message || e) });
+      }
+    }
+    if (p === '/api/email/campaign' && req.method === 'POST') {
+      var campPrincipal = await authenticate(req);
+      if (!campPrincipal) return send(res, 401, { error: 'unauthorized' });
+      var cbody;
+      try { cbody = await readJsonBody(req, 2 * 1024 * 1024); }
+      catch (e) { return send(res, 400, { error: String(e.message || e) }); }
+      var cSubj = typeof cbody.subject === 'string' ? cbody.subject : '';
+      var cHtml = typeof cbody.html === 'string' ? cbody.html : '';
+      var cCap = Math.min(parseInt(cbody.limit, 10) || 500, 2000);
+      var cDryRun = !!cbody.dryRun;
+      if (!cSubj) return send(res, 400, { error: 'subject_required' });
+      if (cDryRun) {
+        var dryRecipients;
+        try { dryRecipients = await resolveConsentedRecipients(campPrincipal.tenant, cCap); }
+        catch (e) { return send(res, 502, { error: 'consent_lookup_failed', message: String(e.message || e) }); }
+        return send(res, 200, { ok: true, dryRun: true, wouldSend: dryRecipients.length, sample: dryRecipients.slice(0, 5).map((r) => r.email) });
+      }
+      var dailyCap = Math.max(1, parseInt(process.env.MAX_SENDS_PER_DAY, 10) || 5000);
+      var sentToday = await sentCountSince(campPrincipal.tenant, 'now-24h');
+      if (sentToday >= dailyCap) return send(res, 429, { error: 'daily_limit_reached', sentToday: sentToday, dailyCap: dailyCap });
+      var recipients;
+      try { recipients = await resolveConsentedRecipients(campPrincipal.tenant, Math.min(cCap, dailyCap - sentToday)); }
+      catch (e) { return send(res, 502, { error: 'consent_lookup_failed', message: String(e.message || e) }); }
+      var cBaseUrl = process.env.PUBLIC_BASE_URL || 'https://rf.axiom.rent';
+      var cFrom = (campPrincipal.fromName || campPrincipal.tenant) + ' <' + campPrincipal.fromEmail + '>';
+      var sent = 0, failed = 0, failures = [];
+      for (var ri = 0; ri < recipients.length; ri++) {
+        var rEmail = recipients[ri].email;
+        if (!rEmail) continue;
+        var rMsgId = crypto.randomBytes(12).toString('hex');
+        var rHtml = injectTracking(cHtml || '<p>(empty)</p>', campPrincipal.tenant, rMsgId, cBaseUrl);
+        try {
+          var rResult = await sendRealEmail({ to: rEmail, from: cFrom, subject: cSubj, html: rHtml, tags: [{ name: 'tenant', value: campPrincipal.tenant }, { name: 'messageId', value: rMsgId }] });
+          await recordEmailEvent(campPrincipal.tenant, 'email_sent', rMsgId, { to: rEmail, subject: cSubj, provider: rResult.provider, campaign: true });
+          sent++;
+        } catch (e) {
+          failed++;
+          if (failures.length < 10) failures.push({ email: rEmail, error: String(e.message || e) });
+        }
+      }
+      return send(res, 200, { ok: true, totalConsented: recipients.length, sent: sent, failed: failed, failures: failures, dailyCap: dailyCap, sentToday: sentToday });
+    }
+    if (p === '/api/email/abtest/start' && req.method === 'POST') {
+      var abPrincipal = await authenticate(req);
+      if (!abPrincipal) return send(res, 401, { error: 'unauthorized' });
+      var abody;
+      try { abody = await readJsonBody(req, 2 * 1024 * 1024); }
+      catch (e) { return send(res, 400, { error: String(e.message || e) }); }
+      var subjA = typeof abody.subjectA === 'string' ? abody.subjectA : '';
+      var subjB = typeof abody.subjectB === 'string' ? abody.subjectB : '';
+      var abHtml = typeof abody.html === 'string' ? abody.html : '<p>(empty)</p>';
+      var abCap = Math.min(parseInt(abody.limit, 10) || 500, 2000);
+      if (!subjA || !subjB) return send(res, 400, { error: 'subjectA_and_subjectB_required' });
+      var dailyCapAb = Math.max(1, parseInt(process.env.MAX_SENDS_PER_DAY, 10) || 5000);
+      var sentTodayAb = await sentCountSince(abPrincipal.tenant, 'now-24h');
+      if (sentTodayAb >= dailyCapAb) return send(res, 429, { error: 'daily_limit_reached', sentToday: sentTodayAb, dailyCap: dailyCapAb });
+      var abRecipients;
+      try { abRecipients = await resolveConsentedRecipients(abPrincipal.tenant, Math.min(abCap, dailyCapAb - sentTodayAb)); }
+      catch (e) { return send(res, 502, { error: 'consent_lookup_failed', message: String(e.message || e) }); }
+      var campaignId = crypto.randomBytes(8).toString('hex');
+      var abBaseUrl = process.env.PUBLIC_BASE_URL || 'https://rf.axiom.rent';
+      var abFrom = (abPrincipal.fromName || abPrincipal.tenant) + ' <' + abPrincipal.fromEmail + '>';
+      var abSent = { A: 0, B: 0 }, abFailed = 0;
+      for (var ai = 0; ai < abRecipients.length; ai++) {
+        var abEmail = abRecipients[ai].email;
+        if (!abEmail) continue;
+        var variant = (ai % 2 === 0) ? 'A' : 'B';
+        var abSubj = variant === 'A' ? subjA : subjB;
+        var abMsgId = crypto.randomBytes(12).toString('hex');
+        var abTrackedHtml = injectTracking(abHtml, abPrincipal.tenant, abMsgId, abBaseUrl, { v: variant, c: campaignId });
+        try {
+          var abResult = await sendRealEmail({ to: abEmail, from: abFrom, subject: abSubj, html: abTrackedHtml, tags: [{ name: 'tenant', value: abPrincipal.tenant }, { name: 'messageId', value: abMsgId }] });
+          await recordEmailEvent(abPrincipal.tenant, 'email_sent', abMsgId, { to: abEmail, subject: abSubj, provider: abResult.provider, variant: variant, campaignId: campaignId });
+          abSent[variant]++;
+        } catch (e) {
+          abFailed++;
+        }
+      }
+      return send(res, 200, { ok: true, campaignId: campaignId, sentA: abSent.A, sentB: abSent.B, failed: abFailed });
+    }
+    if (p.indexOf('/api/email/abtest/') === 0 && req.method === 'GET') {
+      var abGetPrincipal = await authenticate(req);
+      if (!abGetPrincipal) return send(res, 401, { error: 'unauthorized' });
+      var abCampaignId = p.slice('/api/email/abtest/'.length);
+      if (!abCampaignId) return send(res, 400, { error: 'campaignId required in path' });
+      try {
+        var abCounts = await abtestStats(abGetPrincipal.tenant, abCampaignId);
+        var abStats = zTestCompare(abCounts.sentA, abCounts.openA, abCounts.sentB, abCounts.openB);
+        return send(res, 200, Object.assign({ ok: true, campaignId: abCampaignId }, abCounts, abStats));
+      } catch (e) {
+        return send(res, 502, { error: 'stats_failed', message: String(e.message || e) });
+      }
+    }
+    if (p === '/api/email/campaigns') {
+      var campPrincipal2 = await authenticate(req);
+      if (!campPrincipal2) return send(res, 401, { error: 'unauthorized' });
+      try {
+        var campList = await realCampaignsList(campPrincipal2.tenant, parseInt(u.searchParams.get('limit') || '50', 10));
+        return send(res, 200, { ok: true, tenant: campPrincipal2.tenant, campaigns: campList });
+      } catch (e) {
+        return send(res, 502, { error: 'campaigns_failed', message: String(e.message || e) });
+      }
+    }
+    if (p === '/api/email/abtest') {
+      var abListPrincipal = await authenticate(req);
+      if (!abListPrincipal) return send(res, 401, { error: 'unauthorized' });
+      try {
+        var abList = await realAbtestList(abListPrincipal.tenant, parseInt(u.searchParams.get('limit') || '50', 10));
+        return send(res, 200, { ok: true, tenant: abListPrincipal.tenant, tests: abList });
+      } catch (e) {
+        return send(res, 502, { error: 'abtest_list_failed', message: String(e.message || e) });
+      }
+    }
+    if (p === '/api/email/segments') {
+      var segPrincipal = await authenticate(req);
+      if (!segPrincipal) return send(res, 401, { error: 'unauthorized' });
+      try {
+        var segCounts = await realSegmentCounts(segPrincipal.tenant);
+        return send(res, 200, Object.assign({ ok: true, tenant: segPrincipal.tenant }, segCounts));
+      } catch (e) {
+        return send(res, 502, { error: 'segments_failed', message: String(e.message || e) });
+      }
+    }
+    if (p === '/api/automations') {
+      var autoStatsPrincipal = await authenticate(req);
+      if (!autoStatsPrincipal) return send(res, 401, { error: 'unauthorized' });
+      try {
+        var flows = await automationFlowStats(autoStatsPrincipal.tenant);
+        return send(res, 200, { ok: true, tenant: autoStatsPrincipal.tenant, flows: flows });
+      } catch (e) {
+        return send(res, 502, { error: 'automations_failed', message: String(e.message || e) });
+      }
+    }
+    if (p === '/api/templates' && req.method === 'POST') {
+      var tplPrincipal = await authenticate(req);
+      if (!tplPrincipal) return send(res, 401, { error: 'unauthorized' });
+      var tplBody;
+      try { tplBody = await readJsonBody(req, 1024 * 1024); }
+      catch (e) { return send(res, 400, { error: String(e.message || e) }); }
+      if (!tplBody.name) return send(res, 400, { error: 'name_required' });
+      try {
+        var savedTpl = await saveTemplate(tplPrincipal.tenant, tplBody.name, tplBody.subject, tplBody.blocks);
+        return send(res, 200, { ok: true, template: savedTpl });
+      } catch (e) {
+        return send(res, 502, { error: 'save_failed', message: String(e.message || e) });
+      }
+    }
+    if (p === '/api/templates' && req.method === 'GET') {
+      var tplListPrincipal = await authenticate(req);
+      if (!tplListPrincipal) return send(res, 401, { error: 'unauthorized' });
+      try {
+        var templates = await listTemplates(tplListPrincipal.tenant);
+        return send(res, 200, { ok: true, templates: templates });
+      } catch (e) {
+        return send(res, 502, { error: 'list_failed', message: String(e.message || e) });
+      }
+    }
+    if (p === '/api/deliverability/check') {
+      // public DNS-lookup utility route — not tenant-specific, doesn't expose private data
+      var dDomain = u.searchParams.get('domain');
+      var dSelector = u.searchParams.get('selector') || undefined;
+      if (!dDomain || !/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(dDomain)) return send(res, 400, { error: 'invalid_domain' });
+      try {
+        var dReport = await checkDomainDeliverability(dDomain, dSelector);
+        return send(res, 200, { ok: true, report: dReport });
+      } catch (e) {
+        return send(res, 502, { error: 'check_failed', message: String(e.message || e) });
+      }
+    }
+    if (p === '/api/automation/run' && req.method === 'POST') {
+      var autoPrincipal = await authenticate(req);
+      if (!autoPrincipal) return send(res, 401, { error: 'unauthorized' });
+      try {
+        var autoResult = await runAutomationPoller(autoPrincipal.tenant);
+        return send(res, 200, { ok: true, tenant: autoPrincipal.tenant, results: autoResult });
+      } catch (e) {
+        return send(res, 502, { error: 'automation_failed', message: String(e.message || e) });
+      }
+    }
+    if (p === '/webhooks/resend' && req.method === 'POST') {
+      var whRaw;
+      try { whRaw = await readRawBody(req, 512 * 1024); }
+      catch (e) { return send(res, 400, { error: String(e.message || e) }); }
+      var whSecret = process.env.RESEND_WEBHOOK_SECRET;
+      if (!whSecret || !verifySvixSignature(whRaw, req.headers, whSecret)) {
+        return send(res, 401, { error: 'invalid_signature' });
+      }
+      var whPayload;
+      try { whPayload = JSON.parse(whRaw); } catch (e) { return send(res, 400, { error: 'invalid_json' }); }
+      var whType = whPayload.type;
+      var whData = whPayload.data || {};
+      var whTags = whData.tags || [];
+      var whTenant = (whTags.filter(function (t) { return t.name === 'tenant'; })[0] || {}).value;
+      var whMsgId = (whTags.filter(function (t) { return t.name === 'messageId'; })[0] || {}).value;
+      var whTo = Array.isArray(whData.to) ? whData.to[0] : whData.to;
+      if (whType === 'email.bounced' || whType === 'email.complained') {
+        if (whTo) { try { await suppressEmail(whTo, whType); } catch (e) { /* don't block the 200 ack over a suppression-write failure */ } }
+        if (whTenant && TENANT_RE.test(whTenant) && whMsgId) {
+          await recordEmailEvent(whTenant, whType === 'email.bounced' ? 'email_bounced' : 'email_complained', whMsgId, { to: whTo });
+        }
+      }
+      return send(res, 200, { ok: true });
+    }
+    if (p.indexOf('/t/o/') === 0) {
+      var tokO = p.slice('/t/o/'.length).replace(/\.gif$/, '');
+      var payloadO = trackVerify(tokO);
+      if (payloadO && payloadO.t && payloadO.m) {
+        var extraO = {};
+        if (payloadO.v) extraO.variant = payloadO.v;
+        if (payloadO.c) extraO.campaignId = payloadO.c;
+        recordEmailEvent(payloadO.t, 'email_opened', payloadO.m, extraO);
+      }
+      res.writeHead(200, { 'content-type': 'image/gif', 'cache-control': 'no-store' });
+      return res.end(GIF_1x1);
+    }
+    if (p.indexOf('/t/c/') === 0) {
+      var tokC = p.slice('/t/c/'.length);
+      var payloadC = trackVerify(tokC);
+      if (!payloadC || !payloadC.u) return send(res, 404, { error: 'invalid_link' });
+      if (payloadC.t && payloadC.m) {
+        var extraC = { url: payloadC.u };
+        if (payloadC.v) extraC.variant = payloadC.v;
+        if (payloadC.c) extraC.campaignId = payloadC.c;
+        recordEmailEvent(payloadC.t, 'email_clicked', payloadC.m, extraC);
+      }
+      res.writeHead(302, { location: payloadC.u, 'cache-control': 'no-store' });
+      return res.end();
+    }
     return send(res, 404, { error: 'not found' });
   } catch (e) {
     return send(res, 500, { error: String(e.message || e) });
@@ -207,7 +1383,7 @@ const server = http.createServer(async (req, res) => {
 });
 if (require.main === module) server.listen(PORT, '0.0.0.0', () => console.log('us-console on :' + PORT + ' es=' + ES_URL));
 
-module.exports = { mapSource, bucketLifecycle, aggregate, profilesList, listTenants, server };
+module.exports = { mapSource, bucketLifecycle, aggregate, profilesList, listTenants, server, trackSign, trackVerify, injectTracking, resolveConsentedRecipients, zTestCompare, abtestStats, realSegmentCounts, realCampaignsList, realAbtestList, usersMatchingQuery, checkDomainDeliverability, runAutomationPoller, automationFlowStats, verifySvixSignature, suppressEmail, isSuppressed };
 
 // ─── favicon: Axiom orbit mark (gold on ink, zero-dep inline SVG) ────
 const FAV = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32"><circle cx="16" cy="16" r="16" fill="#1c1510"/><circle cx="16" cy="16" r="10" fill="none" stroke="#c9a84c" stroke-width="1.5"/><g fill="#c9a84c"><circle cx="16" cy="16" r="3.2"/><circle cx="16" cy="6" r="2"/><circle cx="7.34" cy="21" r="2"/><circle cx="24.66" cy="21" r="2"/></g></svg>`;
@@ -677,8 +1853,28 @@ if (typeof window.builderPreset === 'undefined') window.builderPreset = 'welcome
 /* ────────────────────────────────────────────────────────────────────────
    campaigns PANEL ("Campaigns", ✉)
    ──────────────────────────────────────────────────────────────────────── */
+function liveFetch(kind, tenant, url){
+  var key = kind+':'+tenant;
+  var slot = LIVE[key];
+  if (slot) return slot;
+  LIVE[key] = { loading:true, data:null, error:null };
+  j(url).then(function(data){
+    LIVE[key] = { loading:false, data:data, error:null };
+    if (cur==='email'){ var v=$('#view'); if(v) v.innerHTML=emailRender(); }
+  }).catch(function(e){
+    LIVE[key] = { loading:false, data:null, error:String((e&&e.message)||e) };
+    if (cur==='email'){ var v=$('#view'); if(v) v.innerHTML=emailRender(); }
+  });
+  return LIVE[key];
+}
+function em_liveNote(live, itemWord){
+  if (live.loading) return '<div class="note">Loading real data…</div>';
+  if (live.error) return '<div class="note" style="color:'+TONE.rust+'">Failed to load: '+esc(live.error)+'</div>';
+  return '';
+}
+
 function em_campaigns_pct(n){
-  var s = (Math.round(n*10)/10).toString();
+  var s = (Math.round(n*10)/10).toString().replace('.', ',');
   return s + '%';
 }
 function em_campaigns_bar(pct, toneKey){
@@ -699,122 +1895,30 @@ function em_campaigns_typeBadge(tp){
   if(tp==='flow') return '<span class="em-typ em-typ-flow">⤵ Flow</span>';
   return '<span class="em-typ em-typ-bc">⇶ Broadcast</span>';
 }
-function em_campaigns_model(){
-  var active   = (typeof lc==='function') ? lc('Active') : 0;
-  var sleepers = (typeof lc==='function') ? lc('Dormant')   : 0;
-  var fresh    = (typeof lc==='function') ? lc('New')    : 0;
-  var lost     = (typeof lc==='function') ? lc('Lost') : 0;
-  var rev = (OV && OV.orders && OV.orders.revenue) ? OV.orders.revenue : 0;
-  function part(base, k){ return Math.max(0, Math.round(base*k)); }
-  var rows = [];
-  (function(){
-    var sent = part(active, 0.92);
-    rows.push({
-      name:'June eco edit: reusables for summer',
-      tmpl:'summer-eco-picks.liquid',
-      type:'broadcast', status:'sent',
-      when:'Jun 14 · 10 AM', whenHint:'sent',
-      recipients:sent,
-      openRate:42.7, clickRate:9.8, unsubRate:0.21,
-      revenue: Math.round(rev*0.18),
-      tone:'sage', ab:null
-    });
-  })();
-  (function(){
-    var sent = part(fresh, 1.0) + part(active, 0.12);
-    rows.push({
-      name:'Meet ecoma.com: why we left the marketplaces',
-      tmpl:'welcome-brand-story.liquid',
-      type:'broadcast', status:'ab',
-      when:'Jun 21 · 12:30 PM', whenHint:'A/B complete',
-      recipients:sent,
-      openRate:51.4, clickRate:13.1, unsubRate:0.14,
-      revenue: Math.round(rev*0.11),
-      tone:'gold',
-      ab:{
-        a:{subj:'Why we left Amazon and Walmart — and what it means for you', open:47.9},
-        b:{subj:'ecoma.com now sells direct: −20% off the marketplace markup', open:54.8},
-        winner:'B', uplift:14.4
-      }
-    });
-  })();
-  (function(){
-    var sent = part(active, 0.34);
-    rows.push({
-      name:'Abandoned cart · reminder +3 h',
-      tmpl:'abandoned-cart-3h.liquid',
-      type:'flow', status:'sending',
-      when:'continuous', whenHint:'trigger: cart',
-      recipients:sent,
-      openRate:58.2, clickRate:21.6, unsubRate:0.09,
-      revenue: Math.round(rev*0.14),
-      tone:'rust', ab:null
-    });
-  })();
-  (function(){
-    var sent = part(sleepers, 0.78);
-    rows.push({
-      name:'We missed you · −15% on an eco bundle',
-      tmpl:'winback-sleepers.liquid',
-      type:'flow', status:'sent',
-      when:'Jun 8–28', whenHint:'3-email cascade',
-      recipients:sent,
-      openRate:33.5, clickRate:7.4, unsubRate:0.62,
-      revenue: Math.round(rev*0.06),
-      tone:'gold', ab:null
-    });
-  })();
-  (function(){
-    var sent = part(active, 0.95) + part(fresh, 0.6);
-    rows.push({
-      name:'July new arrivals: plastic-free home cleaning',
-      tmpl:'july-plastic-free.liquid',
-      type:'broadcast', status:'scheduled',
-      when:'Jul 2 · 9:30 AM', whenHint:'to the "verified" segment',
-      recipients:sent,
-      openRate:0, clickRate:0, unsubRate:0,
-      revenue:0,
-      tone:'ink', ab:null, projected:true
-    });
-  })();
-  (function(){
-    rows.push({
-      name:'Guide: how to read eco-cosmetics labels',
-      tmpl:'guide-cosmetic-labels.liquid',
-      type:'broadcast', status:'draft',
-      when:'—', whenHint:'not sent',
-      recipients:0,
-      openRate:0, clickRate:0, unsubRate:0,
-      revenue:0,
-      tone:'rust', ab:null, projected:true
-    });
-  })();
-  (function(){
-    rows.push({
-      name:'Post-purchase · caring for reusables (flow)',
-      tmpl:'post-purchase-care.liquid',
-      type:'flow', status:'draft',
-      when:'—', whenHint:'trigger setup',
-      recipients:0,
-      openRate:0, clickRate:0, unsubRate:0,
-      revenue:0,
-      tone:'rust', ab:null, projected:true
-    });
-  })();
-  return rows;
+// Real campaign from /api/email/campaigns -> table row. Unsubscribes and revenue are honestly NOT
+// shown as numbers - attribution is not tracked for them, a guess would be a fixture posing as fact.
+function em_campaigns_fromLive(c){
+  return {
+    name: c.subject + (c.ab ? ' · A/B' : ''),
+    tmpl: c.automated ? ('trigger: '+(c.trigger||'auto')) : (c.ab ? 'a/b subject' : '-'),
+    type: c.automated ? 'flow' : 'broadcast',
+    status: 'sent',
+    when: fmtDt(c.lastSent),
+    whenHint: c.automated ? 'trigger . auto' : (c.ab ? 'A/B by subject line' : 'sent'),
+    recipients: c.sent,
+    openRate: c.openRate*100, clickRate: c.clickRate*100
+  };
 }
 EMAIL_TABS.campaigns = function(){
-  var rows = em_campaigns_model();
-  var totalSent=0, revEmail=0, wSum=0, wOpen=0, reachable=0;
+  var live = liveFetch('campaigns', TENANT, '/api/email/campaigns');
+  var rows = (live.data && live.data.campaigns) ? live.data.campaigns.map(em_campaigns_fromLive) : [];
+  var totalSent=0, wSum=0, wOpen=0, reachable=0;
   var consentTotal = (OV && OV.consent && OV.consent.total) ? OV.consent.total : 0;
   for(var i=0;i<rows.length;i++){
     var r=rows[i];
-    if(r.recipients>0 && (r.status==='sent'||r.status==='sending'||r.status==='ab')){
-      totalSent += r.recipients;
-      revEmail  += r.revenue;
-      wSum      += r.recipients;
-      wOpen     += r.recipients * r.openRate;
-    }
+    totalSent += r.recipients;
+    wSum      += r.recipients;
+    wOpen     += r.recipients * r.openRate;
   }
   var avgOpen = wSum>0 ? (wOpen/wSum) : 0;
   reachable = 0;
@@ -822,7 +1926,7 @@ EMAIL_TABS.campaigns = function(){
     for(var p=0;p<OV.consent.purposes.length;p++){
       var pp=OV.consent.purposes[p];
       var key=(pp.purpose||'')+' '+(pp.label||'');
-      if(key.toLowerCase().indexOf('email')>=0 || key.toLowerCase().indexOf('market')>=0 || key.toLowerCase().indexOf('newsletter')>=0){
+      if(key.toLowerCase().indexOf('email')>=0 || key.indexOf('marketing')>=0){
         reachable = pp.count; break;
       }
     }
@@ -832,96 +1936,59 @@ EMAIL_TABS.campaigns = function(){
   var reachPct = profiles>0 ? Math.round(reachable/profiles*100) : 0;
   var h = '';
   h += '<div class="note">'
-     + '<b class="serif">CCPA/CPRA consent gate — fail-closed.</b> '
-     + 'Campaigns send only to profiles with verified <code>marketing_email</code> consent. '
-     + 'Reachable for send: <b>'+nf(reachable)+'</b> of '+nf(profiles)+' profiles ('+reachPct+'%). '
+     + '<b class="serif">Consent gate (CAN-SPAM/CCPA) - fail-closed.</b> '
+     + 'Campaigns only go to profiles with verified <code>marketing_email</code> consent. '
+     + 'Reachable: <b>'+nf(reachable)+'</b> of '+nf(profiles)+' profiles ('+reachPct+'%). '
      + 'Profiles without verified consent are excluded from recipients automatically; every email footer carries an unsubscribe link and sender identification (CAN-SPAM).'
      + '</div>';
+  h += em_liveNote(live);
   h += '<div class="grid four" style="margin-top:14px">';
-  h += tile('Sent this period', nf(totalSent), rows.length+' campaigns and flows', 'ink');
+  h += tile('Sent this period', nf(totalSent), rows.length+' real campaigns', 'ink');
   h += tile('Average opens', em_campaigns_pct(avgOpen), 'weighted by volume', 'gold');
-  h += tile('Reachable with consent', nf(reachable), reachPct+'% of base · CCPA/CPRA', 'sage');
-  h += tile('Email revenue', rub(revEmail), 'last-touch attribution', 'rust');
+  h += tile('Reachable with consent', nf(reachable), reachPct+'% of base . CAN-SPAM', 'sage');
+  h += tile('Consent gate', 'fail-closed', 'no verified, skip', 'rust');
   h += '</div>';
   var inner = '';
-  inner += '<div class="tw"><table>';
-  inner += '<tr>'
-        + '<th>Campaign</th>'
-        + '<th>Template</th>'
-        + '<th>Type</th>'
-        + '<th>Status</th>'
-        + '<th>Schedule</th>'
-        + '<th style="text-align:right">Recipients</th>'
-        + '<th style="text-align:right">Opens</th>'
-        + '<th style="text-align:right">Clicks</th>'
-        + '<th style="text-align:right">Unsubs</th>'
-        + '<th style="text-align:right">Revenue</th>'
-        + '</tr>';
-  for(var j=0;j<rows.length;j++){
-    var c = rows[j];
-    var planned = !!c.projected;
-    inner += '<tr'+(planned?' class="em-row-soft"':'')+'>';
-    inner += '<td><span class="em-cname serif">'+esc(c.name)+'</span></td>';
-    inner += '<td><code class="em-tmpl">'+esc(c.tmpl)+'</code></td>';
-    inner += '<td>'+em_campaigns_typeBadge(c.type)+'</td>';
-    inner += '<td>'+em_campaigns_statusBadge(c.status)+'</td>';
-    inner += '<td><span class="em-when">'+esc(c.when)+'</span><span class="em-when-hint">'+esc(c.whenHint)+'</span></td>';
-    if(c.recipients>0){
+  if(!live.loading && !live.error && rows.length===0){
+    inner = '<div class="note muted">No campaigns sent yet - there is no real data. Send a campaign from the Builder tab or start an A/B test.</div>';
+  } else {
+    inner += '<div class="tw"><table>';
+    inner += '<tr>'
+          + '<th>Campaign</th>'
+          + '<th>Tag</th>'
+          + '<th>Type</th>'
+          + '<th>Status</th>'
+          + '<th>Sent</th>'
+          + '<th style="text-align:right">Recipients</th>'
+          + '<th style="text-align:right">Opens</th>'
+          + '<th style="text-align:right">Clicks</th>'
+          + '</tr>';
+    for(var j=0;j<rows.length;j++){
+      var c = rows[j];
+      inner += '<tr>';
+      inner += '<td><span class="em-cname serif">'+esc(c.name)+'</span></td>';
+      inner += '<td><code class="em-tmpl">'+esc(c.tmpl)+'</code></td>';
+      inner += '<td>'+em_campaigns_typeBadge(c.type)+'</td>';
+      inner += '<td>'+em_campaigns_statusBadge(c.status)+'</td>';
+      inner += '<td><span class="em-when">'+esc(c.when)+'</span><span class="em-when-hint">'+esc(c.whenHint)+'</span></td>';
       inner += '<td style="text-align:right" class="em-num">'+nf(c.recipients)+'</td>';
-    } else {
-      inner += '<td style="text-align:right" class="muted">—</td>';
-    }
-    if(c.openRate>0){
       inner += '<td style="text-align:right" class="em-metric">'+em_campaigns_pct(c.openRate)+em_campaigns_bar(c.openRate,'gold')+'</td>';
       inner += '<td style="text-align:right" class="em-metric">'+em_campaigns_pct(c.clickRate)+em_campaigns_bar(c.clickRate,'sage')+'</td>';
-      inner += '<td style="text-align:right" class="em-metric">'+em_campaigns_pct(c.unsubRate)+em_campaigns_bar(c.unsubRate,'rust')+'</td>';
-    } else {
-      inner += '<td style="text-align:right" class="muted">—</td>';
-      inner += '<td style="text-align:right" class="muted">—</td>';
-      inner += '<td style="text-align:right" class="muted">—</td>';
+      inner += '</tr>';
     }
-    if(c.revenue>0){
-      inner += '<td style="text-align:right" class="em-num"><b>'+rub(c.revenue)+'</b></td>';
-    } else {
-      inner += '<td style="text-align:right" class="muted">—</td>';
-    }
-    inner += '</tr>';
-    if(c.ab){
-      var ab=c.ab;
-      inner += '<tr class="em-cab-row"><td colspan="10">';
-      inner += '<div class="em-cab">';
-      inner += '<span class="label">A/B on subject line</span>';
-      inner += '<div class="em-cab-grid">';
-      inner += '<div class="em-cab-var'+(ab.winner==='A'?' em-cab-win':'')+'">'
-            + '<span class="em-cab-tag">A'+(ab.winner==='A'?' · winner':'')+'</span>'
-            + '<span class="em-cab-subj">'+esc(ab.a.subj)+'</span>'
-            + '<span class="em-cab-open">opens '+em_campaigns_pct(ab.a.open)+'</span>'
-            + em_campaigns_bar(ab.a.open,'muted')
-            + '</div>';
-      inner += '<div class="em-cab-var'+(ab.winner==='B'?' em-cab-win':'')+'">'
-            + '<span class="em-cab-tag">B'+(ab.winner==='B'?' · winner':'')+'</span>'
-            + '<span class="em-cab-subj">'+esc(ab.b.subj)+'</span>'
-            + '<span class="em-cab-open">opens '+em_campaigns_pct(ab.b.open)+'</span>'
-            + em_campaigns_bar(ab.b.open,'gold')
-            + '</div>';
-      inner += '</div>';
-      inner += '<span class="em-cab-uplift">Winner <b>'+esc(ab.winner)+'</b> · open-rate lift +'+em_campaigns_pct(ab.uplift)+' — sent to the rest of the segment automatically.</span>';
-      inner += '</div>';
-      inner += '</td></tr>';
-    }
+    inner += '</table></div>';
+    inner += '<div class="em-legend">'
+          + '<span>'+em_campaigns_typeBadge('broadcast')+' one-off send / A-B test</span>'
+          + '<span>'+em_campaigns_typeBadge('flow')+' trigger scenario (autopilot)</span>'
+          + '<span class="muted">Opens/Clicks - % of sent, honestly computed by messageId in Elasticsearch. Unsubscribes and revenue are not tracked yet - not shown as guesses.</span>'
+          + '</div>';
   }
-  inner += '</table></div>';
-  inner += '<div class="em-legend">'
-        + '<span>'+em_campaigns_typeBadge('broadcast')+' one-time send to a segment</span>'
-        + '<span>'+em_campaigns_typeBadge('flow')+' triggered automation (auto)</span>'
-        + '<span class="muted">Opens/Clicks/Unsubs — % of delivered. Revenue — last-touch attribution over 14 days.</span>'
-        + '</div>';
-  h += chart('Campaigns and automations', 'Broadcasts and flows for tenant ecoma · verified recipients only', inner);
+  h += chart('Campaigns & automations', 'Real sends for tenant '+esc(TENANT)+' - verified recipients only', inner);
   return h;
 };
 
 /* ────────────────────────────────────────────────────────────────────────
-   builder PANEL («Builder», ▧)
+   PANEL builder ("Builder", tools)
    ──────────────────────────────────────────────────────────────────────── */
 var EM_BLOCK_TYPES = [
   ['header',   'Header / logo',   '◳'],
@@ -1043,6 +2110,79 @@ function em_builder_blockHtml(b) {
   }
   return '';
 }
+
+function em_builder_blockHtmlEmail(b) {
+  var d = b.data || {};
+  var F = "font-family:Arial,Helvetica,sans-serif;";
+  if (b.type === 'header') {
+    return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse"><tr>' +
+      '<td style="padding:18px 24px;' + F + 'font-size:19px;font-weight:700;color:#1c1510">🌿 ' + esc(d.brand) + '</td>' +
+      '<td style="padding:18px 24px;text-align:right;' + F + 'font-size:12px;color:#7a6e60">' + esc(d.tagline) + '</td>' +
+      '</tr></table>';
+  }
+  if (b.type === 'hero') {
+    return '<div style="padding:22px 24px 10px;text-align:center;' + F + '">' +
+      '<div style="font-size:34px;margin-bottom:8px">' + esc(d.emoji || '🌿') + '</div>' +
+      '<div style="font-family:Georgia,\\'Times New Roman\\',serif;font-size:24px;font-weight:700;color:#1c1510;margin-bottom:6px">' + esc(d.title) + '</div>' +
+      '<div style="font-size:14px;color:#7a6e60;line-height:1.5">' + esc(d.sub) + '</div></div>';
+  }
+  if (b.type === 'text') {
+    return '<div style="padding:14px 24px;' + F + 'font-size:14px;line-height:1.6;color:#1c1510">' + esc(d.body) + '</div>';
+  }
+  if (b.type === 'cta') {
+    return '<div style="padding:20px 24px;text-align:center">' +
+      '<a href="' + esc(d.url) + '" style="display:inline-block;background:#c4683a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px;' + F + '">' + esc(d.label) + '</a></div>';
+  }
+  if (b.type === 'products') {
+    var cells = '';
+    for (var i = 0; i < (d.items || []).length; i++) {
+      var it = d.items[i];
+      cells += '<td style="width:' + Math.floor(100 / (d.items.length || 1)) + '%;padding:8px;text-align:center;vertical-align:top;' + F + '">' +
+        '<div style="font-size:26px">🧴</div>' +
+        '<div style="font-size:13px;font-weight:700;color:#1c1510;margin-top:4px">' + esc(it.name) + '</div>' +
+        '<div style="font-size:11px;color:#7a6e60;margin-top:2px">' + esc(it.cap) + '</div>' +
+        '<div style="font-size:14px;font-weight:700;color:#c4683a;margin-top:6px">' + rub(it.price) + '</div></td>';
+    }
+    return '<div style="padding:14px 24px">' +
+      (d.title ? '<div style="font-family:Georgia,serif;font-size:16px;font-weight:700;margin-bottom:10px;color:#1c1510">' + esc(d.title) + '</div>' : '') +
+      '<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>' + cells + '</tr></table></div>';
+  }
+  if (b.type === 'promo') {
+    return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:8px 0"><tr><td style="padding:16px 24px;text-align:center;background:#f5f0e8">' +
+      '<div style="' + F + 'font-size:14px;color:#1c1510">' + esc(d.text) + '</div>' +
+      '<div style="font-family:\\'Courier New\\',monospace;font-size:22px;font-weight:700;color:#c4683a;letter-spacing:2px;margin:8px 0">' + esc(d.code) + '</div>' +
+      '<div style="' + F + 'font-size:11px;color:#7a6e60">with promo code · valid ' + esc(d.expires) + '</div>' +
+      '</td></tr></table>';
+  }
+  if (b.type === 'divider') {
+    return '<div style="text-align:center;padding:10px 0;color:#c9a84c;font-size:16px">∴</div>';
+  }
+  if (b.type === 'social') {
+    return '<div style="padding:14px 24px;text-align:center;' + F + '">' +
+      '<a href="https://' + esc(d.vk) + '" style="display:inline-block;margin:0 6px;padding:8px 16px;border:1px solid #e0d8cc;border-radius:20px;color:#1c1510;text-decoration:none;font-size:12px;font-weight:700">IG</a>' +
+      '<a href="https://' + esc(d.tg) + '" style="display:inline-block;margin:0 6px;padding:8px 16px;border:1px solid #e0d8cc;border-radius:20px;color:#1c1510;text-decoration:none;font-size:12px;font-weight:700">TG</a>' +
+      '<div style="font-size:11px;color:#7a6e60;margin-top:8px">follow us on social · direct connection, off-marketplace</div></div>';
+  }
+  if (b.type === 'footer') {
+    return '<div style="padding:16px 24px;border-top:1px solid #e0d8cc;' + F + 'font-size:11px;color:#7a6e60;line-height:1.5">' +
+      '<div>Sender: ' + esc(d.advertiser) + '. ' + esc(d.addr) + '.</div>' +
+      '<div style="margin-top:6px">This email was sent based on your consent to receive marketing email (CAN-SPAM, CCPA consent).</div>' +
+      '<div style="margin-top:6px"><a href="{{unsubscribe_url}}" style="color:#7a6e60">Unsubscribe</a> · one click, no confirmation needed</div></div>';
+  }
+  return '';
+}
+// Full email-safe document (600px, table wrapper) — what actually goes out via sendRealEmail.
+function em_builder_emailHtml(blocks, subject) {
+  var body = '';
+  for (var i = 0; i < blocks.length; i++) body += em_builder_blockHtmlEmail(blocks[i]);
+  return '<!doctype html><html><head><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width,initial-scale=1"><title>' + esc(subject || '') + '</title></head>' +
+    '<body style="margin:0;padding:0;background:#f5f0e8">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f0e8"><tr><td align="center" style="padding:24px 12px">' +
+    '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#fffdf9;border-radius:12px;overflow:hidden">' +
+    '<tr><td>' + body + '</td></tr></table></td></tr></table></body></html>';
+}
+
 function em_builder_canvasHtml() {
   em_builder_ensure();
   var bks = window.builderBlocks;
@@ -1135,13 +2275,66 @@ window.emInsertVar = function (v) {
     inp.focus();
   }
 };
-window.emFlash = function (msg) {
+window.emFlash = function (msg, ms) {
   var el = document.getElementById('em-flash');
   if (!el) return;
   el.textContent = msg;
   el.style.opacity = '1';
   clearTimeout(window._emFlashT);
-  window._emFlashT = setTimeout(function () { el.style.opacity = '0'; }, 2200);
+  window._emFlashT = setTimeout(function () { el.style.opacity = '0'; }, ms || 2200);
+};
+window.emSendTest = async function () {
+  var to = window.prompt('Send test to address:', '');
+  if (!to) return;
+  emFlash('Sending…', 15000);
+  try {
+    var res = await fetch('/api/email/send', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + (window.RFC_TOKEN || '') },
+      body: JSON.stringify({
+        to: to,
+        subject: window.builderSubject || '(no subject)',
+        html: em_builder_emailHtml(window.builderBlocks, window.builderSubject),
+      }),
+    });
+    var data = await res.json().catch(function () { return {}; });
+    if (!res.ok) { emFlash('Error: ' + (data.message || data.error || res.status), 4000); return; }
+    if (data.provider === 'fake') {
+      emFlash('NOT sent: SMTP_URL/RESEND_API_KEY are not configured on the server', 5000);
+    } else {
+      emFlash('Sent to ' + to + ' via ' + data.provider + ' (id ' + data.id + ')', 4000);
+    }
+  } catch (e) {
+    emFlash('Network error: ' + (e && e.message || e), 4000);
+  }
+};
+window.emExportLiquid = function () {
+  var html = em_builder_emailHtml(window.builderBlocks, window.builderSubject);
+  var blob = new Blob([html], { type: 'text/plain' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = (window.builderPreset || 'template') + '.liquid';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+  emFlash('Exported ' + a.download + ' (' + (window.builderBlocks || []).length + ' blocks)', 4000);
+};
+window.emSaveTemplate = async function () {
+  var name = window.prompt('Template name:', window.builderPreset || '');
+  if (!name) return;
+  emFlash('Saving…', 8000);
+  try {
+    var res = await fetch('/api/templates', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + (window.RFC_TOKEN || '') },
+      body: JSON.stringify({ name: name, subject: window.builderSubject || '', blocks: window.builderBlocks || [] }),
+    });
+    var data = await res.json().catch(function () { return {}; });
+    if (!res.ok) { emFlash('Error: ' + (data.message || data.error || res.status), 4000); return; }
+    emFlash('Template "' + data.template.name + '" saved', 4000);
+  } catch (e) {
+    emFlash('Network error: ' + (e && e.message || e), 4000);
+  }
 };
 /* aliases for the consistent renderCanvas/renderStack contract */
 function renderCanvas(){ return em_builder_canvasHtml(); }
@@ -1210,9 +2403,9 @@ EMAIL_TABS.builder = function () {
     '</div>';
   var actions =
     '<div class="em-actions">' +
-      '<button class="em-act em-act-primary" onclick="emFlash(\\'Template saved to library (.liquid)\\')">Save template</button>' +
-      '<button class="em-act" onclick="emFlash(\\'Test sent to hello@ecoma.com · check your inbox\\')">Send test</button>' +
-      '<button class="em-act" onclick="emFlash(\\'Liquid exported: ' + blkCount + ' blocks\\')">Export liquid</button>' +
+      '<button class="em-act em-act-primary" onclick="emSaveTemplate()">Save template</button>' +
+      '<button class="em-act" onclick="emSendTest()">Send test</button>' +
+      '<button class="em-act" onclick="emExportLiquid()">Export liquid</button>' +
       '<span id="em-flash" class="em-flash"></span>' +
     '</div>';
   var gallery =
@@ -1417,28 +2610,57 @@ function em_audiences_emailRate(){
   var em=(OV.consent.purposes.find(function(p){return /Email|marketing_email/.test(p.label)||/marketing_email/.test(p.purpose||'');})||{count:0}).count||0;
   return reach?Math.min(0.96,em/reach):0;
 }
+// All 6 segments are now real on the server (realSegmentCounts). Until the live
+// fetch resolves (first render before data arrives) — an honest fallback to the
+// old lifecycle-bucket estimate, marked real:false rather than a blank/zero card.
 function em_audiences_segments(){
   var base=em_audiences_emailRate();
   var aov=OV.orders.count?Math.round(OV.orders.revenue/OV.orders.count):55;
+  var live=liveFetch('segments', TENANT, '/api/email/segments');
+  var real=live.data||null;
   return [
-    {key:'active',name:'Active buyers',tone:'sage',size:lc('Active'),rate:Math.min(0.97,base*1.18),
-      hint:'Bought recently — best reach and response. Upsell, new arrivals.',
-      rules:[{f:'event',op:'=',v:'order_completed'},{f:'recency',op:'<',v:'30 days'},{f:'marketing_email',op:'=',v:'verified'}]},
-    {key:'sleep',name:'Dormant 30–60 days',tone:'rust',size:Math.round(lc('Dormant')*0.62),rate:Math.min(0.95,base*0.92),
-      hint:'Engaged once, then went quiet. Win back with a discount or a curated pick.',
-      rules:[{f:'recency',op:'30–60 d',v:'no purchase'},{f:'event',op:'had',v:'add_to_cart'},{f:'marketing_email',op:'=',v:'verified'}]},
-    {key:'cart',name:'Abandoned carts',tone:'gold',size:Math.round(OV.orders.count*0.40),rate:Math.min(0.96,base*1.05),
-      hint:'Added to cart in last 72h, never checked out. Trigger nudge.',
-      rules:[{f:'event',op:'=',v:'add_to_cart'},{f:'NOT event',op:'≠',v:'order_completed'},{f:'recency',op:'<',v:'72 hours'},{f:'marketing_email',op:'=',v:'verified'}]},
-    {key:'vip',name:'High AOV · VIP',tone:'gold',size:Math.round(lc('Active')*0.14),rate:Math.min(0.98,base*1.22),
-      hint:'Above-average order value ('+rub(aov)+'×2). Members-only offers, early access.',
-      rules:[{f:'order total',op:'>',v:rub(aov*2)},{f:'orders',op:'≥',v:'3'},{f:'marketing_email',op:'=',v:'verified'}]},
-    {key:'noopen',name:'Subscribed, never opened',tone:'muted',size:Math.round((lc('Active')+lc('Dormant'))*0.21),rate:0.0,
-      hint:'Consent on file, but 5+ emails with no open → re-permission or TikTok. We do NOT send by email.',
-      rules:[{f:'marketing_email',op:'=',v:'verified'},{f:'open_rate',op:'=',v:'0 over 5 emails'},{f:'action',op:'→',v:'re-permission'}]},
-    {key:'mpback',name:'Won back from Amazon/Walmart',tone:'rust',size:lc('Lost'),rate:Math.min(0.90,base*0.78),
-      hint:'Purchase history on marketplaces, moved to our own site. Loyalty transfer, direct channel.',
-      rules:[{f:'source',op:'∈',v:'Amazon, Walmart'},{f:'event',op:'had',v:'order_completed'},{f:'marketing_email',op:'=',v:'verified'}]}
+    real ?
+      {key:'active',name:'Active buyers',tone:'sage',size:real.active,rate:1,real:true,
+        hint:'Bought in the last 30 days and gave marketing_email consent — real intersected count from Elasticsearch.',
+        rules:[{f:'event',op:'=',v:'order_completed'},{f:'recency',op:'<',v:'30 days'},{f:'marketing_email',op:'=',v:'verified'}]} :
+      {key:'active',name:'Active buyers',tone:'sage',size:lc('Active'),rate:Math.min(0.97,base*1.18),real:false,
+        hint:'Bought recently — best reach and response. Upsell, new arrivals.',
+        rules:[{f:'event',op:'=',v:'order_completed'},{f:'recency',op:'<',v:'30 days'},{f:'marketing_email',op:'=',v:'verified'}]},
+    real ?
+      {key:'sleep',name:'Dormant 7–30 days',tone:'rust',size:real.sleep,rate:1,real:true,
+        hint:'Visited before, went quiet 7-30 days, gave consent — real intersected count from Elasticsearch.',
+        rules:[{f:'recency',op:'7–30 d',v:'no visit'},{f:'marketing_email',op:'=',v:'verified'}]} :
+      {key:'sleep',name:'Dormant 30–60 days',tone:'rust',size:Math.round(lc('Dormant')*0.62),rate:Math.min(0.95,base*0.92),real:false,
+        hint:'Engaged once, then went quiet. Win back with a discount or a curated pick.',
+        rules:[{f:'recency',op:'30–60 d',v:'no purchase'},{f:'event',op:'had',v:'add_to_cart'},{f:'marketing_email',op:'=',v:'verified'}]},
+    real ?
+      {key:'cart',name:'Abandoned carts',tone:'gold',size:real.cart,rate:1,real:true,
+        hint:'Added to cart in the last 72h, never checked out, gave consent — real intersected count from Elasticsearch.',
+        rules:[{f:'event',op:'=',v:'add_to_cart'},{f:'NOT event',op:'≠',v:'order_completed'},{f:'recency',op:'<',v:'72 hours'},{f:'marketing_email',op:'=',v:'verified'}]} :
+      {key:'cart',name:'Abandoned carts',tone:'gold',size:Math.round(OV.orders.count*0.40),rate:Math.min(0.96,base*1.05),real:false,
+        hint:'Added to cart in last 72h, never checked out. Trigger nudge.',
+        rules:[{f:'event',op:'=',v:'add_to_cart'},{f:'NOT event',op:'≠',v:'order_completed'},{f:'recency',op:'<',v:'72 hours'},{f:'marketing_email',op:'=',v:'verified'}]},
+    real ?
+      {key:'vip',name:'High AOV · VIP',tone:'gold',size:real.vip,rate:1,real:true,
+        hint:'Orders ≥3 AND total > '+rub(aov*2)+', gave consent — real per-user aggregation from Elasticsearch.',
+        rules:[{f:'order total',op:'>',v:rub(aov*2)},{f:'orders',op:'≥',v:'3'},{f:'marketing_email',op:'=',v:'verified'}]} :
+      {key:'vip',name:'High AOV · VIP',tone:'gold',size:Math.round(lc('Active')*0.14),rate:Math.min(0.98,base*1.22),real:false,
+        hint:'Above-average order value ('+rub(aov)+'×2). Members-only offers, early access.',
+        rules:[{f:'order total',op:'>',v:rub(aov*2)},{f:'orders',op:'≥',v:'3'},{f:'marketing_email',op:'=',v:'verified'}]},
+    real ?
+      {key:'noopen',name:'Subscribed, never opened',tone:'muted',size:real.noopen,rate:0.0,real:true,
+        hint:'5+ sends to a specific recipient, none opened, consent on file — real count. We do NOT send by email.',
+        rules:[{f:'marketing_email',op:'=',v:'verified'},{f:'sent',op:'≥',v:'5'},{f:'opened',op:'=',v:'0'},{f:'action',op:'→',v:'re-permission'}]} :
+      {key:'noopen',name:'Subscribed, never opened',tone:'muted',size:Math.round((lc('Active')+lc('Dormant'))*0.21),rate:0.0,real:false,
+        hint:'Consent on file, but 5+ emails with no open → re-permission or TikTok. We do NOT send by email.',
+        rules:[{f:'marketing_email',op:'=',v:'verified'},{f:'open_rate',op:'=',v:'0 over 5 emails'},{f:'action',op:'→',v:'re-permission'}]},
+    real ?
+      {key:'mpback',name:'Won back from Amazon/Walmart',tone:'rust',size:real.mpback,rate:1,real:true,
+        hint:'Purchase history on marketplaces, gave consent — real intersected count from Elasticsearch.',
+        rules:[{f:'source',op:'∈',v:'Amazon, Walmart'},{f:'event',op:'had',v:'order_completed'},{f:'marketing_email',op:'=',v:'verified'}]} :
+      {key:'mpback',name:'Won back from Amazon/Walmart',tone:'rust',size:lc('Lost'),rate:Math.min(0.90,base*0.78),real:false,
+        hint:'Purchase history on marketplaces, moved to our own site. Loyalty transfer, direct channel.',
+        rules:[{f:'source',op:'∈',v:'Amazon, Walmart'},{f:'event',op:'had',v:'order_completed'},{f:'marketing_email',op:'=',v:'verified'}]}
   ];
 }
 function em_audiences_chip(rule){
@@ -1466,6 +2688,7 @@ function em_audiences_card(s){
       '<span class="em-dot" style="background:'+(TONE[s.tone]||TONE.muted)+'"></span>'+
       '<span class="em-seg-name serif">'+esc(s.name)+'</span>'+
       badge(nf(s.size)+' profiles',s.tone==='muted'?'muted':s.tone)+
+      (s.real?badge('live data','sage'):badge('estimate','muted'))+
     '</div>'+
     '<p class="em-seg-hint muted">'+esc(s.hint)+'</p>'+
     '<div class="em-rules">'+chips+'</div>'+
@@ -1579,69 +2802,26 @@ function em_abtest_varcell(o, c, cv, win){
     '<span class="em-ab-m"><b>'+em_abtest_pct(cv)+'</b><i>conv.</i></span>'+
   '</div>';
 }
-function em_abtest_model(){
-  var baseSend = (typeof lc === 'function') ? lc('Active') + lc('New') : 4200;
-  if (!baseSend || baseSend < 1) baseSend = 4200;
-  var T = [];
-  T.push({
-    name:'Subject: "Plastic-free" vs "−30% on eco bundle"',
-    dim:'Subject line',
-    status:'running',
-    sample: Math.round(baseSend*0.46),
-    progress: 62,
-    a:{label:'A · "Plastic-free"', o:31.4, c:5.1, cv:1.2},
-    b:{label:'B · "−30% eco bundle"', o:34.8, c:6.4, cv:1.6},
-    metric:'open',
-    lift:33.3, conf:88, winner:'—'
-  });
-  T.push({
-    name:'Timing: 9 AM vs 7 PM (ET)',
-    dim:'Send time',
-    status:'running',
-    sample: Math.round(baseSend*0.51),
-    progress: 78,
-    a:{label:'A · morning 9 AM', o:33.0, c:5.8, cv:1.4},
-    b:{label:'B · evening 7 PM', o:35.9, c:6.9, cv:1.7},
-    metric:'click',
-    lift:19.0, conf:93, winner:'—'
-  });
-  T.push({
-    name:'CTA: "Buy now" vs "Pick your eco bundle"',
-    dim:'CTA button',
-    status:'complete',
-    sample: Math.round(baseSend*0.88),
-    progress: 100,
-    a:{label:'A · "Buy now"', o:36.2, c:5.9, cv:1.5},
-    b:{label:'B · "Pick your eco bundle"', o:36.4, c:7.6, cv:2.1},
-    metric:'click',
-    lift:28.8, conf:97, winner:'B'
-  });
-  T.push({
-    name:'Content: customer review vs ingredients/certifications',
-    dim:'Content block',
-    status:'complete',
-    sample: Math.round(baseSend*0.92),
-    progress: 100,
-    a:{label:'A · customer review', o:35.1, c:6.7, cv:1.8},
-    b:{label:'B · ingredients + eco certification', o:35.6, c:7.1, cv:2.4},
-    metric:'conv',
-    lift:33.3, conf:96, winner:'B'
-  });
-  T.push({
-    name:'Subject: emoji 🌿 vs no emoji',
-    dim:'Subject line',
-    status:'complete',
-    sample: Math.round(baseSend*0.84),
-    progress: 100,
-    a:{label:'A · "🌿 Eco home care"', o:33.8, c:6.2, cv:1.6},
-    b:{label:'B · "Eco home care"', o:37.0, c:6.6, cv:1.7},
-    metric:'open',
-    lift:9.5, conf:95, winner:'B'
-  });
-  return T;
+function em_abtest_fromLive(t){
+  var totalSent = (t.sentA||0)+(t.sentB||0);
+  var enoughData = totalSent >= 20;
+  var az = Math.abs(t.z||0);
+  var conf = az>=2.576?99:(az>=1.96?95:(az>=1.64?90:Math.round(50+az*20)));
+  return {
+    name: t.subjectA + ' vs ' + t.subjectB,
+    dim: 'Subject line',
+    status: (enoughData && t.significant) ? 'done' : 'running',
+    sample: totalSent,
+    a:{label:'A · '+t.subjectA, o:(t.rateA||0)*100},
+    b:{label:'B · '+t.subjectB, o:(t.rateB||0)*100},
+    lift: (t.lift||0)*100,
+    conf: conf,
+    winner: enoughData ? t.winner : '—'
+  };
 }
 EMAIL_TABS.abtest = function(){
-  var T = em_abtest_model();
+  var live = liveFetch('abtest', TENANT, '/api/email/abtest');
+  var T = (live.data && live.data.tests) ? live.data.tests.map(em_abtest_fromLive) : [];
   var i, t;
   var running = 0, done = 0, liftSum = 0, liftCnt = 0;
   for (i=0;i<T.length;i++){
@@ -1650,46 +2830,31 @@ EMAIL_TABS.abtest = function(){
     if (t.winner !== '—'){ liftSum += t.lift; liftCnt++; }
   }
   var avgLift = liftCnt ? (liftSum/liftCnt) : 0;
-  var rev = (typeof OV!=='undefined' && OV.orders && OV.orders.revenue) ? OV.orders.revenue : 1200000;
-  var emailShare = Math.round(rev * 0.18);
-  var uplift = Math.round(emailShare * (avgLift/100) * 0.45);
   var out = '';
+  out += em_liveNote(live);
   out += '<div class="grid k3" style="margin-bottom:14px">';
-  out += tile('Active tests', nf(running), done + ' completed this period', 'ink');
-  out += tile('Avg winner lift', em_abtest_lift(avgLift), 'on the target metric', 'sage');
-  out += tile('A/B revenue uplift', rub(uplift), 'attributed to email channel', 'gold');
+  out += tile('Active tests', nf(running), done + ' done', 'ink');
+  out += tile('Average winner lift (opens)', em_abtest_lift(avgLift), 'over significant tests', 'sage');
+  out += tile('Total A/B tests', nf(T.length), 'real, tenant '+esc(TENANT), 'gold');
   out += '</div>';
-  var show = T[3];
-  var showInner = hbars([
-    {label:'A · '+show.a.label.replace('A · ',''), value:show.a.cv, tone:TONE.muted, caption:'conv. '+em_abtest_pct(show.a.cv)},
-    {label:'B · '+show.b.label.replace('B · ',''), value:show.b.cv, tone:TONE.sage, caption:'conv. '+em_abtest_pct(show.b.cv)+'  ·  '+em_abtest_lift(show.lift)}
-  ]);
-  out += chart(
-    'Showcase: ' + esc(show.name),
-    'Target metric — conversion to order · sample ' + nf(show.sample) + ' · confidence 96%',
-    '<div class="em-ab-show">'+ showInner +
-      '<div class="em-ab-verdict">'+
-        badge('Winner B', 'sage') + ' ' +
-        '<span class="muted">lineup + ECO-certified badge lifted conversion by </span>' +
-        '<b class="em-ab-up">'+ em_abtest_lift(show.lift) +'</b>' +
-      '</div>'+
-    '</div>'
-  );
+  if(!live.loading && !live.error && T.length===0){
+    out += chart('A/B test registry', 'No real tests yet', '<div class="note muted">Start an A/B test from the Builder tab — subject A vs subject B on one segment. It will show up here once it really sends.</div>');
+    return out;
+  }
   var rows = '';
   for (i=0;i<T.length;i++){
     t = T[i];
     var st = (t.status === 'running')
-      ? badge('running · '+t.progress+'%', 'gold')
-      : badge('completed', 'sage');
+      ? badge('collecting', 'gold')
+      : badge('done', 'sage');
     var winB = (t.winner === 'B');
     var winA = (t.winner === 'A');
-    var aCell = em_abtest_varcell(t.a.o, t.a.c, t.a.cv, winA);
-    var bCell = em_abtest_varcell(t.b.o, t.b.c, t.b.cv, winB);
+    var aCell = '<div class="em-ab-var'+(winA?' em-ab-win':'')+'"><span class="em-ab-m"><b>'+em_abtest_pct(t.a.o)+'</b><i>opens</i></span></div>';
+    var bCell = '<div class="em-ab-var'+(winB?' em-ab-win':'')+'"><span class="em-ab-m"><b>'+em_abtest_pct(t.b.o)+'</b><i>opens</i></span></div>';
     var liftCls = (t.lift>0?'em-ab-pos':'em-ab-neg');
-    var metricRu = (t.metric==='open'?'opens':(t.metric==='click'?'clicks':'conversion'));
     rows += '<tr>'+
       '<td><div class="em-ab-name">'+esc(t.name)+'</div>'+
-          '<div class="label">'+esc(t.dim)+' · goal: '+metricRu+'</div></td>'+
+          '<div class="label">'+esc(t.dim)+' · goal: opens</div></td>'+
       '<td>'+st+'</td>'+
       '<td>'+aCell+'</td>'+
       '<td>'+bCell+'</td>'+
@@ -1707,27 +2872,21 @@ EMAIL_TABS.abtest = function(){
         '<th>Variant A</th>'+
         '<th>Variant B</th>'+
         '<th class="em-ab-c">Sample</th>'+
-        '<th class="em-ab-c">Lift</th>'+
+        '<th class="em-ab-c">Lift (opens)</th>'+
         '<th class="em-ab-c">Winner</th>'+
         '<th>Significance</th>'+
       '</tr></thead>'+
       '<tbody>'+ rows +'</tbody>'+
     '</table></div>';
-  out += chart('A/B test registry', running+' running · '+done+' completed · confidence threshold 95%', table);
+  out += chart('A/B test registry', running+' collecting · '+done+' done · real two-proportion z-test', table);
   out += '<div class="note em-ab-note">'+
-    '<b>How we read the result.</b> A winner is locked in only once it reaches statistical significance of '+
-    '<b>95%</b> (p&lt;0.05) and the minimum sample. Tests flagged "insufficient data" are not rolled to prod — '+
-    'we keep collecting. The campaign on the winning variant ships only to verified '+
-    '<span class="mono">marketing_email</span> (fail-closed, CCPA/CPRA), and the footer with the unsubscribe link and sender '+
-    'identification (CAN-SPAM) is kept in both variants.'+
+    '<b>How to read this.</b> A winner is only declared at significance <b>|z|≥1.96</b> '+
+    '(≈95%, p&lt;0.05) and a sample of 20+ sends on each side. Metric is opens; clicks and conversion '+
+    'per variant are not tracked yet, so they are not shown. Sends of either variant go only to '+
+    'verified <span class="mono">marketing_email</span> (fail-closed, CAN-SPAM/CCPA).'+
   '</div>';
   return out;
 };
-
-/* ────────────────────────────────────────────────────────────────────────
-   deliverability panel ("Deliverability", ◆)
-   ──────────────────────────────────────────────────────────────────────── */
-
 EMAIL_TABS.deliverability = function(){
   var reach=lc('Active')+lc('Dormant')+lc('New')+lc('Lost');
   var econs=(OV.consent.purposes.find(function(p){return /Email/.test(p.label);})||{}).count||0;
@@ -2079,13 +3238,50 @@ function SEG_AUDIENCE(){
     '<div class="grid two">'+cards+'</div>'+
     '<div class="note" style="margin-top:16px">Segments are live: a profile shifts recency and moves to another group. Launch an action in the Flows tab — it runs only on those who consented (CCPA/CPRA gate).</div>';
 }
+function auto_relTime(iso){
+  if(!iso) return 'never fired yet';
+  var ms=Date.now()-Date.parse(iso);
+  if(ms<0) return 'just now';
+  var m=Math.floor(ms/60000);
+  if(m<1) return 'just now';
+  if(m<60) return m+' min ago';
+  var h=Math.floor(m/60);
+  if(h<24) return h+' h ago';
+  var d=Math.floor(h/24);
+  return d+' d ago';
+}
+if(typeof window.AUTOMATIONS_CACHE==='undefined') window.AUTOMATIONS_CACHE=null;
+function auto_flowsRows(flows){
+  return flows.map(function(x){
+    return '<tr><td style="font-weight:600">'+esc(x.name)+'<div class="muted" style="font-size:11px;font-weight:400">'+esc(x.sub)+'</div></td>'+
+      '<td class="muted">'+esc(x.channel)+'</td><td>'+nf(x.inflow)+'</td><td>'+(x.inflow?x.convRate+'%':'—')+'</td>'+
+      '<td>'+rub(x.revenue)+'</td><td>'+(x.active?badge('active','sage'):badge('disabled','muted'))+'</td>'+
+      '<td class="muted">'+esc(auto_relTime(x.lastFired))+'</td></tr>';
+  }).join('');
+}
+function auto_flowsBody(flows){
+  var inflight=flows.reduce(function(s,x){return s+x.inflow;},0);
+  var activeCount=flows.filter(function(x){return x.active;}).length;
+  var rows=auto_flowsRows(flows);
+  return '<div class="grid k3" style="margin-bottom:16px">'+tile('Flows active',String(activeCount)+' / '+flows.length,'real autopilot triggers','sage')+tile('In flight (30d)',nf(inflight),'autopilot fires','gold')+tile('CCPA gate','ON','verified marketing_email fail-closed','rust')+'</div>'+
+    '<div class="note">Flows are real autopilot triggers (ES poller), not a schedule. Channel is email only (social/SMS are not wired to the autopilot yet — honestly not shown). Conversion is an order by the same user_id within 7 days of the fire.</div>'+
+    chart('Autopilot triggers','Real data · '+(inflight?('over 30 days, '+nf(inflight)+' fires'):'no fires yet in the last 30 days'),'<div class="tw"><table><thead><tr><th>Flow</th><th>Channel</th><th>In flight</th><th>Conv.</th><th>Revenue</th><th>Status</th><th>Last run</th></tr></thead><tbody>'+rows+'</tbody></table></div>');
+}
 function SEG_FLOWS(){
-  var j=[{n:'Win back lost',ch:'Email + SMS',f:lc('Lost'),conv:6.2,last:'today 08:40',seg:'Lost'},{n:'Re-engage dormant',ch:'Email',f:lc('Dormant'),conv:9.1,last:'today 09:15',seg:'Dormant'},{n:'Onboard new',ch:'Email + Instagram',f:lc('New'),conv:24,last:'2h ago',seg:'New'},{n:'Upsell active',ch:'SMS',f:lc('Active'),conv:14,last:'today 07:05',seg:'Active'},{n:'Abandoned cart',ch:'Email',f:Math.round(OV.orders.count*0.4),conv:31,last:'15m ago',seg:'Trigger: cart'}];
-  var inflight=j.reduce(function(s,x){return s+x.f;},0);
-  var rows=j.map(function(x){return '<tr><td style="font-weight:600">'+x.n+'</td><td class="muted">'+x.seg+'</td><td class="muted">'+x.ch+'</td><td>'+nf(x.f)+'</td><td>'+x.conv+'%</td><td>'+badge('active','sage')+'</td><td class="muted">'+x.last+'</td></tr>';}).join('');
-  return '<div class="grid k3" style="margin-bottom:16px">'+tile('Flows active',String(j.length),'on schedule','sage')+tile('In flight',nf(inflight),'profiles in funnels','gold')+tile('CCPA gate','on','marketing_messaging fail-closed','rust')+'</div>'+
-    '<div class="note">Flows run on segments: each takes its group and walks it step by step (trigger → wait → email → goal). Social and SMS go through the CCPA/CPRA consent gate.</div>'+
-    chart('Flows on segments','Orchestrator: email · Instagram · SMS · consent gate','<div class="tw"><table><thead><tr><th>Flow</th><th>Segment</th><th>Channel</th><th>In flight</th><th>Conv.</th><th>Status</th><th>Last run</th></tr></thead><tbody>'+rows+'</tbody></table></div>');
+  if(window.AUTOMATIONS_CACHE){
+    return auto_flowsBody(window.AUTOMATIONS_CACHE);
+  }
+  j('/api/automations').then(function(data){
+    window.AUTOMATIONS_CACHE=data.flows||[];
+    if(window.segTab==='flows'){
+      var panel=document.querySelector('#view .em-panel');
+      if(panel) panel.innerHTML=auto_flowsBody(window.AUTOMATIONS_CACHE);
+    }
+  }).catch(function(e){
+    var panel=document.querySelector('#view .em-panel');
+    if(panel && window.segTab==='flows') panel.innerHTML='<div class="note" style="color:'+TONE.rust+'">Failed to load flows: '+esc(e.message||e)+'</div>';
+  });
+  return '<div class="note">Loading real autopilot-trigger data…</div>';
 }
 function segRender(){
   if(window.segTab==null) window.segTab=(location.pathname.indexOf('automations')>=0?'flows':'audience');
@@ -2276,12 +3472,19 @@ function renderProfiles(list){
 }
 
 function showErr(e){$('#err').innerHTML=e?'<div class="err">Error: '+esc(e)+'</div>':'';}
-async function j(u){const r=await fetch(u);if(!r.ok)throw new Error((await r.json().catch(()=>({}))).error||('HTTP '+r.status));return r.json();}
+// ─── auth: token from ?token= (once) → localStorage → Authorization header on every fetch ───
+window.RFC_TOKEN=(function(){
+  var qp=new URLSearchParams(location.search); var fromUrl=qp.get('token');
+  if(fromUrl){ localStorage.setItem('rfc_token', fromUrl); qp.delete('token'); var qs=qp.toString();
+    history.replaceState({}, '', location.pathname+(qs?'?'+qs:'')); }
+  return localStorage.getItem('rfc_token')||'';
+})();
+async function j(u){const r=await fetch(u,{headers:window.RFC_TOKEN?{authorization:'Bearer '+window.RFC_TOKEN}:{}});if(!r.ok){if(r.status===401){localStorage.removeItem('rfc_token');}throw new Error((await r.json().catch(()=>({}))).error||('HTTP '+r.status));}return r.json();}
 
 const isSec=id=>SECTIONS.some(s=>s[0]===id);
 function secFromPath(){const seg=(location.pathname.replace(/\\/+$/,'')||'/').slice(1);if(seg==='automations'){window.segTab='flows';return 'segments';}if(seg==='segments'&&window.segTab==null)window.segTab='audience';return isSec(seg)?seg:'overview';}
 function navTo(id){if(!isSec(id))return;if(id==='segments')window.segTab='audience';const q=location.search;if(location.pathname!=='/'+id)history.pushState({id:id},'','/'+id+q);setActive(id);}
-function syncTenantUrl(){var t=$('#tenant').value;var sp=new URLSearchParams(location.search);if(t)sp.set('tenant',t);else sp.delete('tenant');if(cur!=='email')sp.delete('tab');var qs=sp.toString();var bp=(cur==='segments'&&window.segTab==='flows')?'/automations':('/'+cur);history.replaceState({id:cur},'',bp+(qs?'?'+qs:''));}
+function syncTenantUrl(){var sp=new URLSearchParams(location.search);if(cur!=='email')sp.delete('tab');var qs=sp.toString();var bp=(cur==='segments'&&window.segTab==='flows')?'/automations':('/'+cur);history.replaceState({id:cur},'',bp+(qs?'?'+qs:''));}
 function setActive(id){
   cur=id; const meta=SECTIONS.find(s=>s[0]===id);
   $('#title').textContent=meta?meta[1]:id;
@@ -2290,11 +3493,11 @@ function setActive(id){
   document.querySelectorAll('.nav a').forEach(a=>a.classList.toggle('on',a.dataset.id===id));
   if(!OV){return;}
   $('#view').innerHTML=(VIEWS[id]||VIEWS.overview)();
-  if(id==='profiles') j('/api/profiles?tenant='+encodeURIComponent(TENANT)+'&limit=500').then(function(list){window.PROFILES=list||[];window.plPage=1;window.plRenderTable();}).catch(e=>showErr(e.message||e));
+  if(id==='profiles') j('/api/profiles?limit=500').then(function(list){window.PROFILES=list||[];window.plPage=1;window.plRenderTable();}).catch(e=>showErr(e.message||e));
 }
 async function load(){
-  showErr(''); TENANT=$('#tenant').value; $('#sub').textContent='tenant: '+TENANT; syncTenantUrl();
-  try{ OV=await j('/api/overview?tenant='+encodeURIComponent(TENANT)); setActive(cur); }
+  showErr(''); syncTenantUrl();
+  try{ OV=await j('/api/overview'); setActive(cur); }
   catch(e){ showErr(e.message||e); }
 }
 async function init(){
@@ -2304,15 +3507,13 @@ async function init(){
   window.onpopstate=()=>setActive(secFromPath());document.addEventListener('click',function(e){if(!e.target||!e.target.closest)return;var sg=e.target.closest('[data-segtab]');if(sg){e.preventDefault();window.segTo(sg.getAttribute('data-segtab'));return;}var pf=e.target.closest('[data-plfilter]');if(pf){e.preventDefault();window.plSetFilter(pf.getAttribute('data-plfilter'));return;}var pp=e.target.closest('[data-plpage]');if(pp){if(pp.disabled)return;e.preventDefault();window.plGo(parseInt(pp.getAttribute('data-plpage'),10));return;}});
   $('#burger').onclick=()=>document.body.classList.toggle('menu');
   $('#bd').onclick=()=>document.body.classList.remove('menu');
+  $('#tenant').style.display='none';
+  if(!window.RFC_TOKEN){ showErr('No access token. Open a link like /?token=YOUR_TOKEN provided by your admin.'); return; }
   try{
-    const cfg=await j('/api/config'); const ts=await j('/api/tenants');
-    if(!ts.length){showErr('No tenants (cdp_events_* empty)');return;}
-    $('#tenant').innerHTML=ts.map(t=>'<option value="'+esc(t.tenant)+'">'+esc(t.tenant)+' ('+nf(t.docs)+')</option>').join('');
-    const qt=new URLSearchParams(location.search).get('tenant');
-    if(qt&&ts.some(t=>t.tenant===qt))$('#tenant').value=qt;
-    if(cfg.locked)$('#tenant').style.display='none';
-    $('#tenant').onchange=load; load();
-  }catch(e){showErr(e.message||e);}
+    const cfg=await j('/api/config');
+    TENANT=cfg.tenant; $('#sub').textContent='tenant: '+TENANT;
+    load();
+  }catch(e){showErr(e.message||('Invalid token: '+(e.message||e)));}
 }
 init();
 </script></body></html>`;
