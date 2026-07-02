@@ -320,14 +320,14 @@ function escHtml(s) {
 }
 
 function signupWelcomeEmailHtml(companyName, loginUrl) {
-  return '<!doctype html><html><body style="margin:0;padding:0;background:#f5f0e8">' +
-    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f0e8"><tr><td align="center" style="padding:24px 12px">' +
-    '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#fffdf9;border-radius:12px;overflow:hidden">' +
+  return '<!doctype html><html><body style="margin:0;padding:0;background:#f7f7f6">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f7f7f6"><tr><td align="center" style="padding:24px 12px">' +
+    '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#ffffff;border-radius:12px;overflow:hidden">' +
     '<tr><td style="padding:28px;font-family:Arial,Helvetica,sans-serif">' +
-    '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:22px;font-weight:700;color:#1c1510;margin-bottom:12px">Welcome to Axiom, ' + escHtml(companyName) + '</div>' +
-    '<p style="font-size:14px;line-height:1.6;color:#1c1510">Your console is ready. Follow the link below to get started — it contains your personal access key — don’t share it.</p>' +
-    '<div style="text-align:center;margin-top:20px"><a href="' + escHtml(loginUrl) + '" style="display:inline-block;background:#c4683a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px">Open console</a></div>' +
-    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">If you didn\'t request access to Axiom, just ignore this email.</div>' +
+    '<div style="font-family:-apple-system,Helvetica,Arial,sans-serif;font-size:22px;font-weight:700;color:#1d1e20;margin-bottom:12px">Welcome to Axiom, ' + escHtml(companyName) + '</div>' +
+    '<p style="font-size:14px;line-height:1.6;color:#1d1e20">Your console is ready. Follow the link below to get started — it contains your personal access key — don’t share it.</p>' +
+    '<div style="text-align:center;margin-top:20px"><a href="' + escHtml(loginUrl) + '" style="display:inline-block;background:#ff4b32;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px">Open console</a></div>' +
+    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e7e6e3;font-size:11px;color:#6b6c6f">If you didn\'t request access to Axiom, just ignore this email.</div>' +
     '</td></tr></table></td></tr></table></body></html>';
 }
 async function resolveTenantFromToken(token) {
@@ -361,16 +361,16 @@ async function findTenantsByEmail(email) {
 }
 function recoveryEmailHtml(links) {
   var items = links.map(function (l) {
-    return '<div style="margin:10px 0"><a href="' + escHtml(l.url) + '" style="color:#c4683a;font-weight:700">' + escHtml(l.tenant) + '</a></div>';
+    return '<div style="margin:10px 0"><a href="' + escHtml(l.url) + '" style="color:#ff4b32;font-weight:700">' + escHtml(l.tenant) + '</a></div>';
   }).join('');
-  return '<!doctype html><html><body style="margin:0;padding:0;background:#f5f0e8">' +
-    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f0e8"><tr><td align="center" style="padding:24px 12px">' +
-    '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#fffdf9;border-radius:12px;overflow:hidden">' +
+  return '<!doctype html><html><body style="margin:0;padding:0;background:#f7f7f6">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f7f7f6"><tr><td align="center" style="padding:24px 12px">' +
+    '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#ffffff;border-radius:12px;overflow:hidden">' +
     '<tr><td style="padding:28px;font-family:Arial,Helvetica,sans-serif">' +
-    '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:22px;font-weight:700;color:#1c1510;margin-bottom:12px">Account recovery</div>' +
-    '<p style="font-size:14px;line-height:1.6;color:#1c1510">New sign-in link (the old key no longer works):</p>' +
+    '<div style="font-family:-apple-system,Helvetica,Arial,sans-serif;font-size:22px;font-weight:700;color:#1d1e20;margin-bottom:12px">Account recovery</div>' +
+    '<p style="font-size:14px;line-height:1.6;color:#1d1e20">New sign-in link (the old key no longer works):</p>' +
     items +
-    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">If you didn\'t request recovery, ignore this email — access stays unchanged until you follow the link.</div>' +
+    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e7e6e3;font-size:11px;color:#6b6c6f">If you didn\'t request recovery, ignore this email — access stays unchanged until you follow the link.</div>' +
     '</td></tr></table></td></tr></table></body></html>';
 }
 
@@ -542,47 +542,47 @@ async function checkDomainDeliverability(domain, dkimSelector) {
 // matching the candidate window (once the window expires, both candidate and marker "age out"
 // in sync — no risk of an endless repeat trigger on static data).
 function abandonedCartEmailHtml() {
-  return '<!doctype html><html><body style="margin:0;padding:0;background:#f5f0e8">' +
-    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f0e8"><tr><td align="center" style="padding:24px 12px">' +
-    '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#fffdf9;border-radius:12px;overflow:hidden">' +
+  return '<!doctype html><html><body style="margin:0;padding:0;background:#f7f7f6">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f7f7f6"><tr><td align="center" style="padding:24px 12px">' +
+    '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#ffffff;border-radius:12px;overflow:hidden">' +
     '<tr><td style="padding:28px;font-family:Arial,Helvetica,sans-serif">' +
-    '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:22px;font-weight:700;color:#1c1510;margin-bottom:12px">You left something in your cart</div>' +
-    '<p style="font-size:14px;line-height:1.6;color:#1c1510">Your items are still waiting — check out before they sell out.</p>' +
-    '<div style="text-align:center;margin-top:20px"><a href="https://ecoma.com/cart" style="display:inline-block;background:#c4683a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px">Back to cart</a></div>' +
-    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">You’re receiving this because you opted in to marketing emails (CAN-SPAM, CCPA). <a href="{{unsubscribe_url}}" style="color:#7a6e60">Unsubscribe</a></div>' +
+    '<div style="font-family:-apple-system,Helvetica,Arial,sans-serif;font-size:22px;font-weight:700;color:#1d1e20;margin-bottom:12px">You left something in your cart</div>' +
+    '<p style="font-size:14px;line-height:1.6;color:#1d1e20">Your items are still waiting — check out before they sell out.</p>' +
+    '<div style="text-align:center;margin-top:20px"><a href="https://ecoma.com/cart" style="display:inline-block;background:#ff4b32;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px">Back to cart</a></div>' +
+    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e7e6e3;font-size:11px;color:#6b6c6f">You’re receiving this because you opted in to marketing emails (CAN-SPAM, CCPA). <a href="{{unsubscribe_url}}" style="color:#6b6c6f">Unsubscribe</a></div>' +
     '</td></tr></table></td></tr></table></body></html>';
 }
 function reactivationEmailHtml() {
-  return '<!doctype html><html><body style="margin:0;padding:0;background:#f5f0e8">' +
-    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f0e8"><tr><td align="center" style="padding:24px 12px">' +
-    '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#fffdf9;border-radius:12px;overflow:hidden">' +
+  return '<!doctype html><html><body style="margin:0;padding:0;background:#f7f7f6">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f7f7f6"><tr><td align="center" style="padding:24px 12px">' +
+    '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#ffffff;border-radius:12px;overflow:hidden">' +
     '<tr><td style="padding:28px;font-family:Arial,Helvetica,sans-serif">' +
-    '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:22px;font-weight:700;color:#1c1510;margin-bottom:12px">Long time no see</div>' +
-    '<p style="font-size:14px;line-height:1.6;color:#1c1510">Come back for the newest eco-finds — we picked out what’s worth your attention.</p>' +
-    '<div style="text-align:center;margin-top:20px"><a href="https://ecoma.com/catalog" style="display:inline-block;background:#c4683a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px">Browse catalog</a></div>' +
-    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">You’re receiving this because you opted in to marketing emails (CAN-SPAM, CCPA). <a href="{{unsubscribe_url}}" style="color:#7a6e60">Unsubscribe</a></div>' +
+    '<div style="font-family:-apple-system,Helvetica,Arial,sans-serif;font-size:22px;font-weight:700;color:#1d1e20;margin-bottom:12px">Long time no see</div>' +
+    '<p style="font-size:14px;line-height:1.6;color:#1d1e20">Come back for the newest eco-finds — we picked out what’s worth your attention.</p>' +
+    '<div style="text-align:center;margin-top:20px"><a href="https://ecoma.com/catalog" style="display:inline-block;background:#ff4b32;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px">Browse catalog</a></div>' +
+    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e7e6e3;font-size:11px;color:#6b6c6f">You’re receiving this because you opted in to marketing emails (CAN-SPAM, CCPA). <a href="{{unsubscribe_url}}" style="color:#6b6c6f">Unsubscribe</a></div>' +
     '</td></tr></table></td></tr></table></body></html>';
 }
 function abandonedBrowseEmailHtml() {
-  return '<!doctype html><html><body style="margin:0;padding:0;background:#f5f0e8">' +
-    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f0e8"><tr><td align="center" style="padding:24px 12px">' +
-    '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#fffdf9;border-radius:12px;overflow:hidden">' +
+  return '<!doctype html><html><body style="margin:0;padding:0;background:#f7f7f6">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f7f7f6"><tr><td align="center" style="padding:24px 12px">' +
+    '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#ffffff;border-radius:12px;overflow:hidden">' +
     '<tr><td style="padding:28px;font-family:Arial,Helvetica,sans-serif">' +
-    '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:22px;font-weight:700;color:#1c1510;margin-bottom:12px">Still browsing?</div>' +
-    '<p style="font-size:14px;line-height:1.6;color:#1c1510">You recently viewed items with us — they’re still in stock if you want to come back.</p>' +
-    '<div style="text-align:center;margin-top:20px"><a href="https://ecoma.com/catalog" style="display:inline-block;background:#c4683a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px">Keep browsing</a></div>' +
-    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">You’re receiving this because you opted in to marketing emails (CAN-SPAM, CCPA). <a href="{{unsubscribe_url}}" style="color:#7a6e60">Unsubscribe</a></div>' +
+    '<div style="font-family:-apple-system,Helvetica,Arial,sans-serif;font-size:22px;font-weight:700;color:#1d1e20;margin-bottom:12px">Still browsing?</div>' +
+    '<p style="font-size:14px;line-height:1.6;color:#1d1e20">You recently viewed items with us — they’re still in stock if you want to come back.</p>' +
+    '<div style="text-align:center;margin-top:20px"><a href="https://ecoma.com/catalog" style="display:inline-block;background:#ff4b32;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px">Keep browsing</a></div>' +
+    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e7e6e3;font-size:11px;color:#6b6c6f">You’re receiving this because you opted in to marketing emails (CAN-SPAM, CCPA). <a href="{{unsubscribe_url}}" style="color:#6b6c6f">Unsubscribe</a></div>' +
     '</td></tr></table></td></tr></table></body></html>';
 }
 function checkoutAbandonedEmailHtml() {
-  return '<!doctype html><html><body style="margin:0;padding:0;background:#f5f0e8">' +
-    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f0e8"><tr><td align="center" style="padding:24px 12px">' +
-    '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#fffdf9;border-radius:12px;overflow:hidden">' +
+  return '<!doctype html><html><body style="margin:0;padding:0;background:#f7f7f6">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f7f7f6"><tr><td align="center" style="padding:24px 12px">' +
+    '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#ffffff;border-radius:12px;overflow:hidden">' +
     '<tr><td style="padding:28px;font-family:Arial,Helvetica,sans-serif">' +
-    '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:22px;font-weight:700;color:#1c1510;margin-bottom:12px">Checkout wasn\'t finished</div>' +
-    '<p style="font-size:14px;line-height:1.6;color:#1c1510">You started checking out, but something got in the way — come back to finish your purchase.</p>' +
-    '<div style="text-align:center;margin-top:20px"><a href="https://ecoma.com/checkout" style="display:inline-block;background:#c4683a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px">Finish checkout</a></div>' +
-    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">You’re receiving this because you opted in to marketing emails (CAN-SPAM, CCPA). <a href="{{unsubscribe_url}}" style="color:#7a6e60">Unsubscribe</a></div>' +
+    '<div style="font-family:-apple-system,Helvetica,Arial,sans-serif;font-size:22px;font-weight:700;color:#1d1e20;margin-bottom:12px">Checkout wasn\'t finished</div>' +
+    '<p style="font-size:14px;line-height:1.6;color:#1d1e20">You started checking out, but something got in the way — come back to finish your purchase.</p>' +
+    '<div style="text-align:center;margin-top:20px"><a href="https://ecoma.com/checkout" style="display:inline-block;background:#ff4b32;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px">Finish checkout</a></div>' +
+    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e7e6e3;font-size:11px;color:#6b6c6f">You’re receiving this because you opted in to marketing emails (CAN-SPAM, CCPA). <a href="{{unsubscribe_url}}" style="color:#6b6c6f">Unsubscribe</a></div>' +
     '</td></tr></table></td></tr></table></body></html>';
 }
 const AUTOMATION_EMAIL_HTML = {
@@ -1386,7 +1386,7 @@ if (require.main === module) server.listen(PORT, '0.0.0.0', () => console.log('u
 module.exports = { mapSource, bucketLifecycle, aggregate, profilesList, listTenants, server, trackSign, trackVerify, injectTracking, resolveConsentedRecipients, zTestCompare, abtestStats, realSegmentCounts, realCampaignsList, realAbtestList, usersMatchingQuery, checkDomainDeliverability, runAutomationPoller, automationFlowStats, verifySvixSignature, suppressEmail, isSuppressed };
 
 // ─── favicon: Axiom orbit mark (gold on ink, zero-dep inline SVG) ────
-const FAV = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32"><circle cx="16" cy="16" r="16" fill="#1c1510"/><circle cx="16" cy="16" r="10" fill="none" stroke="#c9a84c" stroke-width="1.5"/><g fill="#c9a84c"><circle cx="16" cy="16" r="3.2"/><circle cx="16" cy="6" r="2"/><circle cx="7.34" cy="21" r="2"/><circle cx="24.66" cy="21" r="2"/></g></svg>`;
+const FAV = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32"><circle cx="16" cy="16" r="16" fill="#1d1e20"/><circle cx="16" cy="16" r="10" fill="none" stroke="#ff4b32" stroke-width="1.5"/><g fill="#ff4b32"><circle cx="16" cy="16" r="3.2"/><circle cx="16" cy="6" r="2"/><circle cx="7.34" cy="21" r="2"/><circle cx="24.66" cy="21" r="2"/></g></svg>`;
 
 // ─── frontend: left menu + panels (Axiom style, SVG charts, zero-dep) ────
 const HTML = /* html */ `<!doctype html><html lang="ru"><head>
@@ -1394,7 +1394,7 @@ const HTML = /* html */ `<!doctype html><html lang="ru"><head>
 <title>Axiom · Console</title>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;700&family=JetBrains+Mono&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root{--gold:#ff4b32;--gold-deep:#e0391f;--sage:#1f8a53;--rust:#e0391f;--ink:#1d1e20;--muted:#6b6c6f;--line:#e7e6e3;--cream:#f0efeb;--panel:#ffffff;--head:#1d1e20}
   *{box-sizing:border-box}
@@ -1411,7 +1411,7 @@ const HTML = /* html */ `<!doctype html><html lang="ru"><head>
   .nav a .ic{width:16px;text-align:center;opacity:.85}
   .nav a:hover{background:#28292b;color:var(--cream)}
   .nav a.on{background:#28292b;color:var(--cream);border-left-color:var(--gold)}
-  .side .ft{padding:14px 20px;border-top:1px solid #3a3b3d;font-size:11px;color:#8a7d6c}
+  .side .ft{padding:14px 20px;border-top:1px solid #3a3b3d;font-size:11px;color:#8b8c8f}
   .mtop{display:none}.backdrop{display:none}
   .burger{background:none;border:0;color:var(--cream);font-size:26px;line-height:1;cursor:pointer;padding:0 4px}
   .mbrand{font-family:'Instrument Sans',-apple-system,Segoe UI,Roboto,Arial,sans-serif;font-weight:700;font-size:18px;letter-spacing:.04em}
@@ -1793,7 +1793,7 @@ const HTML = /* html */ `<!doctype html><html lang="ru"><head>
   <div id="view"></div>
 </main>
 <script>
-const TONE={gold:'#c9a84c',sage:'#d9c07a',rust:'#c4683a',ink:'#efe7d6',muted:'#9b8e79',line:'#3a2f25'};
+const TONE={gold:'#ff4b32',sage:'#1f8a53',rust:'#e0391f',ink:'#1d1e20',muted:'#6b6c6f',line:'#e7e6e3'};
 const $=s=>document.querySelector(s);
 const nf=n=>(n||0).toLocaleString('en-US');
 const rub=n=>'$'+nf(Math.round(n||0));
@@ -1811,7 +1811,7 @@ function hbars(bars){if(!bars.length)return '<div class="muted">—</div>';const
 function donut(sl){const size=180,stroke=28,r=(size-stroke)/2,c=size/2,circ=2*Math.PI*r,total=sl.reduce((s,x)=>s+x.value,0)||1;let off=0;
   const arcs=sl.filter(s=>s.value>0).map(s=>{const dash=s.value/total*circ;const el='<circle cx="'+c+'" cy="'+c+'" r="'+r+'" fill="none" stroke="'+(TONE[s.tone]||TONE.muted)+'" stroke-width="'+stroke+'" stroke-dasharray="'+dash+' '+(circ-dash)+'" stroke-dashoffset="'+(-off)+'" transform="rotate(-90 '+c+' '+c+')"/>';off+=dash;return el;}).join('');
   const leg='<ul class="legend">'+sl.map(s=>'<li><span class="sw" style="background:'+(TONE[s.tone]||TONE.muted)+'"></span><span class="nm">'+esc(s.label)+'</span> <span class="cap" style="color:'+TONE.muted+'">'+nf(s.value)+' · '+Math.round(s.value/total*100)+'%</span></li>').join('')+'</ul>';
-  return '<div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap"><svg width="'+size+'" height="'+size+'" viewBox="0 0 '+size+' '+size+'" style="flex:none"><circle cx="'+c+'" cy="'+c+'" r="'+r+'" fill="none" stroke="'+TONE.line+'" stroke-width="'+stroke+'"/>'+arcs+'<text x="'+c+'" y="'+(c-1)+'" text-anchor="middle" font-family="Lora,serif" font-size="28" font-weight="700" fill="'+TONE.ink+'">'+nf(total)+'</text><text x="'+c+'" y="'+(c+17)+'" text-anchor="middle" font-size="10" letter-spacing="1" fill="'+TONE.muted+'">PROFILES</text></svg>'+leg+'</div>';}
+  return '<div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap"><svg width="'+size+'" height="'+size+'" viewBox="0 0 '+size+' '+size+'" style="flex:none"><circle cx="'+c+'" cy="'+c+'" r="'+r+'" fill="none" stroke="'+TONE.line+'" stroke-width="'+stroke+'"/>'+arcs+'<text x="'+c+'" y="'+(c-1)+'" text-anchor="middle" font-family=\\'Instrument Sans\\',sans-serif" font-size="28" font-weight="700" fill="'+TONE.ink+'">'+nf(total)+'</text><text x="'+c+'" y="'+(c+17)+'" text-anchor="middle" font-size="10" letter-spacing="1" fill="'+TONE.muted+'">PROFILES</text></svg>'+leg+'</div>';}
 function vbars(bars){const max=Math.max.apply(null,bars.map(b=>b.value).concat([1]));let peak=0;bars.forEach((b,i)=>{if(b.value>bars[peak].value)peak=i;});
   var step=Math.max(1,Math.ceil(bars.length/12));return '<div class="vb">'+bars.map((b,i)=>'<div class="col"><div class="rect" title="'+esc(b.label)+': '+nf(b.value)+'" style="height:'+Math.max(2,b.value/max*128)+'px;background:'+TONE.gold+';opacity:'+(i===peak?1:.5)+'"></div><div class="x">'+((i%step===0||i===bars.length-1)?esc(b.label):'')+'</div></div>').join('')+'</div>';}
 function svc(s){return '<div class="card svc"><div class="hd"><span class="label"><span class="dot" style="background:'+(TONE[s.tone]||TONE.sage)+'"></span>'+esc(s.name)+'</span><span class="stat"><span class="d"></span>'+esc(s.status)+'</span></div><div class="m">'+esc(s.metric)+'</div><div class="c">'+esc(s.caption)+'</div></div>';}
@@ -1868,7 +1868,7 @@ function em_campaigns_pct(n){
 }
 function em_campaigns_bar(pct, toneKey){
   var w = pct; if(w<0) w=0; if(w>100) w=100;
-  var col = (TONE && TONE[toneKey]) ? TONE[toneKey] : (TONE? TONE.gold : '#c9a84c');
+  var col = (TONE && TONE[toneKey]) ? TONE[toneKey] : (TONE? TONE.gold : '#ff4b32');
   return '<span class="em-mini"><span class="em-mini-fill" style="width:'+w+'%;background:'+col+'"></span></span>';
 }
 function em_campaigns_statusBadge(st){
@@ -2103,22 +2103,22 @@ function em_builder_blockHtmlEmail(b) {
   var F = "font-family:Arial,Helvetica,sans-serif;";
   if (b.type === 'header') {
     return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse"><tr>' +
-      '<td style="padding:18px 24px;' + F + 'font-size:19px;font-weight:700;color:#1c1510">🌿 ' + esc(d.brand) + '</td>' +
-      '<td style="padding:18px 24px;text-align:right;' + F + 'font-size:12px;color:#7a6e60">' + esc(d.tagline) + '</td>' +
+      '<td style="padding:18px 24px;' + F + 'font-size:19px;font-weight:700;color:#1d1e20">🌿 ' + esc(d.brand) + '</td>' +
+      '<td style="padding:18px 24px;text-align:right;' + F + 'font-size:12px;color:#6b6c6f">' + esc(d.tagline) + '</td>' +
       '</tr></table>';
   }
   if (b.type === 'hero') {
     return '<div style="padding:22px 24px 10px;text-align:center;' + F + '">' +
       '<div style="font-size:34px;margin-bottom:8px">' + esc(d.emoji || '🌿') + '</div>' +
-      '<div style="font-family:Georgia,\\'Times New Roman\\',serif;font-size:24px;font-weight:700;color:#1c1510;margin-bottom:6px">' + esc(d.title) + '</div>' +
-      '<div style="font-size:14px;color:#7a6e60;line-height:1.5">' + esc(d.sub) + '</div></div>';
+      '<div style="font-family:-apple-system,Helvetica,Arial,sans-serif;font-size:24px;font-weight:700;color:#1d1e20;margin-bottom:6px">' + esc(d.title) + '</div>' +
+      '<div style="font-size:14px;color:#6b6c6f;line-height:1.5">' + esc(d.sub) + '</div></div>';
   }
   if (b.type === 'text') {
-    return '<div style="padding:14px 24px;' + F + 'font-size:14px;line-height:1.6;color:#1c1510">' + esc(d.body) + '</div>';
+    return '<div style="padding:14px 24px;' + F + 'font-size:14px;line-height:1.6;color:#1d1e20">' + esc(d.body) + '</div>';
   }
   if (b.type === 'cta') {
     return '<div style="padding:20px 24px;text-align:center">' +
-      '<a href="' + esc(d.url) + '" style="display:inline-block;background:#c4683a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px;' + F + '">' + esc(d.label) + '</a></div>';
+      '<a href="' + esc(d.url) + '" style="display:inline-block;background:#ff4b32;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px;' + F + '">' + esc(d.label) + '</a></div>';
   }
   if (b.type === 'products') {
     var cells = '';
@@ -2126,35 +2126,35 @@ function em_builder_blockHtmlEmail(b) {
       var it = d.items[i];
       cells += '<td style="width:' + Math.floor(100 / (d.items.length || 1)) + '%;padding:8px;text-align:center;vertical-align:top;' + F + '">' +
         '<div style="font-size:26px">🧴</div>' +
-        '<div style="font-size:13px;font-weight:700;color:#1c1510;margin-top:4px">' + esc(it.name) + '</div>' +
-        '<div style="font-size:11px;color:#7a6e60;margin-top:2px">' + esc(it.cap) + '</div>' +
-        '<div style="font-size:14px;font-weight:700;color:#c4683a;margin-top:6px">' + rub(it.price) + '</div></td>';
+        '<div style="font-size:13px;font-weight:700;color:#1d1e20;margin-top:4px">' + esc(it.name) + '</div>' +
+        '<div style="font-size:11px;color:#6b6c6f;margin-top:2px">' + esc(it.cap) + '</div>' +
+        '<div style="font-size:14px;font-weight:700;color:#e0391f;margin-top:6px">' + rub(it.price) + '</div></td>';
     }
     return '<div style="padding:14px 24px">' +
-      (d.title ? '<div style="font-family:Georgia,serif;font-size:16px;font-weight:700;margin-bottom:10px;color:#1c1510">' + esc(d.title) + '</div>' : '') +
+      (d.title ? '<div style="font-family:-apple-system,Helvetica,Arial,sans-serif;font-size:16px;font-weight:700;margin-bottom:10px;color:#1d1e20">' + esc(d.title) + '</div>' : '') +
       '<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>' + cells + '</tr></table></div>';
   }
   if (b.type === 'promo') {
-    return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:8px 0"><tr><td style="padding:16px 24px;text-align:center;background:#f5f0e8">' +
-      '<div style="' + F + 'font-size:14px;color:#1c1510">' + esc(d.text) + '</div>' +
-      '<div style="font-family:\\'Courier New\\',monospace;font-size:22px;font-weight:700;color:#c4683a;letter-spacing:2px;margin:8px 0">' + esc(d.code) + '</div>' +
-      '<div style="' + F + 'font-size:11px;color:#7a6e60">with promo code · valid ' + esc(d.expires) + '</div>' +
+    return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:8px 0"><tr><td style="padding:16px 24px;text-align:center;background:#f7f7f6">' +
+      '<div style="' + F + 'font-size:14px;color:#1d1e20">' + esc(d.text) + '</div>' +
+      '<div style="font-family:\\'Courier New\\',monospace;font-size:22px;font-weight:700;color:#e0391f;letter-spacing:2px;margin:8px 0">' + esc(d.code) + '</div>' +
+      '<div style="' + F + 'font-size:11px;color:#6b6c6f">with promo code · valid ' + esc(d.expires) + '</div>' +
       '</td></tr></table>';
   }
   if (b.type === 'divider') {
-    return '<div style="text-align:center;padding:10px 0;color:#c9a84c;font-size:16px">∴</div>';
+    return '<div style="text-align:center;padding:10px 0;color:#ff4b32;font-size:16px">∴</div>';
   }
   if (b.type === 'social') {
     return '<div style="padding:14px 24px;text-align:center;' + F + '">' +
-      '<a href="https://' + esc(d.vk) + '" style="display:inline-block;margin:0 6px;padding:8px 16px;border:1px solid #e0d8cc;border-radius:20px;color:#1c1510;text-decoration:none;font-size:12px;font-weight:700">IG</a>' +
-      '<a href="https://' + esc(d.tg) + '" style="display:inline-block;margin:0 6px;padding:8px 16px;border:1px solid #e0d8cc;border-radius:20px;color:#1c1510;text-decoration:none;font-size:12px;font-weight:700">TG</a>' +
-      '<div style="font-size:11px;color:#7a6e60;margin-top:8px">follow us on social · direct connection, off-marketplace</div></div>';
+      '<a href="https://' + esc(d.vk) + '" style="display:inline-block;margin:0 6px;padding:8px 16px;border:1px solid #e7e6e3;border-radius:20px;color:#1d1e20;text-decoration:none;font-size:12px;font-weight:700">IG</a>' +
+      '<a href="https://' + esc(d.tg) + '" style="display:inline-block;margin:0 6px;padding:8px 16px;border:1px solid #e7e6e3;border-radius:20px;color:#1d1e20;text-decoration:none;font-size:12px;font-weight:700">TG</a>' +
+      '<div style="font-size:11px;color:#6b6c6f;margin-top:8px">follow us on social · direct connection, off-marketplace</div></div>';
   }
   if (b.type === 'footer') {
-    return '<div style="padding:16px 24px;border-top:1px solid #e0d8cc;' + F + 'font-size:11px;color:#7a6e60;line-height:1.5">' +
+    return '<div style="padding:16px 24px;border-top:1px solid #e7e6e3;' + F + 'font-size:11px;color:#6b6c6f;line-height:1.5">' +
       '<div>Sender: ' + esc(d.advertiser) + '. ' + esc(d.addr) + '.</div>' +
       '<div style="margin-top:6px">This email was sent based on your consent to receive marketing email (CAN-SPAM, CCPA consent).</div>' +
-      '<div style="margin-top:6px"><a href="{{unsubscribe_url}}" style="color:#7a6e60">Unsubscribe</a> · one click, no confirmation needed</div></div>';
+      '<div style="margin-top:6px"><a href="{{unsubscribe_url}}" style="color:#6b6c6f">Unsubscribe</a> · one click, no confirmation needed</div></div>';
   }
   return '';
 }
@@ -2164,9 +2164,9 @@ function em_builder_emailHtml(blocks, subject) {
   for (var i = 0; i < blocks.length; i++) body += em_builder_blockHtmlEmail(blocks[i]);
   return '<!doctype html><html><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width,initial-scale=1"><title>' + esc(subject || '') + '</title></head>' +
-    '<body style="margin:0;padding:0;background:#f5f0e8">' +
-    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f0e8"><tr><td align="center" style="padding:24px 12px">' +
-    '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#fffdf9;border-radius:12px;overflow:hidden">' +
+    '<body style="margin:0;padding:0;background:#f7f7f6">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f7f7f6"><tr><td align="center" style="padding:24px 12px">' +
+    '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#ffffff;border-radius:12px;overflow:hidden">' +
     '<tr><td>' + body + '</td></tr></table></td></tr></table></body></html>';
 }
 
@@ -2553,7 +2553,7 @@ function em_audiences_reachDonut(){
     off+=dash;return el;
   }).join('');
   var svg='<svg width="'+size+'" height="'+size+'" viewBox="0 0 '+size+' '+size+'" style="flex:none"><circle cx="'+c+'" cy="'+c+'" r="'+r+'" fill="none" stroke="'+TONE.line+'" stroke-width="'+stroke+'"/>'+arcs+
-    '<text x="'+c+'" y="'+(c-2)+'" text-anchor="middle" font-family="Lora,serif" font-size="24" font-weight="700" fill="'+TONE.sage+'">'+nf(withCnet)+'</text>'+
+    '<text x="'+c+'" y="'+(c-2)+'" text-anchor="middle" font-family=\\'Instrument Sans\\',sans-serif" font-size="24" font-weight="700" fill="'+TONE.sage+'">'+nf(withCnet)+'</text>'+
     '<text x="'+c+'" y="'+(c+15)+'" text-anchor="middle" font-size="9" letter-spacing="1" fill="'+TONE.muted+'">REACHABLE</text></svg>';
   return '<div class="em-reach-wrap">'+svg+leg+'</div>';
 }
@@ -2810,11 +2810,11 @@ function em_analytics_heatCell(day, hour){
   return v;
 }
 function em_analytics_heatColor(v){
-  if(v < 0.04) return '#201811';
+  if(v < 0.04) return '#f0efeb';
   var a = 0.12 + v*0.88;
-  var r = Math.round(201 + (196-201)*v);
-  var g = Math.round(168 + (104-168)*v*0.8);
-  var b = Math.round(76  + (58-76)*v*0.6);
+  var r = Math.round(255 + (224-255)*v);
+  var g = Math.round(75  + (57-75)*v);
+  var b = Math.round(50  + (31-50)*v);
   return 'rgba('+r+','+g+','+b+','+a.toFixed(3)+')';
 }
 function em_analytics_heatmap(){
