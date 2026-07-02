@@ -1853,6 +1853,7 @@ if (typeof window.builderPreset === 'undefined') window.builderPreset = 'welcome
 /* ────────────────────────────────────────────────────────────────────────
    campaigns PANEL ("Campaigns", ✉)
    ──────────────────────────────────────────────────────────────────────── */
+var LIVE = {};
 function liveFetch(kind, tenant, url){
   var key = kind+':'+tenant;
   var slot = LIVE[key];
