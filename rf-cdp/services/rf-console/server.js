@@ -632,6 +632,71 @@ async function runAutomationPoller(tenant) {
   return out;
 }
 
+const AUTOMATION_TRIGGER_META = {
+  abandoned_cart: { name: 'Брошенная корзина', sub: 'recovery · add_to_cart без оформления', channel: 'Email' },
+  abandoned_browse: { name: 'Брошенный просмотр', sub: 'recovery · product_viewed без добавления в корзину', channel: 'Email' },
+  checkout_abandoned: { name: 'Незавершённое оформление', sub: 'recovery · checkout_started без оплаты', channel: 'Email' },
+  reactivation: { name: 'Реактивация спящих', sub: 'win-back · 7–30 дней без визита', channel: 'Email' },
+};
+// Реальная статистика по автопилот-сценариям (заменяет фикстуру SEG_FLOWS/em_flows_model
+// с придуманными conv/revenue и фейковым "последний запуск").
+// inflow — сколько automation_fired за 30д, conv — доля тех, у кого order_completed
+// того же user_id в течение 7д ПОСЛЕ срабатывания (корреляция по сырым документам, тот же
+// приём что noopen в realSegmentCounts — anonymous_id уникален на отправку, поэтому считаем
+// по user_id + сравнению ts), revenue — сумма выручки этих заказов. lastFired — реальное
+// время последнего срабатывания, не выдуманное "сегодня 08:40".
+async function automationFlowStats(tenant) {
+  if (!TENANT_RE.test(tenant)) throw new Error('bad tenant');
+  const triggers = Object.keys(AUTOMATION_TRIGGER_META);
+  const [firedDocs, orderDocs] = await Promise.all([
+    es('/cdp_events_' + tenant + '/_search', {
+      size: 5000,
+      query: { bool: { filter: [{ term: { event: 'automation_fired' } }, { range: { ts: { gte: 'now-30d' } } }] } },
+      _source: ['user_id', 'ts', 'properties.trigger'],
+      sort: [{ ts: 'desc' }],
+    }),
+    es('/cdp_events_' + tenant + '/_search', {
+      size: 5000,
+      query: { bool: { filter: [{ term: { 'event.keyword': 'order_completed' } }, { range: { ts: { gte: 'now-37d' } } }] } },
+      _source: ['user_id', 'ts', 'properties.revenue'],
+    }),
+  ]);
+  const orders = (orderDocs.hits && orderDocs.hits.hits || [])
+    .map((h) => ({ userId: h._source.user_id, ts: Date.parse(h._source.ts), revenue: (h._source.properties && h._source.properties.revenue) || 0 }))
+    .filter((o) => o.userId);
+  const byTrigger = {};
+  for (const t of triggers) byTrigger[t] = [];
+  for (const h of (firedDocs.hits && firedDocs.hits.hits || [])) {
+    const trig = h._source.properties && h._source.properties.trigger;
+    if (!byTrigger[trig]) continue;
+    byTrigger[trig].push({ userId: h._source.user_id, ts: Date.parse(h._source.ts) });
+  }
+  const out = [];
+  for (const t of triggers) {
+    const fires = byTrigger[t];
+    let converted = 0, revenue = 0, lastFiredTs = null;
+    for (const f of fires) {
+      if (lastFiredTs === null || f.ts > lastFiredTs) lastFiredTs = f.ts;
+      if (!f.userId) continue;
+      const match = orders.find((o) => o.userId === f.userId && o.ts > f.ts && o.ts <= f.ts + 7 * DAY);
+      if (match) { converted++; revenue += match.revenue; }
+    }
+    out.push({
+      key: t,
+      name: AUTOMATION_TRIGGER_META[t].name,
+      sub: AUTOMATION_TRIGGER_META[t].sub,
+      channel: AUTOMATION_TRIGGER_META[t].channel,
+      active: true,
+      inflow: fires.length,
+      converted: converted,
+      convRate: fires.length ? Math.round((converted / fires.length) * 1000) / 10 : 0,
+      revenue: revenue,
+      lastFired: lastFiredTs ? new Date(lastFiredTs).toISOString() : null,
+    });
+  }
+  return out;
+}
+
 async function usersMatchingQuery(tenant, query) {
   const q = await es('/cdp_events_' + tenant + '/_search', {
     size: 0,
@@ -1206,7 +1271,7 @@ if (require.main === module && process.env.AUTOMATION_ENABLED === 'true') {
   }, autoIntervalMs);
 }
 
-module.exports = { mapSource, bucketLifecycle, aggregate, profilesList, listTenants, server, trackSign, trackVerify, injectTracking, resolveConsentedRecipients, zTestCompare, abtestStats, realSegmentCounts, usersMatchingQuery, checkDomainDeliverability, runAutomationPoller, verifySvixSignature, suppressEmail, isSuppressed };
+module.exports = { mapSource, bucketLifecycle, aggregate, profilesList, listTenants, server, trackSign, trackVerify, injectTracking, resolveConsentedRecipients, zTestCompare, abtestStats, realSegmentCounts, usersMatchingQuery, checkDomainDeliverability, runAutomationPoller, automationFlowStats, verifySvixSignature, suppressEmail, isSuppressed };
 
 // ─── favicon: брендовая марка AXIOM — орбита/ядро (золото на ink, zero-dep inline SVG) ────
 const FAV = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32"><circle cx="16" cy="16" r="16" fill="#1c1510"/><circle cx="16" cy="16" r="10" fill="none" stroke="#c9a84c" stroke-width="1.5"/><g fill="#c9a84c"><circle cx="16" cy="16" r="3.2"/><circle cx="16" cy="6" r="2"/><circle cx="7.34" cy="21" r="2"/><circle cx="24.66" cy="21" r="2"/></g></svg>`;
@@ -2043,7 +2108,7 @@ function em_builder_blockHtmlEmail(b) {
   if (b.type === 'hero') {
     return '<div style="padding:22px 24px 10px;text-align:center;' + F + '">' +
       '<div style="font-size:34px;margin-bottom:8px">' + esc(d.emoji || '🌿') + '</div>' +
-      '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:24px;font-weight:700;color:#1c1510;margin-bottom:6px">' + esc(d.title) + '</div>' +
+      '<div style="font-family:Georgia,\\'Times New Roman\\',serif;font-size:24px;font-weight:700;color:#1c1510;margin-bottom:6px">' + esc(d.title) + '</div>' +
       '<div style="font-size:14px;color:#7a6e60;line-height:1.5">' + esc(d.sub) + '</div></div>';
   }
   if (b.type === 'text') {
@@ -2070,7 +2135,7 @@ function em_builder_blockHtmlEmail(b) {
   if (b.type === 'promo') {
     return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:8px 0"><tr><td style="padding:16px 24px;text-align:center;background:#f5f0e8">' +
       '<div style="' + F + 'font-size:14px;color:#1c1510">' + esc(d.text) + '</div>' +
-      '<div style="font-family:\'Courier New\',monospace;font-size:22px;font-weight:700;color:#c4683a;letter-spacing:2px;margin:8px 0">' + esc(d.code) + '</div>' +
+      '<div style="font-family:\\'Courier New\\',monospace;font-size:22px;font-weight:700;color:#c4683a;letter-spacing:2px;margin:8px 0">' + esc(d.code) + '</div>' +
       '<div style="' + F + 'font-size:11px;color:#7a6e60">по промокоду · действует ' + esc(d.expires) + '</div>' +
       '</td></tr></table>';
   }
