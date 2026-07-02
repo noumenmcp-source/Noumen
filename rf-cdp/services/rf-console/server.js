@@ -288,6 +288,10 @@ async function recordEmailEvent(tenant, eventType, messageId, extra) {
     ts: new Date().toISOString(),
     properties: Object.assign({ messageId: messageId, source: 'internal_pixel_or_click' }, extra || {}),
   });
+  // automation_fired несёт subjectId (user_id кандидата) — поднимаем в top-level user_id,
+  // иначе usersMatchingQuery() (агрегирует по user_id.keyword) никогда не найдёт маркер
+  // и идемпотентность триггеров молча не работает (повторная отправка на каждый прогон поллера).
+  if (extra && extra.subjectId) doc.user_id = extra.subjectId;
   try { await es('/cdp_events_' + tenant + '/_doc', doc); }
   catch (e) { console.warn('recordEmailEvent failed:', e.message || e); }
 }
@@ -475,9 +479,11 @@ async function checkDomainDeliverability(domain, dkimSelector) {
 }
 
 // ─── Автопилот-триггеры: ES-нативный поллер, без Postgres/Redis/pg-boss.
-// 2 честных триггера (не все ~33 из деки — это отдельный долгий бэклог):
-//   abandoned_cart — add_to_cart 3-24ч назад, без последующего order_completed
-//   reactivation   — профиль только что вошёл в "Спящие" (7-30 дней без визита)
+// 4 честных триггера (не все ~33 из деки — это отдельный долгий бэклог):
+//   abandoned_cart      — add_to_cart 3-24ч назад, без последующего order_completed
+//   abandoned_browse    — product_viewed 3-24ч назад, без add_to_cart/order_completed с тех пор
+//   checkout_abandoned  — checkout_started 3-24ч назад, без последующего order_completed
+//   reactivation        — профиль только что вошёл в "Спящие" (7-30 дней без визита)
 // Идемпотентность — маркер-событие automation_fired в том же ES-индексе, с окном,
 // совпадающим с окном кандидатов (после истечения окна кандидат и маркер оба "стареют"
 // синхронно — нет риска бесконечного повторного триггера на статичных данных).
@@ -503,10 +509,38 @@ function reactivationEmailHtml() {
     '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">Письмо отправлено на основании вашего согласия на получение рекламных рассылок (ст. 18 ФЗ «О рекламе», ст. 9 152-ФЗ). <a href="{{unsubscribe_url}}" style="color:#7a6e60">Отписаться</a></div>' +
     '</td></tr></table></td></tr></table></body></html>';
 }
+function abandonedBrowseEmailHtml() {
+  return '<!doctype html><html><body style="margin:0;padding:0;background:#f5f0e8">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f0e8"><tr><td align="center" style="padding:24px 12px">' +
+    '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#fffdf9;border-radius:12px;overflow:hidden">' +
+    '<tr><td style="padding:28px;font-family:Arial,Helvetica,sans-serif">' +
+    '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:22px;font-weight:700;color:#1c1510;margin-bottom:12px">Всё ещё присматриваетесь?</div>' +
+    '<p style="font-size:14px;line-height:1.6;color:#1c1510">Вы недавно смотрели товары у нас — они всё ещё в наличии, если решите вернуться.</p>' +
+    '<div style="text-align:center;margin-top:20px"><a href="https://ecoma.ru/catalog" style="display:inline-block;background:#c4683a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px">Вернуться к просмотру</a></div>' +
+    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">Письмо отправлено на основании вашего согласия на получение рекламных рассылок (ст. 18 ФЗ «О рекламе», ст. 9 152-ФЗ). <a href="{{unsubscribe_url}}" style="color:#7a6e60">Отписаться</a></div>' +
+    '</td></tr></table></td></tr></table></body></html>';
+}
+function checkoutAbandonedEmailHtml() {
+  return '<!doctype html><html><body style="margin:0;padding:0;background:#f5f0e8">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f0e8"><tr><td align="center" style="padding:24px 12px">' +
+    '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#fffdf9;border-radius:12px;overflow:hidden">' +
+    '<tr><td style="padding:28px;font-family:Arial,Helvetica,sans-serif">' +
+    '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:22px;font-weight:700;color:#1c1510;margin-bottom:12px">Оформление не завершено</div>' +
+    '<p style="font-size:14px;line-height:1.6;color:#1c1510">Вы начали оформлять заказ, но что-то помешало закончить — вернитесь, чтобы завершить покупку.</p>' +
+    '<div style="text-align:center;margin-top:20px"><a href="https://ecoma.ru/checkout" style="display:inline-block;background:#c4683a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px">Завершить заказ</a></div>' +
+    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">Письмо отправлено на основании вашего согласия на получение рекламных рассылок (ст. 18 ФЗ «О рекламе», ст. 9 152-ФЗ). <a href="{{unsubscribe_url}}" style="color:#7a6e60">Отписаться</a></div>' +
+    '</td></tr></table></td></tr></table></body></html>';
+}
+const AUTOMATION_EMAIL_HTML = {
+  abandoned_cart: abandonedCartEmailHtml,
+  abandoned_browse: abandonedBrowseEmailHtml,
+  checkout_abandoned: checkoutAbandonedEmailHtml,
+  reactivation: reactivationEmailHtml,
+};
 async function sendAutomationEmail(tenant, trigger, subject, email, subjectId, fromName, fromEmail) {
   const baseUrl = process.env.PUBLIC_BASE_URL || 'https://rf.axiom.rent';
   const from = (fromName || tenant) + ' <' + (fromEmail || ('hello@' + tenant + '.invalid')) + '>';
-  const html = trigger === 'abandoned_cart' ? abandonedCartEmailHtml() : reactivationEmailHtml();
+  const html = (AUTOMATION_EMAIL_HTML[trigger] || reactivationEmailHtml)();
   const messageId = crypto.randomBytes(12).toString('hex');
   const tracked = injectTracking(html, tenant, messageId, baseUrl, { v: 'auto', c: trigger });
   const result = await sendRealEmail({ to: email, from: from, subject: subject, html: tracked, tags: [{ name: 'tenant', value: tenant }, { name: 'messageId', value: messageId }] });
@@ -521,7 +555,7 @@ async function runAutomationPoller(tenant) {
   const fromEmail = auth ? auth.fromEmail : ('hello@' + tenant + '.invalid');
   const consented = await resolveConsentedRecipients(tenant, 5000);
   const consentedMap = new Map(consented.filter((c) => c.subject).map((c) => [c.subject, c.email]));
-  const out = { abandoned_cart: { checked: 0, sent: 0, failed: 0 }, reactivation: { checked: 0, sent: 0, failed: 0 } };
+  const out = { abandoned_cart: { checked: 0, sent: 0, failed: 0 }, abandoned_browse: { checked: 0, sent: 0, failed: 0 }, checkout_abandoned: { checked: 0, sent: 0, failed: 0 }, reactivation: { checked: 0, sent: 0, failed: 0 } };
 
   // --- abandoned_cart ---
   const [cartUsers, orderedUsers24h, firedCart] = await Promise.all([
@@ -538,6 +572,41 @@ async function runAutomationPoller(tenant) {
       await sendAutomationEmail(tenant, 'abandoned_cart', 'Вы кое-что забыли в корзине', email, userId, fromName, fromEmail);
       out.abandoned_cart.sent++;
     } catch (e) { out.abandoned_cart.failed++; }
+  }
+
+  // --- abandoned_browse: смотрел товар 3-24ч назад, без add_to_cart и без order_completed с тех пор ---
+  const [browseUsers, cartUsers24h, orderedUsersBrowse24h, firedBrowse] = await Promise.all([
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'product_viewed' } }, { range: { ts: { gte: 'now-24h', lte: 'now-3h' } } }] } }),
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'add_to_cart' } }, { range: { ts: { gte: 'now-24h' } } }] } }),
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'order_completed' } }, { range: { ts: { gte: 'now-24h' } } }] } }),
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'automation_fired' } }, { term: { 'properties.trigger.keyword': 'abandoned_browse' } }, { range: { ts: { gte: 'now-24h' } } }] } }),
+  ]);
+  for (const userId of browseUsers) {
+    out.abandoned_browse.checked++;
+    if (cartUsers24h.has(userId) || orderedUsersBrowse24h.has(userId) || firedBrowse.has(userId)) continue;
+    const email = consentedMap.get(userId);
+    if (!email) continue;
+    try {
+      await sendAutomationEmail(tenant, 'abandoned_browse', 'Всё ещё присматриваетесь?', email, userId, fromName, fromEmail);
+      out.abandoned_browse.sent++;
+    } catch (e) { out.abandoned_browse.failed++; }
+  }
+
+  // --- checkout_abandoned: checkout_started 3-24ч назад, без order_completed с тех пор ---
+  const [checkoutUsers, orderedUsersCheckout24h, firedCheckout] = await Promise.all([
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'checkout_started' } }, { range: { ts: { gte: 'now-24h', lte: 'now-3h' } } }] } }),
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'order_completed' } }, { range: { ts: { gte: 'now-24h' } } }] } }),
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'automation_fired' } }, { term: { 'properties.trigger.keyword': 'checkout_abandoned' } }, { range: { ts: { gte: 'now-24h' } } }] } }),
+  ]);
+  for (const userId of checkoutUsers) {
+    out.checkout_abandoned.checked++;
+    if (orderedUsersCheckout24h.has(userId) || firedCheckout.has(userId)) continue;
+    const email = consentedMap.get(userId);
+    if (!email) continue;
+    try {
+      await sendAutomationEmail(tenant, 'checkout_abandoned', 'Оформление не завершено', email, userId, fromName, fromEmail);
+      out.checkout_abandoned.sent++;
+    } catch (e) { out.checkout_abandoned.failed++; }
   }
 
   // --- reactivation: профили в "Спящие" (7-30 дней), без automation_fired(reactivation) за 30д ---
