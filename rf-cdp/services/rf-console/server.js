@@ -3303,7 +3303,7 @@ EMAIL_TABS.abtest = function(){
 var EM_FORM_META = [
   {type:'popup', name:'Pop-up по центру', desc:'модалка с оверлеем, появляется через 4с', icon:'◱'},
   {type:'slideout', name:'Плашка снизу-справа', desc:'ненавязчиво, появляется через 2с', icon:'◲'},
-  {type:'embedded', name:'Встроенная в контент', desc:'рендерится сразу в месте <script>, без оверлея', icon:'▭'}
+  {type:'embedded', name:'Встроенная в контент', desc:'рендерится сразу в месте вставки кода, без оверлея', icon:'▭'}
 ];
 EMAIL_TABS.forms = function(){
   var live = liveFetch('forms', TENANT, '/api/forms/stats');
@@ -3325,7 +3325,7 @@ EMAIL_TABS.forms = function(){
     var count = stats ? (stats.byType[m.type]||0) : 0;
     var snippetId = 'em-form-snippet-'+m.type;
     var origin = (typeof location!=='undefined' && location.origin) ? location.origin : 'https://rf.axiom.rent';
-    var snippet = '<script src="'+esc(origin)+'/forms/'+esc(TENANT)+'/'+m.type+'.js" async><\/script>';
+    var snippet = '<script src="'+esc(origin)+'/forms/'+esc(TENANT)+'/'+m.type+'.js" async><\\/script>';
     cards += '<div class="card em-seg" style="margin-bottom:12px">'+
       '<div class="em-seg-hd">'+
         '<span class="em-dot" style="background:'+TONE.gold+'"></span>'+

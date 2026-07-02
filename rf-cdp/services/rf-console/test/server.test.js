@@ -376,12 +376,22 @@ test('HTTP: / serves the AXIOM RU console; /api/overview shapes data', async () 
 });
 
 // Regression guard: the served page embeds ~2000 lines of client JS inside a single <script>
-// tag built from a backtick template literal. A nested-escaping bug (\' surviving one string
-// level too few) once made the WHOLE script fail to parse in a real browser — silently, because
-// no test ever actually parsed the emitted script as JS (only regex-matched substrings of the
-// HTML). Found via manual browser smoke test (font-family:\'Times New Roman\' / \'Courier New\'
-// inside em_builder block renderers), fixed by double-escaping (\\'). This test parses the exact
-// bytes a browser would receive, so a reintroduced instance of this bug fails CI immediately.
+// tag built from a backtick template literal. TWO distinct nested-escaping bugs have shipped
+// from this pattern already:
+//  1. \' surviving one string level too few (font-family:\'Times New Roman\'/\'Courier New\'
+//     inside em_builder block renderers) — the OUTER template consumes the backslash before
+//     it reaches the browser, leaving a bare ' that closes the client string early.
+//  2. An embed-snippet string containing a literal '</script>' (meant as example HTML for
+//     users to copy) — an HTML tokenizer does NOT care about JS string context; the raw byte
+//     sequence '</script' anywhere inside the outer <script> block closes it immediately,
+//     regardless of nesting. The naive greedy regex below (`m[1]`) MASKED this bug: it matches
+//     from the first '<script>' to the LAST '</script>' in the page, so it happily "parsed"
+//     valid JS even when a spurious mid-document '</script>' had already truncated the block
+//     as far as a real browser's HTML tokenizer is concerned. This is why the second check
+//     (byte-exact '</script' occurrence count) exists — it would have caught bug #2 when the
+//     first check did not.
+// Both fixed by escaping one extra level (\\' and <\\/script> respectively) so the backslash
+// itself survives into the raw HTML bytes.
 test('client <script> served to the browser is syntactically valid JS', async () => {
   const restore = stubEs();
   server.listen(0, '127.0.0.1');
@@ -389,6 +399,8 @@ test('client <script> served to the browser is syntactically valid JS', async ()
   const base = `http://127.0.0.1:${server.address().port}`;
   try {
     const html = await (await fetch(`${base}/`)).text();
+    const scriptCloseCount = (html.match(/<\/script/gi) || []).length;
+    assert.equal(scriptCloseCount, 1, 'exactly one </script — a stray one inside a JS string would silently truncate the block for a real HTML parser (regex-based extraction below cannot catch this)');
     const m = html.match(/<script>([\s\S]*)<\/script>/);
     assert.ok(m, 'page must contain a <script> block');
     assert.doesNotThrow(() => new Function(m[1]), 'client script must parse as valid JS');
