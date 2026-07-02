@@ -7,7 +7,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { once } = require('node:events');
-const { mapSource, bucketLifecycle, aggregate, server, realCampaignsList, realAbtestList, formUserId, formStats, formWidgetScript, enrichProfile, tierDistribution } = require('../server');
+const { mapSource, bucketLifecycle, aggregate, server, realCampaignsList, realAbtestList, formUserId, formStats, formWidgetScript, enrichProfile, tierDistribution, getFormConfig, saveFormConfig, sendTelegramMessage, sendVkMessage, sendSmsMessage, channelsConfigured, telegramUserId, createTelegramConnectToken, resolveTelegramConnectToken, recordTelegramConnection } = require('../server');
 
 const DAY = 86400000;
 const NOW = Date.parse('2026-06-30T12:00:00Z');
@@ -405,4 +405,194 @@ test('client <script> served to the browser is syntactically valid JS', async ()
     assert.ok(m, 'page must contain a <script> block');
     assert.doesNotThrow(() => new Function(m[1]), 'client script must parse as valid JS');
   } finally { server.close(); await once(server, 'close'); restore(); }
+});
+
+// ── Формы: конфиг per-tenant (headline/sub/cta редактируемые) ──
+function stubEsFormConfig() {
+  const prev = globalThis.fetch;
+  const store = new Map();
+  globalThis.fetch = async (url, opts) => {
+    const json = (o, code) => ({ ok: (code || 200) < 400, status: code || 200, text: async () => JSON.stringify(o) });
+    const m = url.match(/\/rf_console_form_config\/_doc\/([^/?]+)/);
+    if (m) {
+      const key = decodeURIComponent(m[1]);
+      if (opts && opts.method === 'POST' && opts.body) {
+        store.set(key, JSON.parse(opts.body));
+        return json({ result: 'created' });
+      }
+      if (!opts || !opts.body) {
+        if (!store.has(key)) return json({}, 404);
+        return json({ _source: store.get(key) });
+      }
+    }
+    return prev(url, opts);
+  };
+  return () => { globalThis.fetch = prev; };
+}
+
+test('getFormConfig returns null when nothing saved yet (no fixture fallback)', async () => {
+  const restore = stubEsFormConfig();
+  try {
+    assert.equal(await getFormConfig('ecoma', 'popup'), null);
+  } finally { restore(); }
+});
+
+test('saveFormConfig then getFormConfig round-trips the custom copy', async () => {
+  const restore = stubEsFormConfig();
+  try {
+    const saved = await saveFormConfig('ecoma', 'popup', { headline: 'Скидка 20%', sub: 'Только сегодня', cta: 'Забрать' });
+    assert.equal(saved.headline, 'Скидка 20%');
+    const loaded = await getFormConfig('ecoma', 'popup');
+    assert.equal(loaded.headline, 'Скидка 20%');
+    assert.equal(loaded.cta, 'Забрать');
+    // a different type for the same tenant must stay unset
+    assert.equal(await getFormConfig('ecoma', 'slideout'), null);
+  } finally { restore(); }
+});
+
+test('saveFormConfig rejects empty headline/cta rather than silently saving blank copy', async () => {
+  const restore = stubEsFormConfig();
+  try {
+    await assert.rejects(() => saveFormConfig('ecoma', 'popup', { headline: '', sub: 'x', cta: '' }));
+  } finally { restore(); }
+});
+
+test('formWidgetScript embeds custom copy when provided, falls back to defaults otherwise', () => {
+  const withCustom = formWidgetScript('ecoma', 'popup', { headline: 'Кастомный заголовок', sub: 'x', cta: 'Жми' });
+  assert.ok(withCustom.includes('Кастомный заголовок'));
+  const withDefault = formWidgetScript('ecoma', 'popup', null);
+  assert.ok(withDefault.includes('Скидка 10% на первый заказ'), 'falls back to the hardcoded default headline');
+});
+
+// ── Каналы: SMS/Telegram/VK — честный fallback без кредов, реальная связка chat_id⇄профиль ──
+test('channelsConfigured reflects env vars honestly (all off by default in test env)', () => {
+  const keys = ['SMTP_URL', 'RESEND_API_KEY', 'TELEGRAM_BOT_TOKEN', 'VK_COMMUNITY_TOKEN', 'SMS_GATEWAY_URL', 'SMS_API_KEY'];
+  const saved = {};
+  for (const k of keys) { saved[k] = process.env[k]; delete process.env[k]; }
+  try {
+    const ch = channelsConfigured();
+    assert.deepEqual(ch, { email: false, telegram: false, vk: false, sms: false });
+  } finally {
+    for (const k of keys) { if (saved[k] !== undefined) process.env[k] = saved[k]; }
+  }
+});
+
+test('channelsConfigured flips true per-channel as soon as its env vars are set', () => {
+  const saved = { TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN, SMS_GATEWAY_URL: process.env.SMS_GATEWAY_URL, SMS_API_KEY: process.env.SMS_API_KEY };
+  process.env.TELEGRAM_BOT_TOKEN = 'test-token';
+  process.env.SMS_GATEWAY_URL = 'https://example.com/sms';
+  process.env.SMS_API_KEY = 'k';
+  try {
+    const ch = channelsConfigured();
+    assert.equal(ch.telegram, true);
+    assert.equal(ch.sms, true, 'SMS needs BOTH url and key — verifying both were honored');
+    assert.equal(ch.vk, false, 'VK untouched, stays false');
+  } finally {
+    for (const k of Object.keys(saved)) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
+  }
+});
+
+test('sendTelegramMessage/sendVkMessage/sendSmsMessage never claim success without real creds (honest fake fallback)', async () => {
+  const keys = ['TELEGRAM_BOT_TOKEN', 'VK_COMMUNITY_TOKEN', 'SMS_GATEWAY_URL', 'SMS_API_KEY'];
+  const saved = {};
+  for (const k of keys) { saved[k] = process.env[k]; delete process.env[k]; }
+  try {
+    const tg = await sendTelegramMessage({ chatId: 123, text: 'hi' });
+    assert.equal(tg.provider, 'fake');
+    assert.match(tg.warning, /TELEGRAM_BOT_TOKEN/);
+    const vk = await sendVkMessage({ vkUserId: 456, text: 'hi' });
+    assert.equal(vk.provider, 'fake');
+    assert.match(vk.warning, /VK_COMMUNITY_TOKEN/);
+    const sms = await sendSmsMessage({ phone: '+70000000000', text: 'hi' });
+    assert.equal(sms.provider, 'fake');
+    assert.match(sms.warning, /SMS_GATEWAY_URL/);
+  } finally {
+    for (const k of keys) { if (saved[k] !== undefined) process.env[k] = saved[k]; }
+  }
+});
+
+test('telegramUserId is deterministic per tenant+chatId, matches formUserId scheme (u_tg_ prefix, 16 hex chars)', () => {
+  const a = telegramUserId('ecoma', 555111);
+  const b = telegramUserId('ecoma', 555111);
+  const c = telegramUserId('ecoma', 555112);
+  assert.equal(a, b);
+  assert.notEqual(a, c);
+  assert.match(a, /^u_tg_[0-9a-f]{16}$/);
+});
+
+function stubEsTelegram() {
+  const prev = globalThis.fetch;
+  const store = new Map();
+  globalThis.fetch = async (url, opts) => {
+    const json = (o, code) => ({ ok: (code || 200) < 400, status: code || 200, text: async () => JSON.stringify(o) });
+    const m = url.match(/\/rf_console_telegram_connect\/_doc\/([^/?]+)/);
+    if (m) {
+      const key = m[1];
+      if (opts && opts.method === 'POST' && opts.body) { store.set(key, JSON.parse(opts.body)); return json({ result: 'created' }); }
+      if (!opts || !opts.body) { if (!store.has(key)) return json({}, 404); return json({ _source: store.get(key) }); }
+    }
+    if (url.includes('/_doc') && !url.includes('_search')) return json({ result: 'created' }, 201); // channel_connected event + consent write
+    return prev(url, opts);
+  };
+  return () => { globalThis.fetch = prev; };
+}
+
+test('Telegram connect token: 16 hex chars (Telegram /start deep-link limit is 64 chars total), round-trips to the right tenant, rejects garbage', async () => {
+  const restore = stubEsTelegram();
+  try {
+    const token = await createTelegramConnectToken('ecoma');
+    assert.match(token, /^[0-9a-f]{16}$/);
+    assert.ok(token.length <= 64);
+    const resolved = await resolveTelegramConnectToken(token);
+    assert.equal(resolved.tenant, 'ecoma');
+    assert.equal(await resolveTelegramConnectToken('not-a-real-token'), null);
+    assert.equal(await resolveTelegramConnectToken('deadbeefdeadbeef'), null, 'well-formed but never-issued token must not resolve');
+  } finally { restore(); }
+});
+
+test('recordTelegramConnection writes a real channel_connected event + marketing_telegram consent for the deterministic user_id', async () => {
+  const restore = stubEsTelegram();
+  const prev = globalThis.fetch;
+  const writes = [];
+  globalThis.fetch = async (url, opts) => {
+    if (url.includes('/_doc') && !url.includes('_search') && opts && opts.body) writes.push({ url, body: JSON.parse(opts.body) });
+    return prev(url, opts);
+  };
+  try {
+    const userId = await recordTelegramConnection('ecoma', 999888, 'Денис');
+    assert.equal(userId, telegramUserId('ecoma', 999888));
+    const eventWrite = writes.find((w) => w.body.event === 'channel_connected');
+    assert.ok(eventWrite, 'wrote a real channel_connected event');
+    assert.equal(eventWrite.body.properties.chatId, '999888');
+    assert.equal(eventWrite.body.user_id, userId);
+    const consentWrite = writes.find((w) => w.body.consent);
+    assert.ok(consentWrite, 'wrote a real consent grant');
+    assert.equal(consentWrite.body.consent.state.marketing_telegram, true);
+    assert.equal(consentWrite.body.consent.subject, userId);
+  } finally { globalThis.fetch = prev; restore(); }
+});
+
+test('HTTP: /api/channels/status requires auth; /webhooks/telegram requires the configured secret token', async () => {
+  const restore = stubEs();
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const prevSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  try {
+    assert.equal((await fetch(`${base}/api/channels/status`)).status, 401);
+
+    delete process.env.TELEGRAM_WEBHOOK_SECRET;
+    let r = await fetch(`${base}/webhooks/telegram`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    assert.equal(r.status, 401, 'fail-closed with no secret configured at all');
+
+    process.env.TELEGRAM_WEBHOOK_SECRET = 'real-secret';
+    r = await fetch(`${base}/webhooks/telegram`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-telegram-bot-api-secret-token': 'wrong' }, body: '{}' });
+    assert.equal(r.status, 401, 'wrong secret rejected');
+
+    r = await fetch(`${base}/webhooks/telegram`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-telegram-bot-api-secret-token': 'real-secret' }, body: '{}' });
+    assert.equal(r.status, 200, 'correct secret + no /start message in body -> ack 200, no-op');
+  } finally {
+    if (prevSecret === undefined) delete process.env.TELEGRAM_WEBHOOK_SECRET; else process.env.TELEGRAM_WEBHOOK_SECRET = prevSecret;
+    server.close(); await once(server, 'close'); restore();
+  }
 });
