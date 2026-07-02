@@ -3359,12 +3359,17 @@ const VIEWS={
     const social=src.filter(s=>SOC.indexOf(s.label)>=0);
     const socSum=social.reduce((a,s)=>a+s.value,0);
     const split=[{label:'Owned site and social',value:own,tone:'sage'},{label:'Marketplaces (Amazon/Walmart)',value:mp,tone:'rust'}];
+    const topLabel=(src[0]||{}).label||'';
+    const topIsMarketplace=(topLabel==='Amazon'||topLabel==='Marketplace');
+    const sourceNote=topIsMarketplace
+      ? '<b>'+esc(topLabel)+'</b> is your biggest channel right now — real traffic, but they own that customer relationship, not you. Your owned channels bring in '+nf(own)+' ('+Math.round(own/total*100)+'%).'
+      : '<b>'+esc(topLabel)+'</b> is your biggest channel — ahead of Amazon and Walmart. On a marketplace, they own the customer. On your own site, you do.';
     return '<div class="grid k4" style="margin-bottom:16px">'+
       tile('Sources',String(src.length),'platforms','ink')+
       tile('Top source',(src[0]||{}).label||'—',nf((src[0]||{}).value||0)+' events','gold')+
       tile('Owned vs marketplace',Math.round(own/total*100)+'%','non-marketplace share','sage')+
       tile('Social',nf(socSum),social.length+' platforms','rust')+'</div>'+
-      '<div class="note"><b>'+esc((src[0]||{}).label||'')+'</b> is your biggest channel — bigger than Amazon or Walmart. On a marketplace, they own the customer. On your own site, you do.</div>'+
+      '<div class="note">'+sourceNote+'</div>'+
       '<div class="grid two">'+
         chart('Traffic sources','Rolled up by platform',hbars(src))+
         chart('Owned vs marketplace','Who owns the customer',donut(split))+
