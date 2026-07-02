@@ -1932,7 +1932,7 @@ EMAIL_TABS.campaigns = function(){
   h += '<div class="grid four" style="margin-top:14px">';
   h += tile('Sent this period', nf(totalSent), rows.length+' real campaigns', 'ink');
   h += tile('Average opens', em_campaigns_pct(avgOpen), 'weighted by volume', 'gold');
-  h += tile('Reachable with consent', nf(reachable), reachPct+'% of base . CAN-SPAM', 'sage');
+  h += tile('Reachable with consent', nf(reachable), reachPct+'% of profiles · CAN-SPAM', 'sage');
   h += tile('Consent gate', 'fail-closed', 'no verified, skip', 'rust');
   h += '</div>';
   var inner = '';
@@ -1967,7 +1967,7 @@ EMAIL_TABS.campaigns = function(){
     inner += '<div class="em-legend">'
           + '<span>'+em_campaigns_typeBadge('broadcast')+' one-off send / A-B test</span>'
           + '<span>'+em_campaigns_typeBadge('flow')+' trigger scenario (autopilot)</span>'
-          + '<span class="muted">Opens/Clicks - % of sent, honestly computed by messageId in Elasticsearch. Unsubscribes and revenue are not tracked yet - not shown as guesses.</span>'
+          + '<span class="muted">Opens/Clicks are % of sent. Unsubscribes and revenue per campaign aren’t tracked yet.</span>'
           + '</div>';
   }
   h += chart('Campaigns & automations', 'Real sends for tenant '+esc(TENANT)+' - verified recipients only', inner);
@@ -3210,7 +3210,7 @@ function SEG_AUDIENCE(){
   const risk=lc('Dormant')+lc('Lost');
   const ACT={'New':{act:'Onboarding: first email and a signup bonus — while interest is hot',ch:'Email · IG'},'Active':{act:'Upsell and grow basket size while the customer is warm',ch:'Email · SMS'},'Dormant':{act:'Re-engage: "we missed you" and a personal pick',ch:'Email'},'Lost':{act:'Win-back: bring marketplace leavers to your own site',ch:'Email · IG'}};
   const cards=OV.lifecycle.map(l=>{const a=ACT[l.label]||{act:'',ch:''};const pct=Math.round(l.value/total*100);
-    return '<div class="card act"><div><div class="nm">'+esc(l.label)+' <span class="muted" style="font-weight:400">· '+esc(l.desc)+'</span></div><div class="big" style="color:'+TONE[l.tone]+'">'+nf(l.value)+'</div><div class="c" style="color:var(--muted)">'+pct+'% of base</div></div><div><div class="c">'+esc(a.act)+'</div><div style="margin:8px 0">'+badge(a.ch,l.tone)+'</div><span class="cta" data-segtab="flows" style="cursor:pointer">Set up a flow →</span></div></div>';}).join('');
+    return '<div class="card act"><div><div class="nm">'+esc(l.label)+' <span class="muted" style="font-weight:400">· '+esc(l.desc)+'</span></div><div class="big" style="color:'+TONE[l.tone]+'">'+nf(l.value)+'</div><div class="c" style="color:var(--muted)">'+pct+'% of profiles</div></div><div><div class="c">'+esc(a.act)+'</div><div style="margin:8px 0">'+badge(a.ch,l.tone)+'</div><span class="cta" data-segtab="flows" style="cursor:pointer">Set up a flow →</span></div></div>';}).join('');
   return '<div class="grid k4" style="margin-bottom:16px">'+
     tile('Total profiles',nf(OV.kpi.profiles),nf(OV.kpi.identified)+' identified','ink')+
     tile('Active',nf(lc('Active')),'visiting and buying','sage')+
