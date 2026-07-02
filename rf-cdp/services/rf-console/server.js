@@ -1490,6 +1490,27 @@ async function consentStats(tenant) {
   const purposes = ((q.aggregations && q.aggregations.purposes.buckets) || []).map((b) => ({ purpose: b.key, label: PURPOSE_RU[b.key] || b.key, count: b.doc_count }));
   return { total, purposes };
 }
+// Реальные последние N записей журнала согласий (не фикстура) — нет ни подписи, ни hash-chain
+// (такого поля в схеме документа нет), поэтому отдаём только то, что реально записано при
+// каждом consent-событии: кто, по каким целям, откуда, когда. Честная замена вымышленного
+// журнала, который раньше рисовался как 3 фейковые строки с придуманными временными метками.
+async function recentConsentJournal(tenant, limit) {
+  const q = await es('/cdp_consent_' + tenant + '/_search', {
+    size: limit || 8, sort: [{ ts: 'desc' }],
+  }).catch(() => ({ _missing: true }));
+  if (q._missing) return [];
+  const hits = (q.hits && q.hits.hits) || [];
+  return hits.map((h) => {
+    const src = h._source || {};
+    const c = src.consent || {};
+    return {
+      ts: src.ts || null,
+      subject: c.subject || c.email || null,
+      purposes: (c.purposes || []).map((p) => PURPOSE_RU[p] || p),
+      source: c.source || null,
+    };
+  });
+}
 
 async function aggregate(tenant, nowMs) {
   if (!TENANT_RE.test(tenant)) throw new Error('bad tenant');
@@ -1934,6 +1955,16 @@ const server = http.createServer(async (req, res) => {
         return send(res, 502, { error: 'tiers_failed', message: String(e.message || e) });
       }
     }
+    if (p === '/api/consent/journal') {
+      var journalPrincipal = await authenticate(req);
+      if (!journalPrincipal) return send(res, 401, { error: 'unauthorized' });
+      try {
+        var journal = await recentConsentJournal(journalPrincipal.tenant, 8);
+        return send(res, 200, { ok: true, tenant: journalPrincipal.tenant, journal: journal });
+      } catch (e) {
+        return send(res, 502, { error: 'journal_failed', message: String(e.message || e) });
+      }
+    }
     if (p.indexOf('/api/profiles/enrich/') === 0) {
       var enrichPrincipal = await authenticate(req);
       if (!enrichPrincipal) return send(res, 401, { error: 'unauthorized' });
@@ -2076,7 +2107,7 @@ if (require.main === module && process.env.AUTOMATION_ENABLED === 'true') {
   }, autoIntervalMs);
 }
 
-module.exports = { mapSource, bucketLifecycle, aggregate, profilesList, listTenants, server, trackSign, trackVerify, injectTracking, resolveConsentedRecipients, zTestCompare, abtestStats, realSegmentCounts, realCampaignsList, realAbtestList, usersMatchingQuery, checkDomainDeliverability, runAutomationPoller, automationFlowStats, verifySvixSignature, suppressEmail, isSuppressed, formUserId, recordFormSubmission, formStats, formWidgetScript, enrichProfile, tierDistribution, getFormConfig, saveFormConfig, sendTelegramMessage, sendVkMessage, sendSmsMessage, channelsConfigured, telegramUserId, createTelegramConnectToken, resolveTelegramConnectToken, recordTelegramConnection };
+module.exports = { mapSource, bucketLifecycle, aggregate, profilesList, listTenants, server, trackSign, trackVerify, injectTracking, resolveConsentedRecipients, zTestCompare, abtestStats, realSegmentCounts, realCampaignsList, realAbtestList, usersMatchingQuery, checkDomainDeliverability, runAutomationPoller, automationFlowStats, verifySvixSignature, suppressEmail, isSuppressed, formUserId, recordFormSubmission, formStats, formWidgetScript, enrichProfile, tierDistribution, getFormConfig, saveFormConfig, sendTelegramMessage, sendVkMessage, sendSmsMessage, channelsConfigured, telegramUserId, createTelegramConnectToken, resolveTelegramConnectToken, recordTelegramConnection, recentConsentJournal };
 
 // ─── favicon: брендовая марка AXIOM — орбита/ядро (золото на ink, zero-dep inline SVG) ────
 const FAV = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32"><circle cx="16" cy="16" r="16" fill="#1c1510"/><circle cx="16" cy="16" r="10" fill="none" stroke="#c9a84c" stroke-width="1.5"/><g fill="#c9a84c"><circle cx="16" cy="16" r="3.2"/><circle cx="16" cy="6" r="2"/><circle cx="7.34" cy="21" r="2"/><circle cx="24.66" cy="21" r="2"/></g></svg>`;
@@ -4038,14 +4069,13 @@ const VIEWS={
     const email=pv('Email'), msg=pv('Мессендж'), cross=pv('Трансгранично');
     const checks=[
       ['ст.9 · opt-in по целям','Согласие по каждой цели отдельно, без преднажатых галочек','sage','соблюдено'],
-      ['Журнал с подписью','Неизменяемая hash-chain запись: кто, что и когда выбрал — доказательство для проверки','gold','ведётся'],
-      ['Право на удаление (DSAR)','Запрос субъекта → выгрузка и удаление его данных','sage','встроено'],
+      ['Журнал согласий','Каждая запись — время, цель обработки и источник, хранится в Elasticsearch. Криптографической подписи/hash-chain нет.','gold','ведётся'],
+      ['Право на удаление (DSAR)','Запрос субъекта на выгрузку/удаление данных обрабатывается вручную администратором по user_id — самостоятельного flow в консоли пока нет.','rust','вручную'],
       ['Cross-border',cross?'есть согласия на трансграничную передачу':'трансграничная передача по умолчанию запрещена','rust',cross?'есть':'default-deny'],
       ['Серверы в России','Данные посетителей не покидают страну','sage','РФ'],
       ['Гейт перед отправкой','Письма и сообщения уходят только тем, у кого verified-согласие','gold','fail-closed']];
-    const jr=c.total?[['#'+nf(c.total),'pdn_processing · marketing_email','CMP · ecoma.ru','только что'],['#'+nf(c.total-1),'analytics','CMP · ecoma.ru','3 мин'],['#'+nf(Math.max(1,c.total-2)),'pdn_processing · marketing_messaging','CMP · ecoma.ru','18 мин']]:[];
     return '<div class="grid k4" style="margin-bottom:16px">'+
-      tile('Записей согласий',nf(c.total),'подписанная hash-chain','sage')+
+      tile('Записей согласий',nf(c.total),'событий в Elasticsearch','sage')+
       tile('Целей обработки',String(c.purposes.length),'ст.9, всё opt-in','gold')+
       tile('Можно писать на email',nf(email),'verified marketing_email','rust')+
       tile('Достижимо в мессенджерах',nf(msg),'verified messaging','ink')+'</div>'+
@@ -4055,10 +4085,8 @@ const VIEWS={
       '</div>'+
       '<div class="sec"><p class="label">Соответствие</p><h2 class="serif" style="font-size:18px;margin:2px 0 0">Чек-лист 152-ФЗ</h2></div>'+
       '<div class="grid k3">'+checks.map(x=>'<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b>'+esc(x[0])+'</b>'+badge(x[3],x[2])+'</div><p class="muted" style="font-size:13.5px;margin:8px 0 0;line-height:1.5">'+esc(x[1])+'</p></div>').join('')+'</div>'+
-      '<div class="sec"><p class="label">Журнал</p><h2 class="serif" style="font-size:18px;margin:2px 0 0">Недавние согласия (hash-chain)</h2></div>'+
-      '<div class="card"><div class="tw"><table><thead><tr><th>Запись</th><th>Цели</th><th>Где</th><th>Когда</th><th>Подпись</th></tr></thead><tbody>'+
-        (jr.length?jr.map(r=>'<tr><td class="id">'+esc(r[0])+'</td><td class="muted">'+esc(r[1])+'</td><td class="muted">'+esc(r[2])+'</td><td class="muted">'+esc(r[3])+'</td><td>'+badge('valid','sage')+'</td></tr>').join(''):'<tr><td colspan="5" class="muted">нет записей</td></tr>')+
-      '</tbody></table></div></div>';
+      '<div class="sec"><p class="label">Журнал</p><h2 class="serif" style="font-size:18px;margin:2px 0 0">Недавние согласия</h2></div>'+
+      '<div class="card"><div class="tw"><table><thead><tr><th>Кто</th><th>Цели</th><th>Источник</th><th>Когда</th></tr></thead><tbody id="cjournal"><tr><td colspan="4" class="muted">Загрузка журнала…</td></tr></tbody></table></div></div>';
   },
     services(){
     const k=OV.kpi, c=OV.consent;
@@ -4155,6 +4183,15 @@ function em_profiles_tiersHtml(t){
   }).join('');
   return '<div class="card" style="margin-bottom:12px"><div class="label" style="margin-bottom:8px">Обогащение · по истории заказов ('+nf(t.customersTotal||0)+' покупателей)</div><div class="em-rules">'+chips+'</div></div>';
 }
+// Реальные строки журнала согласий с /api/consent/journal — не фикстура. Нет подписи/hash-chain
+// в схеме, поэтому колонка "Подпись" не рисуется вообще (не выдаём отсутствующее за факт).
+function em_consent_journalRows(list){
+  if(!list || !list.length) return '<tr><td colspan="4" class="muted">нет записей</td></tr>';
+  return list.map(function(r){
+    return '<tr><td class="id">'+esc(r.subject||'—')+'</td><td class="muted">'+esc((r.purposes||[]).join(', ')||'—')+'</td>'+
+      '<td class="muted">'+esc(r.source||'—')+'</td><td class="muted">'+fmtDt(r.ts)+'</td></tr>';
+  }).join('');
+}
 function setActive(id){
   cur=id; const meta=SECTIONS.find(s=>s[0]===id);
   $('#title').textContent=meta?meta[1]:id;
@@ -4166,6 +4203,10 @@ function setActive(id){
   if(id==='profiles'){
     j('/api/profiles?limit=500').then(function(list){window.PROFILES=list||[];window.plPage=1;window.plRenderTable();}).catch(e=>showErr(e.message||e));
     j('/api/profiles/tiers').then(function(t){var el=$('#pltiers'); if(el) el.outerHTML=em_profiles_tiersHtml(t)||'';}).catch(function(){var el=$('#pltiers'); if(el) el.outerHTML='';});
+  }
+  if(id==='consent'){
+    j('/api/consent/journal').then(function(r){var el=$('#cjournal'); if(el) el.innerHTML=em_consent_journalRows((r&&r.journal)||[]);})
+      .catch(function(e){var el=$('#cjournal'); if(el) el.innerHTML='<tr><td colspan="4" class="muted">не удалось загрузить: '+esc(e.message||e)+'</td></tr>';});
   }
 }
 async function load(){

@@ -7,7 +7,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { once } = require('node:events');
-const { mapSource, bucketLifecycle, aggregate, server, realCampaignsList, realAbtestList, formUserId, formStats, formWidgetScript, enrichProfile, tierDistribution, getFormConfig, saveFormConfig, sendTelegramMessage, sendVkMessage, sendSmsMessage, channelsConfigured, telegramUserId, createTelegramConnectToken, resolveTelegramConnectToken, recordTelegramConnection, runAutomationPoller } = require('../server');
+const { mapSource, bucketLifecycle, aggregate, server, realCampaignsList, realAbtestList, formUserId, formStats, formWidgetScript, enrichProfile, tierDistribution, getFormConfig, saveFormConfig, sendTelegramMessage, sendVkMessage, sendSmsMessage, channelsConfigured, telegramUserId, createTelegramConnectToken, resolveTelegramConnectToken, recordTelegramConnection, runAutomationPoller, recentConsentJournal } = require('../server');
 
 const DAY = 86400000;
 const NOW = Date.parse('2026-06-30T12:00:00Z');
@@ -65,6 +65,12 @@ function stubEs() {
         { key: 'a1', fs: { value_as_string: ago(2) }, ls: { value_as_string: ago(1) } },
         { key: 'a2', fs: { value_as_string: ago(60) }, ls: { value_as_string: ago(20) } },
       ] } } });
+    }
+    if (url.includes('/cdp_consent_aero/_search') && body.sort) {
+      return json({ hits: { hits: [
+        { _source: { ts: '2026-06-30T09:00:00Z', consent: { subject: 'u1', purposes: ['personal_data', 'marketing_email'], source: 'form:popup' } } },
+        { _source: { ts: '2026-06-29T08:00:00Z', consent: { subject: 'u2', purposes: ['marketing_telegram'], source: 'telegram_bot' } } },
+      ] } });
     }
     if (url.includes('/cdp_consent_aero/_search')) {
       return json({ hits: { total: { value: 6 } }, aggregations: { purposes: { buckets: [
@@ -158,6 +164,29 @@ function stubEsCampaigns() {
   };
   return () => { globalThis.fetch = prev; };
 }
+
+test('recentConsentJournal returns real recent consent records — no fabricated rows, no signature/hash-chain field', async () => {
+  const restore = stubEs();
+  try {
+    const journal = await recentConsentJournal('aero', 8);
+    assert.equal(journal.length, 2);
+    assert.equal(journal[0].subject, 'u1');
+    assert.deepEqual(journal[0].purposes, ['Обработка ПДн', 'Email-маркетинг'], 'known purpose keys map through PURPOSE_RU');
+    assert.equal(journal[0].source, 'form:popup');
+    assert.equal(journal[0].ts, '2026-06-30T09:00:00Z');
+    assert.deepEqual(journal[1].purposes, ['marketing_telegram'], 'unmapped purpose key falls back to the raw key, not invented text');
+    assert.ok(!('signature' in journal[0]) && !('hash' in journal[0]), 'no fabricated crypto fields — the schema genuinely has none');
+  } finally { restore(); }
+});
+
+test('recentConsentJournal returns an empty array (not fabricated rows) when the index is missing', async () => {
+  const prev = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: false, status: 404, text: async () => '' });
+  try {
+    const journal = await recentConsentJournal('nosuchtenant', 8);
+    assert.deepEqual(journal, []);
+  } finally { globalThis.fetch = prev; }
+});
 
 test('realCampaignsList groups by subject (or campaignId for A/B), joins sent/opened/clicked via messageId', async () => {
   const restore = stubEsCampaigns();
@@ -372,6 +401,10 @@ test('HTTP: / serves the AXIOM RU console; /api/overview shapes data', async () 
     assert.equal((await ov.json()).kpi.profiles, 7);
     assert.equal((await fetch(`${base}/api/overview`)).status, 401, 'no token → unauthorized, tenant no longer comes from an open query param');
     assert.equal((await fetch(`${base}/health`)).status, 200);
+    const cj = await fetch(`${base}/api/consent/journal`, authHeaders);
+    assert.equal(cj.status, 200);
+    assert.equal((await cj.json()).journal.length, 2);
+    assert.equal((await fetch(`${base}/api/consent/journal`)).status, 401, 'no token → unauthorized');
   } finally { server.close(); await once(server, 'close'); restore(); }
 });
 
