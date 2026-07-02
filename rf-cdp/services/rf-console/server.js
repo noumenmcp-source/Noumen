@@ -1153,6 +1153,16 @@ const server = http.createServer(async (req, res) => {
         return send(res, 502, { error: 'segments_failed', message: String(e.message || e) });
       }
     }
+    if (p === '/api/automations') {
+      var autoStatsPrincipal = await authenticate(req);
+      if (!autoStatsPrincipal) return send(res, 401, { error: 'unauthorized' });
+      try {
+        var flows = await automationFlowStats(autoStatsPrincipal.tenant);
+        return send(res, 200, { ok: true, tenant: autoStatsPrincipal.tenant, flows: flows });
+      } catch (e) {
+        return send(res, 502, { error: 'automations_failed', message: String(e.message || e) });
+      }
+    }
     if (p === '/api/templates' && req.method === 'POST') {
       var tplPrincipal = await authenticate(req);
       if (!tplPrincipal) return send(res, 401, { error: 'unauthorized' });
@@ -3255,13 +3265,50 @@ function SEG_AUDIENCE(){
     '<div class="grid two">'+cards+'</div>'+
     '<div class="note" style="margin-top:16px">Сегменты живые: профиль меняет давность визита — и переходит в другую группу. Запустить действие — во вкладке «Сценарии», оно идёт только по согласившимся (гейт 152-ФЗ).</div>';
 }
+function auto_relTime(iso){
+  if(!iso) return 'ещё не срабатывал';
+  var ms=Date.now()-Date.parse(iso);
+  if(ms<0) return 'только что';
+  var m=Math.floor(ms/60000);
+  if(m<1) return 'только что';
+  if(m<60) return m+' мин назад';
+  var h=Math.floor(m/60);
+  if(h<24) return h+' ч назад';
+  var d=Math.floor(h/24);
+  return d+' дн назад';
+}
+if(typeof window.AUTOMATIONS_CACHE==='undefined') window.AUTOMATIONS_CACHE=null;
+function auto_flowsRows(flows){
+  return flows.map(function(x){
+    return '<tr><td style="font-weight:600">'+esc(x.name)+'<div class="muted" style="font-size:11px;font-weight:400">'+esc(x.sub)+'</div></td>'+
+      '<td class="muted">'+esc(x.channel)+'</td><td>'+nf(x.inflow)+'</td><td>'+(x.inflow?x.convRate+'%':'—')+'</td>'+
+      '<td>'+rub(x.revenue)+'</td><td>'+(x.active?badge('активен','sage'):badge('выключен','muted'))+'</td>'+
+      '<td class="muted">'+esc(auto_relTime(x.lastFired))+'</td></tr>';
+  }).join('');
+}
+function auto_flowsBody(flows){
+  var inflight=flows.reduce(function(s,x){return s+x.inflow;},0);
+  var activeCount=flows.filter(function(x){return x.active;}).length;
+  var rows=auto_flowsRows(flows);
+  return '<div class="grid k3" style="margin-bottom:16px">'+tile('Сценариев активно',String(activeCount)+' / '+flows.length,'реальные автопилот-триггеры','sage')+tile('В работе за 30д',nf(inflight),'сработавших автопилотов','gold')+tile('Гейт 152-ФЗ','ВКЛ','verified marketing_email fail-closed','rust')+'</div>'+
+    '<div class="note">Сценарии — реальные автопилот-триггеры (ES-поллер), не расписание. Канал — только email (соцсети/мессенджеры пока не подключены к автопилоту, честно не показываем). Конверсия — заказ тем же user_id в течение 7 дней после срабатывания.</div>'+
+    chart('Автопилот-триггеры','Реальные данные · '+(inflight?('за 30 дней, '+nf(inflight)+' срабатываний'):'срабатываний за 30 дней ещё не было'),'<div class="tw"><table><thead><tr><th>Сценарий</th><th>Канал</th><th>В работе</th><th>Конв.</th><th>Выручка</th><th>Статус</th><th>Последний запуск</th></tr></thead><tbody>'+rows+'</tbody></table></div>');
+}
 function SEG_FLOWS(){
-  var j=[{n:'Возврат потерянных',ch:'Email + Telegram',f:lc('Потерянные'),conv:6.2,last:'сегодня 08:40',seg:'Потерянные'},{n:'Реактивация спящих',ch:'Email',f:lc('Спящие'),conv:9.1,last:'сегодня 09:15',seg:'Спящие'},{n:'Онбординг новых',ch:'Email + ВКонтакте',f:lc('Новые'),conv:24,last:'2 ч назад',seg:'Новые'},{n:'Допродажа активным',ch:'Telegram',f:lc('Активные'),conv:14,last:'сегодня 07:05',seg:'Активные'},{n:'Брошенная корзина',ch:'Email',f:Math.round(OV.orders.count*0.4),conv:31,last:'15 мин назад',seg:'Триггер: корзина'}];
-  var inflight=j.reduce(function(s,x){return s+x.f;},0);
-  var rows=j.map(function(x){return '<tr><td style="font-weight:600">'+x.n+'</td><td class="muted">'+x.seg+'</td><td class="muted">'+x.ch+'</td><td>'+nf(x.f)+'</td><td>'+x.conv+'%</td><td>'+badge('активен','sage')+'</td><td class="muted">'+x.last+'</td></tr>';}).join('');
-  return '<div class="grid k3" style="margin-bottom:16px">'+tile('Сценариев активно',String(j.length),'на расписании','sage')+tile('В работе',nf(inflight),'профилей в воронках','gold')+tile('Гейт 152-ФЗ','вкл','marketing_messaging fail-closed','rust')+'</div>'+
-    '<div class="note">Сценарии запускаются на сегментах: каждый берёт свою группу и ведёт по шагам (триггер → ожидание → письмо → цель). Соцсети и мессенджеры — через гейт согласия 152-ФЗ.</div>'+
-    chart('Сценарии на сегментах','Оркестратор: email · ВК · Telegram · гейт согласия','<div class="tw"><table><thead><tr><th>Сценарий</th><th>Сегмент</th><th>Канал</th><th>В работе</th><th>Конв.</th><th>Статус</th><th>Последний запуск</th></tr></thead><tbody>'+rows+'</tbody></table></div>');
+  if(window.AUTOMATIONS_CACHE){
+    return auto_flowsBody(window.AUTOMATIONS_CACHE);
+  }
+  j('/api/automations').then(function(data){
+    window.AUTOMATIONS_CACHE=data.flows||[];
+    if(window.segTab==='flows'){
+      var panel=document.querySelector('#view .em-panel');
+      if(panel) panel.innerHTML=auto_flowsBody(window.AUTOMATIONS_CACHE);
+    }
+  }).catch(function(e){
+    var panel=document.querySelector('#view .em-panel');
+    if(panel && window.segTab==='flows') panel.innerHTML='<div class="note" style="color:'+TONE.rust+'">Не удалось загрузить сценарии: '+esc(e.message||e)+'</div>';
+  });
+  return '<div class="note">Загружаем реальные данные по автопилот-триггерам…</div>';
 }
 function segRender(){
   if(window.segTab==null) window.segTab=(location.pathname.indexOf('automations')>=0?'flows':'audience');
