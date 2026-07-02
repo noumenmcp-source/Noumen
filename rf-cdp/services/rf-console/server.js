@@ -38,6 +38,85 @@ async function sendRealEmail({ to, from, subject, html, tags }) {
 function isRealSendConfigured() {
   return Boolean(process.env.SMTP_URL || process.env.RESEND_API_KEY);
 }
+
+// ─── Мультиканальность (SMS/Telegram/VK) — тот же честный fallback-контракт, что sendRealEmail:
+// реальный провайдер, если настроен через env, иначе provider:'fake' с явным предупреждением.
+// НИКОГДА не врём об успехе отправки без реального провайдера. Креды (TELEGRAM_BOT_TOKEN,
+// VK_COMMUNITY_TOKEN, SMS_GATEWAY_URL/SMS_API_KEY) — решение владельца, не мои.
+async function sendTelegramMessage({ chatId, text }) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return { ok: true, id: 'fake-tg-' + Date.now(), provider: 'fake', warning: 'No TELEGRAM_BOT_TOKEN configured — message was NOT actually sent.' };
+  const res = await fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, text: text, parse_mode: 'HTML' }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!data.ok) throw new Error('Telegram send failed: ' + JSON.stringify(data));
+  return { ok: true, id: String(data.result.message_id), provider: 'telegram' };
+}
+async function sendVkMessage({ vkUserId, text }) {
+  const token = process.env.VK_COMMUNITY_TOKEN;
+  if (!token) return { ok: true, id: 'fake-vk-' + Date.now(), provider: 'fake', warning: 'No VK_COMMUNITY_TOKEN configured — message was NOT actually sent.' };
+  const params = new URLSearchParams({ user_id: String(vkUserId), message: text, random_id: String(Date.now()), access_token: token, v: '5.199' });
+  const res = await fetch('https://api.vk.com/method/messages.send?' + params.toString(), { method: 'POST' });
+  const data = await res.json().catch(() => ({}));
+  if (data.error) throw new Error('VK send failed: ' + JSON.stringify(data.error));
+  return { ok: true, id: String(data.response), provider: 'vk' };
+}
+async function sendSmsMessage({ phone, text }) {
+  const apiUrl = process.env.SMS_GATEWAY_URL;
+  const apiKey = process.env.SMS_API_KEY;
+  if (!apiUrl || !apiKey) return { ok: true, id: 'fake-sms-' + Date.now(), provider: 'fake', warning: 'No SMS_GATEWAY_URL/SMS_API_KEY configured — message was NOT actually sent.' };
+  const res = await fetch(apiUrl, { method: 'POST', headers: { authorization: 'Bearer ' + apiKey, 'content-type': 'application/json' }, body: JSON.stringify({ to: phone, text: text }) });
+  if (!res.ok) throw new Error('SMS send failed: HTTP ' + res.status);
+  const data = await res.json().catch(() => ({}));
+  return { ok: true, id: data.id || ('sms-' + Date.now()), provider: 'sms' };
+}
+function channelsConfigured() {
+  return {
+    email: isRealSendConfigured(),
+    telegram: Boolean(process.env.TELEGRAM_BOT_TOKEN),
+    vk: Boolean(process.env.VK_COMMUNITY_TOKEN),
+    sms: Boolean(process.env.SMS_GATEWAY_URL && process.env.SMS_API_KEY),
+  };
+}
+
+// ─── Telegram connect-flow: короткий (16-символьный, не HMAC-JWT — Telegram deep-link limit
+// строго 64 символа [A-Za-z0-9_-] на /start-параметр, HMAC-подписанный trackSign() легко его
+// превышает) одноразовый токен → deep-link t.me/<bot>?start=<token> → бот получает /start в
+// вебхуке → резолвим токен в tenant → пишем chat_id как реальную channel-identity.
+const TELEGRAM_CONNECT_INDEX = 'rf_console_telegram_connect';
+async function createTelegramConnectToken(tenant) {
+  if (!TENANT_RE.test(tenant)) throw new Error('bad tenant');
+  const token = crypto.randomBytes(8).toString('hex');
+  await es('/' + TELEGRAM_CONNECT_INDEX + '/_doc/' + token, { tenant: tenant, createdAt: new Date().toISOString() });
+  return token;
+}
+async function resolveTelegramConnectToken(token) {
+  if (!/^[a-f0-9]{16}$/.test(String(token || ''))) return null;
+  const doc = await es('/' + TELEGRAM_CONNECT_INDEX + '/_doc/' + token);
+  if (doc._missing || !doc._source) return null;
+  return doc._source;
+}
+// Детерминированный user_id из tenant+chatId — та же схема идентичности, что formUserId(),
+// чтобы канал Telegram участвовал в тех же сегментах/триггерах, что email.
+function telegramUserId(tenant, chatId) {
+  return 'u_tg_' + crypto.createHash('sha256').update(tenant + ':' + String(chatId)).digest('hex').slice(0, 16);
+}
+async function recordTelegramConnection(tenant, chatId, firstName) {
+  const userId = telegramUserId(tenant, chatId);
+  const ts = new Date().toISOString();
+  await es('/cdp_events_' + tenant + '/_doc', {
+    event: 'channel_connected', ts: ts,
+    anonymous_id: 'telegram:' + userId, user_id: userId, origin: 'telegram',
+    properties: { channel: 'telegram', chatId: String(chatId), firstName: firstName || null },
+  });
+  await es('/cdp_consent_' + tenant + '/_doc', {
+    ts: ts,
+    consent: { subject: userId, purposes: ['personal_data', 'marketing_telegram'], state: { marketing_telegram: true }, channelId: String(chatId), source: 'telegram_bot' },
+  });
+  return userId;
+}
 function readJsonBody(req, maxBytes) {
   return new Promise((resolve, reject) => {
     var chunks = [];
@@ -493,13 +572,41 @@ async function formStats(tenant) {
 // сюда не относится). 3 варианта: popup (модалка по центру с оверлеем), slideout (плашка
 // снизу-справа), embedded (встраивается инлайн в месте <script>). Dismiss/submit — через
 // localStorage, чтобы не показывать повторно тому же посетителю.
-function formWidgetScript(tenant, type) {
+const FORM_CONFIG_INDEX = 'rf_console_form_config';
+// customCopy — {headline,sub,cta}, override поверх дефолтной копии для этого типа. Не хранит
+// delayMs/вариант — те определяют механику показа (модалка/плашка/инлайн), не редактируемый
+// текст, кастомизации не подлежат в этой итерации.
+async function getFormConfig(tenant, type) {
+  if (!TENANT_RE.test(tenant) || FORM_TYPES.indexOf(type) < 0) return null;
+  const doc = await es('/' + FORM_CONFIG_INDEX + '/_doc/' + encodeURIComponent(tenant + ':' + type));
+  if (doc._missing || !doc._source) return null;
+  return doc._source;
+}
+async function saveFormConfig(tenant, type, config) {
+  if (!TENANT_RE.test(tenant) || FORM_TYPES.indexOf(type) < 0) throw new Error('bad tenant or type');
+  const doc = {
+    headline: String((config && config.headline) || '').trim().slice(0, 120),
+    sub: String((config && config.sub) || '').trim().slice(0, 200),
+    cta: String((config && config.cta) || '').trim().slice(0, 60),
+    updatedAt: new Date().toISOString(),
+  };
+  if (!doc.headline || !doc.cta) throw new Error('headline_and_cta_required');
+  await es('/' + FORM_CONFIG_INDEX + '/_doc/' + encodeURIComponent(tenant + ':' + type), doc);
+  return doc;
+}
+function formWidgetScript(tenant, type, customCopy) {
   const baseUrl = process.env.PUBLIC_BASE_URL || 'https://rf.axiom.rent';
-  const copy = {
+  const defaults = {
     popup: { headline: 'Скидка 10% на первый заказ', sub: 'Подпишитесь на рассылку эко-новинок', cta: 'Получить скидку', delayMs: 4000 },
     slideout: { headline: 'Узнавайте о новинках первыми', sub: 'Раз в неделю — подборка без спама', cta: 'Подписаться', delayMs: 2000 },
     embedded: { headline: 'Подпишитесь на рассылку', sub: 'Эко-новинки и акции на почту', cta: 'Подписаться', delayMs: 0 },
   }[type];
+  const copy = {
+    headline: (customCopy && customCopy.headline) || defaults.headline,
+    sub: (customCopy && customCopy.sub) || defaults.sub,
+    cta: (customCopy && customCopy.cta) || defaults.cta,
+    delayMs: defaults.delayMs,
+  };
   const dismissKey = 'axiom_form_dismissed_' + tenant + '_' + type;
   const submitKey = 'axiom_form_submitted_' + tenant + '_' + type;
   return `(function(){
@@ -695,13 +802,16 @@ async function checkDomainDeliverability(domain, dkimSelector) {
 }
 
 // ─── Автопилот-триггеры: ES-нативный поллер, без Postgres/Redis/pg-boss.
-// 6 честных триггеров (не все ~33 из деки — это отдельный долгий бэклог):
-//   abandoned_cart      — add_to_cart 3-24ч назад, без последующего order_completed
-//   abandoned_browse    — product_viewed 3-24ч назад, без add_to_cart/order_completed с тех пор
-//   checkout_abandoned  — checkout_started 3-24ч назад, без последующего order_completed
-//   reactivation        — профиль только что вошёл в "Спящие" (7-30 дней без визита)
-//   welcome             — signup за 24ч (форма сбора), приветственное письмо
-//   post_purchase       — order_completed 1-24ч назад, забота после покупки
+// 8 честных триггеров (остальные ~28 из деки — wishlist/день рождения/остатки на складе и т.п. —
+// требуют данных или интеграций, которых у нас честно нет; не выдумываем):
+//   abandoned_cart        — add_to_cart 3-24ч назад, без последующего order_completed
+//   abandoned_browse      — product_viewed 3-24ч назад, без add_to_cart/order_completed с тех пор
+//   checkout_abandoned    — checkout_started 3-24ч назад, без последующего order_completed
+//   reactivation          — профиль только что вошёл в "Спящие" (7-30 дней без визита)
+//   welcome               — signup за 24ч (форма сбора), приветственное письмо
+//   post_purchase         — order_completed 1-24ч назад, забота после покупки
+//   win_back_marketplace  — заказывал на WB/Ozon (180д), не заказывал напрямую 30д
+//   re_permission         — 5+ отправок конкретному получателю, ни одна не открыта
 // Идемпотентность — маркер-событие automation_fired в том же ES-индексе, с окном,
 // совпадающим с окном кандидатов (после истечения окна кандидат и маркер оба "стареют"
 // синхронно — нет риска бесконечного повторного триггера на статичных данных).
@@ -771,6 +881,28 @@ function postPurchaseEmailHtml() {
     '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">Письмо отправлено на основании вашего согласия на получение рекламных рассылок (ст. 18 ФЗ «О рекламе», ст. 9 152-ФЗ). <a href="{{unsubscribe_url}}" style="color:#7a6e60">Отписаться</a></div>' +
     '</td></tr></table></td></tr></table></body></html>';
 }
+function winBackMarketplaceEmailHtml() {
+  return '<!doctype html><html><body style="margin:0;padding:0;background:#f5f0e8">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f0e8"><tr><td align="center" style="padding:24px 12px">' +
+    '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#fffdf9;border-radius:12px;overflow:hidden">' +
+    '<tr><td style="padding:28px;font-family:Arial,Helvetica,sans-serif">' +
+    '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:22px;font-weight:700;color:#1c1510;margin-bottom:12px">Напрямую — дешевле и быстрее</div>' +
+    '<p style="font-size:14px;line-height:1.6;color:#1c1510">Вы покупали у нас на маркетплейсе — на своём сайте те же товары без наценки площадки, и мы можем ответить на вопросы напрямую.</p>' +
+    '<div style="text-align:center;margin-top:20px"><a href="https://ecoma.ru/catalog" style="display:inline-block;background:#c4683a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px">Смотреть на сайте</a></div>' +
+    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">Письмо отправлено на основании вашего согласия на получение рекламных рассылок (ст. 18 ФЗ «О рекламе», ст. 9 152-ФЗ). <a href="{{unsubscribe_url}}" style="color:#7a6e60">Отписаться</a></div>' +
+    '</td></tr></table></td></tr></table></body></html>';
+}
+function rePermissionEmailHtml() {
+  return '<!doctype html><html><body style="margin:0;padding:0;background:#f5f0e8">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f0e8"><tr><td align="center" style="padding:24px 12px">' +
+    '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#fffdf9;border-radius:12px;overflow:hidden">' +
+    '<tr><td style="padding:28px;font-family:Arial,Helvetica,sans-serif">' +
+    '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:22px;font-weight:700;color:#1c1510;margin-bottom:12px">Вам ещё интересны наши письма?</div>' +
+    '<p style="font-size:14px;line-height:1.6;color:#1c1510">Вы давно не открывали наши письма — не хотим слать в пустоту. Нажмите, чтобы остаться на связи, или отпишитесь, если неактуально.</p>' +
+    '<div style="text-align:center;margin-top:20px"><a href="https://ecoma.ru/catalog" style="display:inline-block;background:#c4683a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px">Да, оставьте меня в рассылке</a></div>' +
+    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">Письмо отправлено на основании вашего согласия на получение рекламных рассылок (ст. 18 ФЗ «О рекламе», ст. 9 152-ФЗ). <a href="{{unsubscribe_url}}" style="color:#7a6e60">Отписаться</a></div>' +
+    '</td></tr></table></td></tr></table></body></html>';
+}
 const AUTOMATION_EMAIL_HTML = {
   abandoned_cart: abandonedCartEmailHtml,
   abandoned_browse: abandonedBrowseEmailHtml,
@@ -778,6 +910,8 @@ const AUTOMATION_EMAIL_HTML = {
   reactivation: reactivationEmailHtml,
   welcome: welcomeEmailHtml,
   post_purchase: postPurchaseEmailHtml,
+  win_back_marketplace: winBackMarketplaceEmailHtml,
+  re_permission: rePermissionEmailHtml,
 };
 async function sendAutomationEmail(tenant, trigger, subject, email, subjectId, fromName, fromEmail) {
   const baseUrl = process.env.PUBLIC_BASE_URL || 'https://rf.axiom.rent';
@@ -797,7 +931,7 @@ async function runAutomationPoller(tenant) {
   const fromEmail = auth ? auth.fromEmail : ('hello@' + tenant + '.invalid');
   const consented = await resolveConsentedRecipients(tenant, 5000);
   const consentedMap = new Map(consented.filter((c) => c.subject).map((c) => [c.subject, c.email]));
-  const out = { abandoned_cart: { checked: 0, sent: 0, failed: 0 }, abandoned_browse: { checked: 0, sent: 0, failed: 0 }, checkout_abandoned: { checked: 0, sent: 0, failed: 0 }, reactivation: { checked: 0, sent: 0, failed: 0 }, welcome: { checked: 0, sent: 0, failed: 0 }, post_purchase: { checked: 0, sent: 0, failed: 0 } };
+  const out = { abandoned_cart: { checked: 0, sent: 0, failed: 0 }, abandoned_browse: { checked: 0, sent: 0, failed: 0 }, checkout_abandoned: { checked: 0, sent: 0, failed: 0 }, reactivation: { checked: 0, sent: 0, failed: 0 }, welcome: { checked: 0, sent: 0, failed: 0 }, post_purchase: { checked: 0, sent: 0, failed: 0 }, win_back_marketplace: { checked: 0, sent: 0, failed: 0 }, re_permission: { checked: 0, sent: 0, failed: 0 } };
 
   // --- abandoned_cart ---
   const [cartUsers, orderedUsers24h, firedCart] = await Promise.all([
@@ -903,6 +1037,60 @@ async function runAutomationPoller(tenant) {
     } catch (e) { out.post_purchase.failed++; }
   }
 
+  // --- win_back_marketplace: заказывал на маркетплейсе (180д), НЕ заказывал напрямую за 30д,
+  // без повтора триггера за 30д. Тот же признак происхождения заказа, что у сегмента mpback,
+  // но здесь — реальная рассылка, а не только подсчёт.
+  const [mpOrderedRecent, directOrdered30d, firedWinBack] = await Promise.all([
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'order_completed' } }, { range: { ts: { gte: 'now-180d' } } }], should: [{ wildcard: { 'origin.keyword': '*wildberries*' } }, { wildcard: { 'origin.keyword': '*wb.ru*' } }, { wildcard: { 'origin.keyword': '*ozon*' } }], minimum_should_match: 1 } }),
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'order_completed' } }, { range: { ts: { gte: 'now-30d' } } }], must_not: [{ wildcard: { 'origin.keyword': '*wildberries*' } }, { wildcard: { 'origin.keyword': '*wb.ru*' } }, { wildcard: { 'origin.keyword': '*ozon*' } }] } }),
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'automation_fired' } }, { term: { 'properties.trigger.keyword': 'win_back_marketplace' } }, { range: { ts: { gte: 'now-30d' } } }] } }),
+  ]);
+  for (const userId of mpOrderedRecent) {
+    out.win_back_marketplace.checked++;
+    if (directOrdered30d.has(userId) || firedWinBack.has(userId)) continue;
+    const email = consentedMap.get(userId);
+    if (!email) continue;
+    try {
+      await sendAutomationEmail(tenant, 'win_back_marketplace', 'Напрямую — дешевле и быстрее', email, userId, fromName, fromEmail);
+      out.win_back_marketplace.sent++;
+    } catch (e) { out.win_back_marketplace.failed++; }
+  }
+
+  // --- re_permission: тот же признак, что у сегмента "Подписаны, но не открывали" (5+ отправок
+  // конкретному получателю, ни одна не открыта), без повтора триггера за 30д. Группировка по
+  // properties.to (реальный email), не по anonymous_id (уникален на отправку) — см. комментарий
+  // в realSegmentCounts.
+  const [sentDocsRP, openedDocsRP, firedRePermUsers] = await Promise.all([
+    es('/cdp_events_' + tenant + '/_search', { size: 5000, query: { term: { 'event.keyword': 'email_sent' } }, _source: ['anonymous_id', 'properties.to'] }),
+    es('/cdp_events_' + tenant + '/_search', { size: 5000, query: { term: { 'event.keyword': 'email_opened' } }, _source: ['anonymous_id'] }),
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'automation_fired' } }, { term: { 'properties.trigger.keyword': 're_permission' } }, { range: { ts: { gte: 'now-30d' } } }] } }),
+  ]);
+  const openedMsgIdsRP = new Set((openedDocsRP.hits && openedDocsRP.hits.hits || []).map((h) => h._source.anonymous_id));
+  const sentByRecipientRP = new Map();
+  for (const h of (sentDocsRP.hits && sentDocsRP.hits.hits || [])) {
+    const to = h._source.properties && h._source.properties.to;
+    if (!to) continue;
+    const key = String(to).toLowerCase();
+    if (!sentByRecipientRP.has(key)) sentByRecipientRP.set(key, new Set());
+    sentByRecipientRP.get(key).add(h._source.anonymous_id);
+  }
+  // email -> userId, для fired-проверки и sendAutomationEmail (обратный индекс к consentedMap)
+  const emailToUserId = new Map();
+  for (const [uid, em] of consentedMap.entries()) emailToUserId.set(String(em).toLowerCase(), uid);
+  for (const [emailKey, msgIds] of sentByRecipientRP.entries()) {
+    if (msgIds.size < 5) continue;
+    let openedAny = false;
+    for (const mid of msgIds) { if (openedMsgIdsRP.has(mid)) { openedAny = true; break; } }
+    if (openedAny) continue;
+    out.re_permission.checked++;
+    const userId = emailToUserId.get(emailKey);
+    if (!userId || firedRePermUsers.has(userId)) continue;
+    try {
+      await sendAutomationEmail(tenant, 're_permission', 'Вам ещё интересны наши письма?', emailKey, userId, fromName, fromEmail);
+      out.re_permission.sent++;
+    } catch (e) { out.re_permission.failed++; }
+  }
+
   return out;
 }
 
@@ -913,6 +1101,8 @@ const AUTOMATION_TRIGGER_META = {
   reactivation: { name: 'Реактивация спящих', sub: 'win-back · 7–30 дней без визита', channel: 'Email' },
   welcome: { name: 'Приветствие', sub: 'onboarding · после подписки через форму', channel: 'Email' },
   post_purchase: { name: 'Спасибо за заказ', sub: 'retention · через час после оформления', channel: 'Email' },
+  win_back_marketplace: { name: 'Возврат с маркетплейса', sub: 'win-back · заказывал на WB/Ozon, не заказывал напрямую 30д', channel: 'Email' },
+  re_permission: { name: 'Подтверждение интереса', sub: 're-permission · 5+ писем без единого открытия', channel: 'Email' },
 };
 // Реальная статистика по автопилот-сценариям (заменяет фикстуру SEG_FLOWS/em_flows_model
 // с придуманными conv/revenue и фейковым "последний запуск").
@@ -1639,8 +1829,41 @@ const server = http.createServer(async (req, res) => {
       var formPathTenant = formPathParts[0];
       var formPathType = FORM_TYPES.indexOf(formPathParts[1]) >= 0 ? formPathParts[1] : null;
       if (!TENANT_RE.test(formPathTenant) || !formPathType) return send(res, 404, { error: 'unknown_form' });
+      var formPathCustomCopy = null;
+      try { formPathCustomCopy = await getFormConfig(formPathTenant, formPathType); } catch (e) { formPathCustomCopy = null; }
       res.writeHead(200, { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' });
-      return res.end(formWidgetScript(formPathTenant, formPathType));
+      return res.end(formWidgetScript(formPathTenant, formPathType, formPathCustomCopy));
+    }
+    if (p === '/api/forms/config' && req.method === 'GET') {
+      var fcGetPrincipal = await authenticate(req);
+      if (!fcGetPrincipal) return send(res, 401, { error: 'unauthorized' });
+      var fcGetType = u.searchParams.get('type');
+      if (FORM_TYPES.indexOf(fcGetType) < 0) return send(res, 400, { error: 'invalid_type' });
+      try {
+        var fcCurrent = await getFormConfig(fcGetPrincipal.tenant, fcGetType);
+        return send(res, 200, { ok: true, type: fcGetType, custom: !!fcCurrent, config: fcCurrent });
+      } catch (e) {
+        return send(res, 502, { error: 'config_read_failed', message: String(e.message || e) });
+      }
+    }
+    if (p === '/api/forms/config' && req.method === 'PUT') {
+      var fcPutPrincipal = await authenticate(req);
+      if (!fcPutPrincipal) return send(res, 401, { error: 'unauthorized' });
+      var fcPutBody;
+      try { fcPutBody = await readJsonBody(req, 4 * 1024); }
+      catch (e) { return send(res, 400, { error: String(e.message || e) }); }
+      if (FORM_TYPES.indexOf(fcPutBody.type) < 0) return send(res, 400, { error: 'invalid_type' });
+      try {
+        var fcSaved = await saveFormConfig(fcPutPrincipal.tenant, fcPutBody.type, fcPutBody);
+        return send(res, 200, { ok: true, type: fcPutBody.type, config: fcSaved });
+      } catch (e) {
+        return send(res, 400, { error: 'config_save_failed', message: String(e.message || e) });
+      }
+    }
+    if (p === '/api/channels/status') {
+      var chPrincipal = await authenticate(req);
+      if (!chPrincipal) return send(res, 401, { error: 'unauthorized' });
+      return send(res, 200, { ok: true, channels: channelsConfigured() });
     }
     if (p === '/api/forms/stats') {
       var formStatsPrincipal = await authenticate(req);
@@ -1721,6 +1944,42 @@ const server = http.createServer(async (req, res) => {
       }
       return send(res, 200, { ok: true });
     }
+    // ─── Telegram: связка chat_id ⇄ профиль. Deep-link выдаём только владельцу тенанта
+    // (авторизован), вебхук — публичный (его дёргает Telegram), fail-closed без секрета,
+    // тот же принцип, что у /webhooks/resend.
+    if (p === '/api/telegram/connect-link') {
+      var tgLinkPrincipal = await authenticate(req);
+      if (!tgLinkPrincipal) return send(res, 401, { error: 'unauthorized' });
+      var tgBotUsername = process.env.TELEGRAM_BOT_USERNAME;
+      if (!tgBotUsername) return send(res, 200, { ok: true, configured: false, message: 'TELEGRAM_BOT_USERNAME не настроен — канал ещё не активирован владельцем.' });
+      try {
+        var tgToken = await createTelegramConnectToken(tgLinkPrincipal.tenant);
+        return send(res, 200, { ok: true, configured: true, url: 'https://t.me/' + tgBotUsername + '?start=' + tgToken });
+      } catch (e) {
+        return send(res, 502, { error: 'connect_link_failed', message: String(e.message || e) });
+      }
+    }
+    if (p === '/webhooks/telegram' && req.method === 'POST') {
+      var tgWhSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+      if (!tgWhSecret || req.headers['x-telegram-bot-api-secret-token'] !== tgWhSecret) {
+        return send(res, 401, { error: 'invalid_signature' });
+      }
+      var tgBody;
+      try { tgBody = await readJsonBody(req, 256 * 1024); }
+      catch (e) { return send(res, 400, { error: String(e.message || e) }); }
+      var tgMsg = tgBody.message;
+      if (tgMsg && typeof tgMsg.text === 'string' && tgMsg.text.indexOf('/start ') === 0) {
+        var tgStartToken = tgMsg.text.slice('/start '.length).trim();
+        try {
+          var tgResolved = await resolveTelegramConnectToken(tgStartToken);
+          if (tgResolved && tgResolved.tenant) {
+            await recordTelegramConnection(tgResolved.tenant, tgMsg.chat.id, (tgMsg.from || {}).first_name);
+            try { await sendTelegramMessage({ chatId: tgMsg.chat.id, text: 'Готово — вы подписаны на уведомления.' }); } catch (e) { /* подключение уже записано, сбой уведомления не критичен */ }
+          }
+        } catch (e) { /* не роняем 200 к Telegram из-за внутренней ошибки — иначе он будет ретраить бесконечно */ }
+      }
+      return send(res, 200, { ok: true });
+    }
     if (p.indexOf('/t/o/') === 0) {
       var tokO = p.slice('/t/o/'.length).replace(/\.gif$/, '');
       var payloadO = trackVerify(tokO);
@@ -1769,7 +2028,7 @@ if (require.main === module && process.env.AUTOMATION_ENABLED === 'true') {
   }, autoIntervalMs);
 }
 
-module.exports = { mapSource, bucketLifecycle, aggregate, profilesList, listTenants, server, trackSign, trackVerify, injectTracking, resolveConsentedRecipients, zTestCompare, abtestStats, realSegmentCounts, realCampaignsList, realAbtestList, usersMatchingQuery, checkDomainDeliverability, runAutomationPoller, automationFlowStats, verifySvixSignature, suppressEmail, isSuppressed, formUserId, recordFormSubmission, formStats, formWidgetScript, enrichProfile, tierDistribution };
+module.exports = { mapSource, bucketLifecycle, aggregate, profilesList, listTenants, server, trackSign, trackVerify, injectTracking, resolveConsentedRecipients, zTestCompare, abtestStats, realSegmentCounts, realCampaignsList, realAbtestList, usersMatchingQuery, checkDomainDeliverability, runAutomationPoller, automationFlowStats, verifySvixSignature, suppressEmail, isSuppressed, formUserId, recordFormSubmission, formStats, formWidgetScript, enrichProfile, tierDistribution, getFormConfig, saveFormConfig, sendTelegramMessage, sendVkMessage, sendSmsMessage, channelsConfigured, telegramUserId, createTelegramConnectToken, resolveTelegramConnectToken, recordTelegramConnection };
 
 // ─── favicon: брендовая марка AXIOM — орбита/ядро (золото на ink, zero-dep inline SVG) ────
 const FAV = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32"><circle cx="16" cy="16" r="16" fill="#1c1510"/><circle cx="16" cy="16" r="10" fill="none" stroke="#c9a84c" stroke-width="1.5"/><g fill="#c9a84c"><circle cx="16" cy="16" r="3.2"/><circle cx="16" cy="6" r="2"/><circle cx="7.34" cy="21" r="2"/><circle cx="24.66" cy="21" r="2"/></g></svg>`;
@@ -3301,10 +3560,46 @@ EMAIL_TABS.abtest = function(){
    ПАНЕЛЬ forms («Формы», ▤) — встраиваемые формы сбора e-mail, реальный consent
    ──────────────────────────────────────────────────────────────────────── */
 var EM_FORM_META = [
-  {type:'popup', name:'Pop-up по центру', desc:'модалка с оверлеем, появляется через 4с', icon:'◱'},
-  {type:'slideout', name:'Плашка снизу-справа', desc:'ненавязчиво, появляется через 2с', icon:'◲'},
-  {type:'embedded', name:'Встроенная в контент', desc:'рендерится сразу в месте вставки кода, без оверлея', icon:'▭'}
+  {type:'popup', name:'Pop-up по центру', desc:'модалка с оверлеем, появляется через 4с', icon:'◱',
+    defHeadline:'Скидка 10% на первый заказ', defSub:'Подпишитесь на рассылку эко-новинок', defCta:'Получить скидку'},
+  {type:'slideout', name:'Плашка снизу-справа', desc:'ненавязчиво, появляется через 2с', icon:'◲',
+    defHeadline:'Узнавайте о новинках первыми', defSub:'Раз в неделю — подборка без спама', defCta:'Подписаться'},
+  {type:'embedded', name:'Встроенная в контент', desc:'рендерится сразу в месте вставки кода, без оверлея', icon:'▭',
+    defHeadline:'Подпишитесь на рассылку', defSub:'Эко-новинки и акции на почту', defCta:'Подписаться'}
 ];
+window.saveFormConfig = async function(type){
+  var h = document.getElementById('em-form-h-'+type), s = document.getElementById('em-form-s-'+type), c = document.getElementById('em-form-c-'+type);
+  if(!h || !c) return;
+  var btn = document.getElementById('em-form-save-'+type);
+  if(btn){ btn.disabled=true; btn.textContent='Сохраняем…'; }
+  try{
+    var res = await fetch('/api/forms/config', {
+      method:'PUT',
+      headers: Object.assign({'content-type':'application/json'}, window.RFC_TOKEN?{authorization:'Bearer '+window.RFC_TOKEN}:{}),
+      body: JSON.stringify({type:type, headline:h.value, sub:s.value, cta:c.value}),
+    });
+    var data = await res.json().catch(function(){ return {}; });
+    if(!res.ok){ emFlash('Ошибка: '+(data.message||data.error||res.status), 3500); return; }
+    delete LIVE['formConfig:'+type+':'+TENANT];
+    emFlash('Сохранено — обновится в виджете в течение 5 минут (кэш)', 3000);
+  }catch(e){
+    emFlash('Сбой сети: '+(e && e.message || e), 3000);
+  }finally{
+    if(btn){ btn.disabled=false; btn.textContent='Сохранить'; }
+  }
+};
+window.loadTelegramLink = async function(){
+  var el = document.getElementById('em-tg-link');
+  if(!el) return;
+  el.textContent = 'Загрузка…';
+  try{
+    var res = await fetch('/api/telegram/connect-link', { headers: window.RFC_TOKEN?{authorization:'Bearer '+window.RFC_TOKEN}:{} });
+    var data = await res.json().catch(function(){ return {}; });
+    if(!res.ok){ el.textContent = 'Ошибка: '+(data.message||data.error||res.status); return; }
+    if(!data.configured){ el.textContent = data.message; return; }
+    el.innerHTML = '<a href="'+esc(data.url)+'" target="_blank" rel="noopener">'+esc(data.url)+'</a>';
+  }catch(e){ el.textContent = 'Сбой сети: '+(e && e.message || e); }
+};
 EMAIL_TABS.forms = function(){
   var live = liveFetch('forms', TENANT, '/api/forms/stats');
   var stats = live.data || null;
@@ -3326,15 +3621,27 @@ EMAIL_TABS.forms = function(){
     var snippetId = 'em-form-snippet-'+m.type;
     var origin = (typeof location!=='undefined' && location.origin) ? location.origin : 'https://rf.axiom.rent';
     var snippet = '<script src="'+esc(origin)+'/forms/'+esc(TENANT)+'/'+m.type+'.js" async><\\/script>';
+    var cfgLive = liveFetch('formConfig:'+m.type, TENANT, '/api/forms/config?type='+m.type);
+    var cfg = (cfgLive.data && cfgLive.data.config) || null;
+    var curHeadline = (cfg && cfg.headline) || m.defHeadline;
+    var curSub = (cfg && cfg.sub) || m.defSub;
+    var curCta = (cfg && cfg.cta) || m.defCta;
     cards += '<div class="card em-seg" style="margin-bottom:12px">'+
       '<div class="em-seg-hd">'+
         '<span class="em-dot" style="background:'+TONE.gold+'"></span>'+
         '<span class="em-seg-name serif">'+esc(m.name)+'</span>'+
         badge(nf(count)+' подписок · 30д', count>0?'sage':'muted')+
+        (cfg?badge('изменено','gold'):'')+
       '</div>'+
       '<p class="em-seg-hint muted">'+esc(m.icon)+' '+esc(m.desc)+'</p>'+
       '<pre id="'+snippetId+'" style="background:#1c1510;color:#f5f0e8;padding:10px 12px;border-radius:8px;font-size:12px;overflow-x:auto;margin:0 0 8px;white-space:pre-wrap;word-break:break-all">'+esc(snippet)+'</pre>'+
-      '<button class="em-act" onclick="copyEmbedSnippet(\\''+snippetId+'\\')">Скопировать код</button>'+
+      '<button class="em-act" onclick="copyEmbedSnippet(\\''+snippetId+'\\')" style="margin-bottom:12px">Скопировать код</button>'+
+      '<div class="em-rules" style="flex-direction:column;align-items:stretch;gap:8px;display:flex">'+
+        '<input id="em-form-h-'+m.type+'" value="'+esc(curHeadline)+'" placeholder="Заголовок" style="padding:8px 10px;border:1px solid '+TONE.line+';border-radius:6px;font:inherit">'+
+        '<input id="em-form-s-'+m.type+'" value="'+esc(curSub)+'" placeholder="Подзаголовок" style="padding:8px 10px;border:1px solid '+TONE.line+';border-radius:6px;font:inherit">'+
+        '<input id="em-form-c-'+m.type+'" value="'+esc(curCta)+'" placeholder="Текст кнопки" style="padding:8px 10px;border:1px solid '+TONE.line+';border-radius:6px;font:inherit">'+
+        '<button id="em-form-save-'+m.type+'" class="em-act em-act-primary" onclick="saveFormConfig(\\''+m.type+'\\')" style="align-self:flex-start">Сохранить</button>'+
+      '</div>'+
     '</div>';
   }
   out += chart('Формы сбора', 'Вставить код перед &lt;/body&gt; на сайте тенанта «'+esc(TENANT)+'»', cards);
@@ -3343,6 +3650,48 @@ EMAIL_TABS.forms = function(){
     'кто уже подписался или закрыл — через localStorage). При отправке пишется реальное событие '+
     '<code class="mono">signup</code> и согласие <code class="mono">marketing_email</code> — не демо, '+
     'настоящий CDP-профиль. Rate-limit 200 отправок/тенант/час против спама на публичный роут.'+
+  '</div>';
+  return out;
+};
+
+/* ────────────────────────────────────────────────────────────────────────
+   ПАНЕЛЬ channels («Каналы», ⇄) — Email/Telegram/VK/SMS, честный статус кредов
+   ──────────────────────────────────────────────────────────────────────── */
+EMAIL_TABS.channels = function(){
+  var live = liveFetch('channels', TENANT, '/api/channels/status');
+  var ch = live.data ? live.data.channels : null;
+  var out = '';
+  out += em_liveNote(live);
+  out += '<div class="note">Каналы кроме email требуют реальных кредов от владельца платформы. '+
+    'Без них честно показываем «ждёт кредов», а не притворяемся, что сообщение ушло — тот же '+
+    'принцип, что у email до подключения SMTP/Resend.</div>';
+  var rows = [
+    {key:'email', name:'Email', sub:'SMTP_URL или RESEND_API_KEY'},
+    {key:'telegram', name:'Telegram', sub:'TELEGRAM_BOT_TOKEN (от @BotFather) + TELEGRAM_BOT_USERNAME + TELEGRAM_WEBHOOK_SECRET'},
+    {key:'vk', name:'ВКонтакте', sub:'VK_COMMUNITY_TOKEN — токен сообщества с правом messages'},
+    {key:'sms', name:'SMS', sub:'SMS_GATEWAY_URL + SMS_API_KEY — любой REST-шлюз (SMS.ru/SMSC/др.)'}
+  ];
+  var cards = rows.map(function(r){
+    var on = ch ? ch[r.key] : null;
+    var status = ch===null ? 'загрузка…' : (on ? 'настроено' : 'ждёт кредов');
+    var tone = ch===null ? 'muted' : (on ? 'sage' : 'rust');
+    var extra = '';
+    if(r.key==='telegram'){
+      extra = '<div style="margin-top:10px"><button class="em-act" onclick="loadTelegramLink()">Получить ссылку подключения</button>'+
+        '<div id="em-tg-link" class="muted" style="margin-top:8px;font-size:12px"></div></div>';
+    }
+    return '<div class="card em-seg" style="margin-bottom:12px">'+
+      '<div class="em-seg-hd"><span class="em-dot" style="background:'+(TONE[tone]||TONE.muted)+'"></span>'+
+      '<span class="em-seg-name serif">'+esc(r.name)+'</span>'+badge(status,tone==='muted'?'muted':tone)+'</div>'+
+      '<p class="em-seg-hint muted">'+esc(r.sub)+'</p>'+extra+
+    '</div>';
+  }).join('');
+  out += chart('Каналы отправки', 'Триггеры и кампании смогут слать через любой настроенный канал — инфраструктура готова, ждёт кредов', cards);
+  out += '<div class="note em-ab-note">'+
+    '<b>Как устроено подключение Telegram.</b> Ссылка ведёт на бота, пользователь жмёт «Start», '+
+    'бот получает вебхук, реальный <code class="mono">chat_id</code> связывается с профилем в том же '+
+    'CDP — согласие <code class="mono">marketing_telegram</code> пишется по факту нажатия «Start», '+
+    'без притворного opt-in. Рассылка через Telegram технически готова — сама отправка ждёт токена бота.'+
   '</div>';
   return out;
 };
@@ -3623,6 +3972,7 @@ const EMAIL_SUBTABS = [
   ['audiences','Сегменты','◑'],
   ['abtest','A/B тесты','⚗'],
   ['forms','Формы','▤'],
+  ['channels','Каналы','⇄'],
   ['deliverability','Доставляемость','◆'],
   ['analytics','Аналитика','▦']
 ];
