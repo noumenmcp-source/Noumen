@@ -2483,6 +2483,10 @@ function em_audiences_emailRate(){
 // rate=1 (не домножаем на согласие повторно). Остальные 3 (sleep/vip/noopen) требуют per-profile
 // агрегации (сумма чека / история открытий за недели), которой пока нет — честно помечены real:false
 // и текстом «оценка» в UI, а не выдаются за факт.
+// Все 6 сегментов теперь реальны на сервере (realSegmentCounts — active/cart/mpback из Фазы 4,
+// sleep/vip/noopen добавлены отдельным коммитом «Phase 4 completion»). Пока live-фетч не ответил
+// (первый рендер до прихода данных) — честный fallback на старую оценку по lifecycle-бакетам,
+// помеченную real:false, а не пустая/нулевая карточка.
 function em_audiences_segments(){
   var base=em_audiences_emailRate();
   var aov=OV.orders.count?Math.round(OV.orders.revenue/OV.orders.count):1800;
@@ -2496,9 +2500,13 @@ function em_audiences_segments(){
       {key:'active',name:'Активные покупатели',tone:'sage',size:lc('Активные'),rate:Math.min(0.97,base*1.18),real:false,
         hint:'Покупали недавно — лучшая достижимость и отклик. Допродажа, новинки.',
         rules:[{f:'событие',op:'=',v:'order_completed'},{f:'давность',op:'<',v:'30 дней'},{f:'marketing_email',op:'=',v:'verified'}]},
-    {key:'sleep',name:'Спящие 30–60 дней',tone:'rust',size:Math.round(lc('Спящие')*0.62),rate:Math.min(0.95,base*0.92),real:false,
-      hint:'Заходили, но затихли. Реактивация со скидкой или подборкой. (оценка — точного правила по глубине давности пока нет)',
-      rules:[{f:'давность',op:'30–60 дн',v:'без покупки'},{f:'событие',op:'было',v:'add_to_cart'},{f:'marketing_email',op:'=',v:'verified'}]},
+    real ?
+      {key:'sleep',name:'Спящие 7–30 дней',tone:'rust',size:real.sleep,rate:1,real:true,
+        hint:'Заходили, но затихли 7-30 дней, дали согласие — реальный пересечённый счёт из Elasticsearch.',
+        rules:[{f:'давность',op:'7–30 дн',v:'без визита'},{f:'marketing_email',op:'=',v:'verified'}]} :
+      {key:'sleep',name:'Спящие 30–60 дней',tone:'rust',size:Math.round(lc('Спящие')*0.62),rate:Math.min(0.95,base*0.92),real:false,
+        hint:'Заходили, но затихли. Реактивация со скидкой или подборкой.',
+        rules:[{f:'давность',op:'30–60 дн',v:'без покупки'},{f:'событие',op:'было',v:'add_to_cart'},{f:'marketing_email',op:'=',v:'verified'}]},
     real ?
       {key:'cart',name:'Брошенные корзины',tone:'gold',size:real.cart,rate:1,real:true,
         hint:'Добавили в корзину за 72ч, не оформили, дали согласие — реальный пересечённый счёт из Elasticsearch.',
@@ -2506,12 +2514,20 @@ function em_audiences_segments(){
       {key:'cart',name:'Брошенные корзины',tone:'gold',size:Math.round(OV.orders.count*0.40),rate:Math.min(0.96,base*1.05),real:false,
         hint:'Добавили в корзину за 72ч, не оформили. Триггер-дожим.',
         rules:[{f:'событие',op:'=',v:'add_to_cart'},{f:'НЕ событие',op:'≠',v:'order_completed'},{f:'давность',op:'<',v:'72 часа'},{f:'marketing_email',op:'=',v:'verified'}]},
-    {key:'vip',name:'Высокий чек · VIP',tone:'gold',size:Math.round(lc('Активные')*0.14),rate:Math.min(0.98,base*1.22),real:false,
-      hint:'Чек выше среднего ('+rub(aov)+'×2). Закрытые предложения, ранний доступ. (оценка — нужна per-profile агрегация суммы заказов)',
-      rules:[{f:'сумма заказов',op:'>',v:rub(aov*2)},{f:'заказов',op:'≥',v:'3'},{f:'marketing_email',op:'=',v:'verified'}]},
-    {key:'noopen',name:'Подписаны, но не открывали',tone:'muted',size:Math.round((lc('Активные')+lc('Спящие'))*0.21),rate:0.0,real:false,
-      hint:'Согласие есть, но 5+ писем без открытия → re-permission или Telegram. По email НЕ шлём. (оценка — нужна история открытий за недели)',
-      rules:[{f:'marketing_email',op:'=',v:'verified'},{f:'open_rate',op:'=',v:'0 за 5 писем'},{f:'действие',op:'→',v:'re-permission'}]},
+    real ?
+      {key:'vip',name:'Высокий чек · VIP',tone:'gold',size:real.vip,rate:1,real:true,
+        hint:'Заказов ≥3 И сумма > '+rub(aov*2)+', дали согласие — реальная per-user агрегация из Elasticsearch.',
+        rules:[{f:'сумма заказов',op:'>',v:rub(aov*2)},{f:'заказов',op:'≥',v:'3'},{f:'marketing_email',op:'=',v:'verified'}]} :
+      {key:'vip',name:'Высокий чек · VIP',tone:'gold',size:Math.round(lc('Активные')*0.14),rate:Math.min(0.98,base*1.22),real:false,
+        hint:'Чек выше среднего ('+rub(aov)+'×2). Закрытые предложения, ранний доступ.',
+        rules:[{f:'сумма заказов',op:'>',v:rub(aov*2)},{f:'заказов',op:'≥',v:'3'},{f:'marketing_email',op:'=',v:'verified'}]},
+    real ?
+      {key:'noopen',name:'Подписаны, но не открывали',tone:'muted',size:real.noopen,rate:0.0,real:true,
+        hint:'5+ отправок конкретному получателю, ни одна не открыта, согласие есть — реальный счёт. По email НЕ шлём.',
+        rules:[{f:'marketing_email',op:'=',v:'verified'},{f:'отправлено',op:'≥',v:'5'},{f:'открыто',op:'=',v:'0'},{f:'действие',op:'→',v:'re-permission'}]} :
+      {key:'noopen',name:'Подписаны, но не открывали',tone:'muted',size:Math.round((lc('Активные')+lc('Спящие'))*0.21),rate:0.0,real:false,
+        hint:'Согласие есть, но 5+ писем без открытия → re-permission или Telegram. По email НЕ шлём.',
+        rules:[{f:'marketing_email',op:'=',v:'verified'},{f:'open_rate',op:'=',v:'0 за 5 писем'},{f:'действие',op:'→',v:'re-permission'}]},
     real ?
       {key:'mpback',name:'Вернувшиеся с WB/Ozon',tone:'rust',size:real.mpback,rate:1,real:true,
         hint:'История покупок на маркетплейсах, дали согласие — реальный пересечённый счёт из Elasticsearch.',
