@@ -433,6 +433,222 @@ async function resolveConsentedRecipients(tenant, cap) {
   return out.filter((r) => !suppressed.has(String(r.email).toLowerCase()));
 }
 
+// ─── Формы сбора (pop-up/slide-out/embedded) — публичные, встраиваются на сайт тенанта.
+// Детерминированный user_id из email (не случайный) — если этот же человек позже реально
+// закажет на сайте под тем же e-mail, профили можно будет свести (та же схема id, что и
+// остальной pipeline: user_id.keyword). Пишем РЕАЛЬНЫЕ event+consent документы в тот же
+// индекс, что читает весь остальной сервис — не отдельная "демо"-таблица.
+const FORM_TYPES = ['popup', 'slideout', 'embedded'];
+function formUserId(tenant, email) {
+  return 'u_form_' + crypto.createHash('sha256').update(tenant + ':' + String(email).toLowerCase()).digest('hex').slice(0, 16);
+}
+async function countRecentFormSubmissions(tenant, sinceExpr) {
+  const q = await es('/cdp_events_' + tenant + '/_search', {
+    size: 0,
+    query: { bool: { filter: [{ term: { 'event.keyword': 'signup' } }, { range: { ts: { gte: sinceExpr } } }] } },
+  });
+  if (q._missing) return 0;
+  return (q.hits && q.hits.total && q.hits.total.value) || 0;
+}
+async function recordFormSubmission(tenant, formType, formId, email) {
+  const userId = formUserId(tenant, email);
+  const ts = new Date().toISOString();
+  await es('/cdp_events_' + tenant + '/_doc', {
+    event: 'signup',
+    ts: ts,
+    anonymous_id: 'form:' + userId,
+    user_id: userId,
+    origin: 'form:' + (formId || formType),
+    properties: { formType: formType, formId: formId || formType, email: email, source: 'embedded_form' },
+  });
+  await es('/cdp_consent_' + tenant + '/_doc', {
+    ts: ts,
+    consent: {
+      email: email,
+      subject: userId,
+      purposes: ['personal_data', 'marketing_email'],
+      state: { marketing_email: true, personal_data: true },
+      source: 'form:' + (formId || formType),
+    },
+  });
+  return userId;
+}
+// Реальная статистика форм — сколько signup-событий пришло с каждого типа формы за 30д.
+async function formStats(tenant) {
+  if (!TENANT_RE.test(tenant)) throw new Error('bad tenant');
+  const q = await es('/cdp_events_' + tenant + '/_search', {
+    size: 0,
+    query: { bool: { filter: [{ term: { 'event.keyword': 'signup' } }, { range: { ts: { gte: 'now-30d' } } }] } },
+    aggs: { by_type: { terms: { field: 'properties.formType.keyword', size: 10 } }, total: { value_count: { field: 'event.keyword' } } },
+  });
+  if (q._missing) return { total: 0, byType: {} };
+  const byType = {};
+  for (const t of FORM_TYPES) byType[t] = 0;
+  for (const b of ((q.aggregations && q.aggregations.by_type.buckets) || [])) byType[b.key] = b.doc_count;
+  return { total: (q.hits && q.hits.total && q.hits.total.value) || 0, byType: byType };
+}
+
+// Встраиваемый виджет формы — zero-dep vanilla JS, генерируется сервером (ОДИН уровень
+// backtick-темплейта — НЕ вложен в HTML-константу консоли, поэтому баг двойного экранирования
+// сюда не относится). 3 варианта: popup (модалка по центру с оверлеем), slideout (плашка
+// снизу-справа), embedded (встраивается инлайн в месте <script>). Dismiss/submit — через
+// localStorage, чтобы не показывать повторно тому же посетителю.
+function formWidgetScript(tenant, type) {
+  const baseUrl = process.env.PUBLIC_BASE_URL || 'https://rf.axiom.rent';
+  const copy = {
+    popup: { headline: 'Скидка 10% на первый заказ', sub: 'Подпишитесь на рассылку эко-новинок', cta: 'Получить скидку', delayMs: 4000 },
+    slideout: { headline: 'Узнавайте о новинках первыми', sub: 'Раз в неделю — подборка без спама', cta: 'Подписаться', delayMs: 2000 },
+    embedded: { headline: 'Подпишитесь на рассылку', sub: 'Эко-новинки и акции на почту', cta: 'Подписаться', delayMs: 0 },
+  }[type];
+  const dismissKey = 'axiom_form_dismissed_' + tenant + '_' + type;
+  const submitKey = 'axiom_form_submitted_' + tenant + '_' + type;
+  return `(function(){
+  "use strict";
+  var TENANT=${JSON.stringify(tenant)}, TYPE=${JSON.stringify(type)}, BASE=${JSON.stringify(baseUrl)};
+  var COPY=${JSON.stringify(copy)};
+  var DISMISS_KEY=${JSON.stringify(dismissKey)}, SUBMIT_KEY=${JSON.stringify(submitKey)};
+  try{
+    if(localStorage.getItem(SUBMIT_KEY)) return;
+    if(TYPE!=='embedded' && localStorage.getItem(DISMISS_KEY)) return;
+  }catch(e){}
+  function css(el,s){ for(var k in s) el.style[k]=s[k]; }
+  function build(){
+    var isModal = TYPE==='popup', isSlide = TYPE==='slideout';
+    var wrap=document.createElement('div');
+    css(wrap, {
+      position: (isModal||isSlide) ? 'fixed' : 'static',
+      zIndex: '999999', fontFamily: '-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif',
+      background:'#fffdf9', color:'#1c1510', border:'1px solid #e0d8cc', borderRadius:'12px',
+      boxShadow: (isModal||isSlide) ? '0 12px 40px rgba(0,0,0,.18)' : 'none',
+      padding:'20px', boxSizing:'border-box',
+      maxWidth: isModal ? '380px' : (isSlide ? '320px' : '480px'),
+      width: (isModal||isSlide) ? 'calc(100% - 32px)' : '100%'
+    });
+    if(isModal) css(wrap,{left:'50%',top:'50%',transform:'translate(-50%,-50%)'});
+    if(isSlide) css(wrap,{right:'16px',bottom:'16px'});
+    var overlay=null;
+    if(isModal){
+      overlay=document.createElement('div');
+      css(overlay,{position:'fixed',top:'0',left:'0',right:'0',bottom:'0',background:'rgba(28,21,16,.45)',zIndex:'999998'});
+      overlay.onclick=close;
+    }
+    var closeBtn=null;
+    if(isModal||isSlide){
+      closeBtn=document.createElement('button');
+      closeBtn.type='button'; closeBtn.textContent='\\u00d7';
+      css(closeBtn,{position:'absolute',top:'8px',right:'10px',border:'none',background:'transparent',fontSize:'20px',cursor:'pointer',color:'#7a6e60',lineHeight:'1'});
+      closeBtn.onclick=close;
+    }
+    var h=document.createElement('div');
+    h.textContent=COPY.headline;
+    css(h,{fontFamily:'Georgia,serif',fontWeight:'700',fontSize:'19px',marginBottom:'4px',paddingRight:'20px'});
+    var p=document.createElement('div');
+    p.textContent=COPY.sub;
+    css(p,{fontSize:'13px',color:'#7a6e60',marginBottom:'14px'});
+    var form=document.createElement('form');
+    css(form,{display:'flex',gap:'8px',flexWrap:'wrap'});
+    var input=document.createElement('input');
+    input.type='email'; input.required=true; input.placeholder='you@example.com';
+    css(input,{flex:'1 1 160px',padding:'10px 12px',border:'1px solid #e0d8cc',borderRadius:'8px',fontSize:'14px',minWidth:'0',boxSizing:'border-box'});
+    var btn=document.createElement('button');
+    btn.type='submit'; btn.textContent=COPY.cta;
+    css(btn,{background:'#c4683a',color:'#fff',border:'none',borderRadius:'8px',padding:'10px 16px',fontWeight:'700',fontSize:'13px',cursor:'pointer'});
+    var msg=document.createElement('div');
+    css(msg,{fontSize:'12px',marginTop:'8px',color:'#4a7c59',display:'none'});
+    form.appendChild(input); form.appendChild(btn);
+    wrap.appendChild(h); wrap.appendChild(p); wrap.appendChild(form); wrap.appendChild(msg);
+    if(closeBtn) wrap.appendChild(closeBtn);
+    form.addEventListener('submit', function(ev){
+      ev.preventDefault();
+      btn.disabled=true; btn.textContent='...';
+      fetch(BASE+'/api/forms/submit',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({tenant:TENANT,type:TYPE,email:input.value})})
+        .then(function(r){ return r.json().catch(function(){return {};}).then(function(d){ return {ok:r.ok, d:d}; }); })
+        .then(function(res){
+          if(res.ok){
+            form.style.display='none'; p.style.display='none';
+            msg.style.color='#4a7c59'; msg.textContent='Спасибо! Проверьте почту.'; msg.style.display='block';
+            try{ localStorage.setItem(SUBMIT_KEY,'1'); }catch(e){}
+            if(isModal||isSlide) setTimeout(close, 2200);
+          } else {
+            msg.style.color='#c4683a';
+            msg.textContent=(res.d&&res.d.error==='invalid_email') ? 'Проверьте адрес почты' : 'Не получилось отправить, попробуйте позже';
+            msg.style.display='block'; btn.disabled=false; btn.textContent=COPY.cta;
+          }
+        }).catch(function(){
+          msg.style.color='#c4683a'; msg.textContent='Сбой сети, попробуйте позже'; msg.style.display='block';
+          btn.disabled=false; btn.textContent=COPY.cta;
+        });
+    });
+    function close(){
+      try{ localStorage.setItem(DISMISS_KEY,'1'); }catch(e){}
+      if(overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      if(wrap.parentNode) wrap.parentNode.removeChild(wrap);
+    }
+    return {wrap:wrap, overlay:overlay};
+  }
+  function mount(){
+    var built=build();
+    if(TYPE==='embedded'){
+      var host=document.currentScript;
+      if(host && host.parentNode) host.parentNode.insertBefore(built.wrap, host);
+      else document.body.appendChild(built.wrap);
+    } else {
+      if(built.overlay) document.body.appendChild(built.overlay);
+      document.body.appendChild(built.wrap);
+    }
+  }
+  if(TYPE==='embedded'){ mount(); } else { setTimeout(mount, COPY.delayMs); }
+})();`;
+}
+
+// ─── Обогащение профиля — ТОЛЬКО из наших же первичных событий (order_completed этого
+// user_id), не покупка данных у третьих лиц (касс/операторов — так делает Sendsay, без
+// явной 152-ФЗ оговорки об источнике; здесь источник тот же провайдер, что уже обрабатывает
+// эти данные по своему согласию). Честно: только то, что реально считается — без выдуманных
+// категорий интересов, которых в модели данных нет.
+async function enrichProfile(tenant, userId) {
+  if (!TENANT_RE.test(tenant)) throw new Error('bad tenant');
+  if (!userId) throw new Error('userId required');
+  const q = await es('/cdp_events_' + tenant + '/_search', {
+    size: 0,
+    query: { bool: { filter: [{ term: { 'event.keyword': 'order_completed' } }, { term: { 'user_id.keyword': userId } }] } },
+    aggs: { revenue: { sum: { field: 'properties.revenue' } }, first: { min: { field: 'ts' } }, last: { max: { field: 'ts' } } },
+  });
+  const empty = { userId: userId, orderCount: 0, totalRevenue: 0, avgOrderValue: 0, daysSinceLastOrder: null, tier: 'new', firstOrder: null, lastOrder: null };
+  if (q._missing) return empty;
+  const orderCount = (q.hits && q.hits.total && q.hits.total.value) || 0;
+  if (!orderCount) return empty;
+  const totalRevenue = Math.round((q.aggregations && q.aggregations.revenue.value) || 0);
+  const lastMs = q.aggregations && q.aggregations.last.value;
+  const tier = orderCount >= 5 ? 'vip' : orderCount >= 2 ? 'repeat' : 'one_time';
+  return {
+    userId: userId, orderCount: orderCount, totalRevenue: totalRevenue,
+    avgOrderValue: Math.round(totalRevenue / orderCount),
+    daysSinceLastOrder: lastMs ? Math.floor((Date.now() - lastMs) / DAY) : null,
+    tier: tier,
+    firstOrder: (q.aggregations && q.aggregations.first.value_as_string) || null,
+    lastOrder: (q.aggregations && q.aggregations.last.value_as_string) || null,
+  };
+}
+// Распределение по тиру для ВСЕХ покупателей одним агрегатным запросом (не N+1 по enrichProfile) —
+// та же терм-агрегация по user_id + sum revenue, что уже проверена в realSegmentCounts (VIP).
+async function tierDistribution(tenant) {
+  if (!TENANT_RE.test(tenant)) throw new Error('bad tenant');
+  const q = await es('/cdp_events_' + tenant + '/_search', {
+    size: 0,
+    query: { term: { 'event.keyword': 'order_completed' } },
+    aggs: { by_user: { terms: { field: 'user_id.keyword', size: 10000 } } },
+  });
+  if (q._missing) return { new: 0, one_time: 0, repeat: 0, vip: 0, customersTotal: 0 };
+  const buckets = (q.aggregations && q.aggregations.by_user.buckets) || [];
+  const out = { new: 0, one_time: 0, repeat: 0, vip: 0, customersTotal: buckets.length };
+  for (const b of buckets) {
+    const tier = b.doc_count >= 5 ? 'vip' : b.doc_count >= 2 ? 'repeat' : 'one_time';
+    out[tier]++;
+  }
+  return out;
+}
+
 // Реальный two-proportion z-test (та же формула, что packages/ab-testing.compare() в @cdp-us:
 // pooled-proportion standard error, значимо при |z|>1.96 т.е. 95% CI). Портировано напрямую,
 // а не импортировано как TS-пакет — rf-console остаётся zero-build ES5-сервисом.
@@ -479,11 +695,13 @@ async function checkDomainDeliverability(domain, dkimSelector) {
 }
 
 // ─── Автопилот-триггеры: ES-нативный поллер, без Postgres/Redis/pg-boss.
-// 4 честных триггера (не все ~33 из деки — это отдельный долгий бэклог):
+// 6 честных триггеров (не все ~33 из деки — это отдельный долгий бэклог):
 //   abandoned_cart      — add_to_cart 3-24ч назад, без последующего order_completed
 //   abandoned_browse    — product_viewed 3-24ч назад, без add_to_cart/order_completed с тех пор
 //   checkout_abandoned  — checkout_started 3-24ч назад, без последующего order_completed
 //   reactivation        — профиль только что вошёл в "Спящие" (7-30 дней без визита)
+//   welcome             — signup за 24ч (форма сбора), приветственное письмо
+//   post_purchase       — order_completed 1-24ч назад, забота после покупки
 // Идемпотентность — маркер-событие automation_fired в том же ES-индексе, с окном,
 // совпадающим с окном кандидатов (после истечения окна кандидат и маркер оба "стареют"
 // синхронно — нет риска бесконечного повторного триггера на статичных данных).
@@ -531,11 +749,35 @@ function checkoutAbandonedEmailHtml() {
     '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">Письмо отправлено на основании вашего согласия на получение рекламных рассылок (ст. 18 ФЗ «О рекламе», ст. 9 152-ФЗ). <a href="{{unsubscribe_url}}" style="color:#7a6e60">Отписаться</a></div>' +
     '</td></tr></table></td></tr></table></body></html>';
 }
+function welcomeEmailHtml() {
+  return '<!doctype html><html><body style="margin:0;padding:0;background:#f5f0e8">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f0e8"><tr><td align="center" style="padding:24px 12px">' +
+    '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#fffdf9;border-radius:12px;overflow:hidden">' +
+    '<tr><td style="padding:28px;font-family:Arial,Helvetica,sans-serif">' +
+    '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:22px;font-weight:700;color:#1c1510;margin-bottom:12px">Добро пожаловать</div>' +
+    '<p style="font-size:14px;line-height:1.6;color:#1c1510">Спасибо, что подписались — будем присылать только то, что действительно стоит внимания: новинки, эко-гайды и предложения для своих.</p>' +
+    '<div style="text-align:center;margin-top:20px"><a href="https://ecoma.ru/catalog" style="display:inline-block;background:#c4683a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px">Смотреть каталог</a></div>' +
+    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">Письмо отправлено на основании вашего согласия на получение рекламных рассылок (ст. 18 ФЗ «О рекламе», ст. 9 152-ФЗ). <a href="{{unsubscribe_url}}" style="color:#7a6e60">Отписаться</a></div>' +
+    '</td></tr></table></td></tr></table></body></html>';
+}
+function postPurchaseEmailHtml() {
+  return '<!doctype html><html><body style="margin:0;padding:0;background:#f5f0e8">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f0e8"><tr><td align="center" style="padding:24px 12px">' +
+    '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#fffdf9;border-radius:12px;overflow:hidden">' +
+    '<tr><td style="padding:28px;font-family:Arial,Helvetica,sans-serif">' +
+    '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:22px;font-weight:700;color:#1c1510;margin-bottom:12px">Спасибо за заказ</div>' +
+    '<p style="font-size:14px;line-height:1.6;color:#1c1510">Ваш заказ уже готовится. Пока ждёте — несколько советов по уходу за многоразовыми вещами, чтобы служили дольше.</p>' +
+    '<div style="text-align:center;margin-top:20px"><a href="https://ecoma.ru/care" style="display:inline-block;background:#c4683a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px">Советы по уходу</a></div>' +
+    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">Письмо отправлено на основании вашего согласия на получение рекламных рассылок (ст. 18 ФЗ «О рекламе», ст. 9 152-ФЗ). <a href="{{unsubscribe_url}}" style="color:#7a6e60">Отписаться</a></div>' +
+    '</td></tr></table></td></tr></table></body></html>';
+}
 const AUTOMATION_EMAIL_HTML = {
   abandoned_cart: abandonedCartEmailHtml,
   abandoned_browse: abandonedBrowseEmailHtml,
   checkout_abandoned: checkoutAbandonedEmailHtml,
   reactivation: reactivationEmailHtml,
+  welcome: welcomeEmailHtml,
+  post_purchase: postPurchaseEmailHtml,
 };
 async function sendAutomationEmail(tenant, trigger, subject, email, subjectId, fromName, fromEmail) {
   const baseUrl = process.env.PUBLIC_BASE_URL || 'https://rf.axiom.rent';
@@ -555,7 +797,7 @@ async function runAutomationPoller(tenant) {
   const fromEmail = auth ? auth.fromEmail : ('hello@' + tenant + '.invalid');
   const consented = await resolveConsentedRecipients(tenant, 5000);
   const consentedMap = new Map(consented.filter((c) => c.subject).map((c) => [c.subject, c.email]));
-  const out = { abandoned_cart: { checked: 0, sent: 0, failed: 0 }, abandoned_browse: { checked: 0, sent: 0, failed: 0 }, checkout_abandoned: { checked: 0, sent: 0, failed: 0 }, reactivation: { checked: 0, sent: 0, failed: 0 } };
+  const out = { abandoned_cart: { checked: 0, sent: 0, failed: 0 }, abandoned_browse: { checked: 0, sent: 0, failed: 0 }, checkout_abandoned: { checked: 0, sent: 0, failed: 0 }, reactivation: { checked: 0, sent: 0, failed: 0 }, welcome: { checked: 0, sent: 0, failed: 0 }, post_purchase: { checked: 0, sent: 0, failed: 0 } };
 
   // --- abandoned_cart ---
   const [cartUsers, orderedUsers24h, firedCart] = await Promise.all([
@@ -629,6 +871,38 @@ async function runAutomationPoller(tenant) {
       out.reactivation.sent++;
     } catch (e) { out.reactivation.failed++; }
   }
+  // --- welcome: signup (форма/подписка) за последние 24ч, без automation_fired(welcome) за 24ч ---
+  const [signupUsers, firedWelcome] = await Promise.all([
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'signup' } }, { range: { ts: { gte: 'now-24h' } } }] } }),
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'automation_fired' } }, { term: { 'properties.trigger.keyword': 'welcome' } }, { range: { ts: { gte: 'now-24h' } } }] } }),
+  ]);
+  for (const userId of signupUsers) {
+    out.welcome.checked++;
+    if (firedWelcome.has(userId)) continue;
+    const email = consentedMap.get(userId);
+    if (!email) continue;
+    try {
+      await sendAutomationEmail(tenant, 'welcome', 'Добро пожаловать', email, userId, fromName, fromEmail);
+      out.welcome.sent++;
+    } catch (e) { out.welcome.failed++; }
+  }
+
+  // --- post_purchase: order_completed 1-24ч назад (даём час на обработку заказа), без повтора за 24ч ---
+  const [postPurchaseUsers, firedPostPurchase] = await Promise.all([
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'order_completed' } }, { range: { ts: { gte: 'now-24h', lte: 'now-1h' } } }] } }),
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'automation_fired' } }, { term: { 'properties.trigger.keyword': 'post_purchase' } }, { range: { ts: { gte: 'now-24h' } } }] } }),
+  ]);
+  for (const userId of postPurchaseUsers) {
+    out.post_purchase.checked++;
+    if (firedPostPurchase.has(userId)) continue;
+    const email = consentedMap.get(userId);
+    if (!email) continue;
+    try {
+      await sendAutomationEmail(tenant, 'post_purchase', 'Спасибо за заказ', email, userId, fromName, fromEmail);
+      out.post_purchase.sent++;
+    } catch (e) { out.post_purchase.failed++; }
+  }
+
   return out;
 }
 
@@ -637,6 +911,8 @@ const AUTOMATION_TRIGGER_META = {
   abandoned_browse: { name: 'Брошенный просмотр', sub: 'recovery · product_viewed без добавления в корзину', channel: 'Email' },
   checkout_abandoned: { name: 'Незавершённое оформление', sub: 'recovery · checkout_started без оплаты', channel: 'Email' },
   reactivation: { name: 'Реактивация спящих', sub: 'win-back · 7–30 дней без визита', channel: 'Email' },
+  welcome: { name: 'Приветствие', sub: 'onboarding · после подписки через форму', channel: 'Email' },
+  post_purchase: { name: 'Спасибо за заказ', sub: 'retention · через час после оформления', channel: 'Email' },
 };
 // Реальная статистика по автопилот-сценариям (заменяет фикстуру SEG_FLOWS/em_flows_model
 // с придуманными conv/revenue и фейковым "последний запуск").
@@ -714,7 +990,7 @@ async function usersMatchingQuery(tenant, query) {
 // для точного правила (сложная per-profile агрегация суммы заказов / история открытий).
 async function realSegmentCounts(tenant) {
   if (!TENANT_RE.test(tenant)) throw new Error('bad tenant');
-  const [orderedUsers30d, cartUsers72h, orderedUsers72h, mpOrderedUsers, consented, ov, dormancyAgg, vipAgg, sentDocs, openedDocs] = await Promise.all([
+  const [orderedUsers30d, cartUsers72h, orderedUsers72h, mpOrderedUsers, consented, ov, dormancyAgg, vipAgg, sentDocs, openedDocs, everOrderedUsers, browsedUsers30d, cartUsers30d] = await Promise.all([
     usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'order_completed' } }, { range: { ts: { gte: 'now-30d' } } }] } }),
     usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'add_to_cart' } }, { range: { ts: { gte: 'now-72h' } } }] } }),
     usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'order_completed' } }, { range: { ts: { gte: 'now-72h' } } }] } }),
@@ -724,10 +1000,11 @@ async function realSegmentCounts(tenant) {
     // Дублирует профильную часть profilesOf() (5000 профилей, order по объёму — НЕ по
     // свежести, поэтому не вытесняется горсткой сегодняшних тестовых событий, в отличие
     // от profilesList с его кэпом 500 + сортировкой по recency), но с user_id-привязкой,
-    // которой у profilesOf() нет — нужна для пересечения со согласием.
+    // которой у profilesOf() нет — нужна для пересечения со согласием. fs (first-seen)
+    // добавлен сюда же (не отдельным запросом) — используется и для sleep, и для "Новые".
     es('/cdp_events_' + tenant + '/_search', {
       size: 0,
-      aggs: { profiles: { terms: { field: 'anonymous_id.keyword', size: 5000 }, aggs: { ls: { max: { field: 'ts' } }, uid: { terms: { field: 'user_id.keyword', size: 1 } } } } },
+      aggs: { profiles: { terms: { field: 'anonymous_id.keyword', size: 5000 }, aggs: { fs: { min: { field: 'ts' } }, ls: { max: { field: 'ts' } }, uid: { terms: { field: 'user_id.keyword', size: 1 } } } } },
     }),
     es('/cdp_events_' + tenant + '/_search', {
       size: 0,
@@ -736,6 +1013,11 @@ async function realSegmentCounts(tenant) {
     }),
     es('/cdp_events_' + tenant + '/_search', { size: 5000, query: { term: { 'event.keyword': 'email_sent' } }, _source: ['anonymous_id', 'properties.to'] }),
     es('/cdp_events_' + tenant + '/_search', { size: 5000, query: { term: { 'event.keyword': 'email_opened' } }, _source: ['anonymous_id'] }),
+    // "Не купившие" — за ВСЮ историю (не окно), иначе кто-то, купивший месяц назад, ошибочно
+    // попадёт в "никогда не покупал".
+    usersMatchingQuery(tenant, { term: { 'event.keyword': 'order_completed' } }),
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'product_viewed' } }, { range: { ts: { gte: 'now-30d' } } }] } }),
+    usersMatchingQuery(tenant, { bool: { filter: [{ term: { 'event.keyword': 'add_to_cart' } }, { range: { ts: { gte: 'now-30d' } } }] } }),
   ]);
   const consentedSubjects = new Set(consented.map((c) => c.subject).filter(Boolean));
   function intersectCount(userSet) {
@@ -756,17 +1038,31 @@ async function realSegmentCounts(tenant) {
     if (b.doc_count >= 3 && revenue > vipThreshold && consentedSubjects.has(b.key)) vip++;
   }
 
-  // Спящие: та же классификация 7-30 дней, что bucketLifecycle, пересечение с согласием
+  // Спящие: та же классификация 7-30 дней, что bucketLifecycle, пересечение с согласием.
+  // Новые: та же агрегация (fs), first-seen ≤7 дней — те же профили, что бакет "Новые" на
+  // Обзоре, но здесь пересечены с согласием (можно реально отправить, не просто посчитать).
   const nowMs = Date.now();
-  let sleep = 0;
+  let sleep = 0, newSeg = 0;
   const dormancyBuckets = (dormancyAgg.aggregations && dormancyAgg.aggregations.profiles.buckets) || [];
   for (const b of dormancyBuckets) {
+    const firstSeen = b.fs && b.fs.value;
     const lastSeen = b.ls && b.ls.value;
+    const ageFirst = firstSeen ? nowMs - firstSeen : Infinity;
     const ageLast = lastSeen ? nowMs - lastSeen : Infinity;
     const uidBucket = (b.uid && b.uid.buckets && b.uid.buckets[0]) || null;
     const userId = uidBucket ? uidBucket.key : null;
-    if (ageLast > 7 * DAY && ageLast <= 30 * DAY && userId && consentedSubjects.has(userId)) sleep++;
+    if (!userId || !consentedSubjects.has(userId)) continue;
+    if (ageLast > 7 * DAY && ageLast <= 30 * DAY) sleep++;
+    if (ageFirst <= 7 * DAY) newSeg++;
   }
+
+  // Не купившие: дали согласие, но ЗА ВСЮ ИСТОРИЮ ни разу не было order_completed.
+  const neverBought = [...consentedSubjects].filter((u) => !everOrderedUsers.has(u)).length;
+
+  // Интересовавшиеся товаром: смотрели карточку товара за 30д, но НЕ добавляли в корзину
+  // за тот же период (иначе это уже abandoned_cart-кандидат, не "просто интересовался").
+  const browsedNoCart = new Set([...browsedUsers30d].filter((u) => !cartUsers30d.has(u)));
+  const interested = intersectCount(browsedNoCart);
 
   // Подписаны, но не открывали: email_sent ≥5 И ни одно ИЗ ЭТИХ КОНКРЕТНЫХ сообщений не
   // открыто. anonymous_id трек-событий = "email:<messageId>" (уникален на отправку, НЕ на
@@ -798,6 +1094,9 @@ async function realSegmentCounts(tenant) {
     sleep: sleep,
     vip: vip,
     noopen: noopen,
+    new: newSeg,
+    neverBought: neverBought,
+    interested: interested,
     consentedTotal: consentedSubjects.size,
   };
 }
@@ -1308,6 +1607,74 @@ const server = http.createServer(async (req, res) => {
         return send(res, 502, { error: 'list_failed', message: String(e.message || e) });
       }
     }
+    // ─── Формы сбора — публичные (без auth, встраиваются на сайт тенанта), CORS-открытые
+    // ТОЛЬКО на эти 2 роута (не ослабляем остальной API). Rate-limit — по тому же паттерну,
+    // что countRecentSignups, независимая ёмкость на тенанта.
+    if (p === '/api/forms/submit' && req.method === 'OPTIONS') {
+      res.writeHead(204, { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'POST, OPTIONS', 'access-control-allow-headers': 'content-type', 'access-control-max-age': '86400' });
+      return res.end();
+    }
+    if (p === '/api/forms/submit' && req.method === 'POST') {
+      res.setHeader('access-control-allow-origin', '*');
+      var formBody;
+      try { formBody = await readJsonBody(req, 4 * 1024); }
+      catch (e) { return send(res, 400, { error: String(e.message || e) }); }
+      var formTenant = typeof formBody.tenant === 'string' ? formBody.tenant.trim().toLowerCase() : '';
+      var formEmail = typeof formBody.email === 'string' ? formBody.email.trim() : '';
+      var formType = FORM_TYPES.indexOf(formBody.type) >= 0 ? formBody.type : 'embedded';
+      var formId = typeof formBody.formId === 'string' ? formBody.formId.slice(0, 60) : formType;
+      if (!TENANT_RE.test(formTenant)) return send(res, 400, { error: 'invalid_tenant' });
+      if (!formEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formEmail)) return send(res, 400, { error: 'invalid_email' });
+      try {
+        var formRecent = await countRecentFormSubmissions(formTenant, 'now-1h');
+        if (formRecent >= 200) return send(res, 429, { error: 'rate_limited' });
+        var formUserIdOut = await recordFormSubmission(formTenant, formType, formId, formEmail);
+        return send(res, 200, { ok: true, userId: formUserIdOut });
+      } catch (e) {
+        return send(res, 502, { error: 'submit_failed', message: String(e.message || e) });
+      }
+    }
+    if (p.indexOf('/forms/') === 0 && p.slice(-3) === '.js') {
+      var formPathParts = p.slice('/forms/'.length, -3).split('/');
+      var formPathTenant = formPathParts[0];
+      var formPathType = FORM_TYPES.indexOf(formPathParts[1]) >= 0 ? formPathParts[1] : null;
+      if (!TENANT_RE.test(formPathTenant) || !formPathType) return send(res, 404, { error: 'unknown_form' });
+      res.writeHead(200, { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' });
+      return res.end(formWidgetScript(formPathTenant, formPathType));
+    }
+    if (p === '/api/forms/stats') {
+      var formStatsPrincipal = await authenticate(req);
+      if (!formStatsPrincipal) return send(res, 401, { error: 'unauthorized' });
+      try {
+        var fStats = await formStats(formStatsPrincipal.tenant);
+        return send(res, 200, Object.assign({ ok: true, tenant: formStatsPrincipal.tenant }, fStats));
+      } catch (e) {
+        return send(res, 502, { error: 'form_stats_failed', message: String(e.message || e) });
+      }
+    }
+    // ─── Обогащение профилей — из первичных данных (свои же события), не покупка у 3-х лиц.
+    if (p === '/api/profiles/tiers') {
+      var tierPrincipal = await authenticate(req);
+      if (!tierPrincipal) return send(res, 401, { error: 'unauthorized' });
+      try {
+        var tiers = await tierDistribution(tierPrincipal.tenant);
+        return send(res, 200, Object.assign({ ok: true, tenant: tierPrincipal.tenant }, tiers));
+      } catch (e) {
+        return send(res, 502, { error: 'tiers_failed', message: String(e.message || e) });
+      }
+    }
+    if (p.indexOf('/api/profiles/enrich/') === 0) {
+      var enrichPrincipal = await authenticate(req);
+      if (!enrichPrincipal) return send(res, 401, { error: 'unauthorized' });
+      var enrichUserId = p.slice('/api/profiles/enrich/'.length);
+      if (!enrichUserId) return send(res, 400, { error: 'userId_required' });
+      try {
+        var enriched = await enrichProfile(enrichPrincipal.tenant, enrichUserId);
+        return send(res, 200, Object.assign({ ok: true }, enriched));
+      } catch (e) {
+        return send(res, 502, { error: 'enrich_failed', message: String(e.message || e) });
+      }
+    }
     if (p === '/api/deliverability/check') {
       // публичный DNS-lookup utility-роут — не тенант-специфичен, не отдаёт приватных данных
       var dDomain = u.searchParams.get('domain');
@@ -1402,7 +1769,7 @@ if (require.main === module && process.env.AUTOMATION_ENABLED === 'true') {
   }, autoIntervalMs);
 }
 
-module.exports = { mapSource, bucketLifecycle, aggregate, profilesList, listTenants, server, trackSign, trackVerify, injectTracking, resolveConsentedRecipients, zTestCompare, abtestStats, realSegmentCounts, realCampaignsList, realAbtestList, usersMatchingQuery, checkDomainDeliverability, runAutomationPoller, automationFlowStats, verifySvixSignature, suppressEmail, isSuppressed };
+module.exports = { mapSource, bucketLifecycle, aggregate, profilesList, listTenants, server, trackSign, trackVerify, injectTracking, resolveConsentedRecipients, zTestCompare, abtestStats, realSegmentCounts, realCampaignsList, realAbtestList, usersMatchingQuery, checkDomainDeliverability, runAutomationPoller, automationFlowStats, verifySvixSignature, suppressEmail, isSuppressed, formUserId, recordFormSubmission, formStats, formWidgetScript, enrichProfile, tierDistribution };
 
 // ─── favicon: брендовая марка AXIOM — орбита/ядро (золото на ink, zero-dep inline SVG) ────
 const FAV = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32"><circle cx="16" cy="16" r="16" fill="#1c1510"/><circle cx="16" cy="16" r="10" fill="none" stroke="#c9a84c" stroke-width="1.5"/><g fill="#c9a84c"><circle cx="16" cy="16" r="3.2"/><circle cx="16" cy="6" r="2"/><circle cx="7.34" cy="21" r="2"/><circle cx="24.66" cy="21" r="2"/></g></svg>`;
@@ -2295,6 +2662,21 @@ window.emFlash = function (msg, ms) {
   clearTimeout(window._emFlashT);
   window._emFlashT = setTimeout(function () { el.style.opacity = '0'; }, ms || 2200);
 };
+window.copyEmbedSnippet = function (elId) {
+  var el = document.getElementById(elId);
+  if (!el) return;
+  var text = el.textContent;
+  var done = function () { emFlash('Скопировано в буфер', 1800); };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(function () { emFlash('Не удалось скопировать — выделите вручную', 2500); });
+  } else {
+    var ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); done(); } catch (e) { emFlash('Не удалось скопировать — выделите вручную', 2500); }
+    document.body.removeChild(ta);
+  }
+};
 window.emSendTest = async function () {
   var to = window.prompt('Отправить тест на адрес:', '');
   if (!to) return;
@@ -2678,7 +3060,16 @@ function em_audiences_segments(){
         rules:[{f:'источник',op:'∈',v:'Wildberries, Ozon'},{f:'событие',op:'было',v:'order_completed'},{f:'marketing_email',op:'=',v:'verified'}]} :
       {key:'mpback',name:'Вернувшиеся с WB/Ozon',tone:'rust',size:lc('Потерянные'),rate:Math.min(0.90,base*0.78),real:false,
         hint:'История покупок на маркетплейсах, перешли на свой сайт. Перенос лояльности, прямой канал.',
-        rules:[{f:'источник',op:'∈',v:'Wildberries, Ozon'},{f:'событие',op:'было',v:'order_completed'},{f:'marketing_email',op:'=',v:'verified'}]}
+        rules:[{f:'источник',op:'∈',v:'Wildberries, Ozon'},{f:'событие',op:'было',v:'order_completed'},{f:'marketing_email',op:'=',v:'verified'}]},
+    {key:'new',name:'Новые',tone:'gold',size:real?real.new:0,rate:real?1:0,real:!!real,
+      hint:'Первый визит ≤7 дней назад, дали согласие — реальный счёт из Elasticsearch. Знакомство с брендом, welcome-цепочка.',
+      rules:[{f:'первый визит',op:'≤',v:'7 дней'},{f:'marketing_email',op:'=',v:'verified'}]},
+    {key:'neverBought',name:'Не купившие ни разу',tone:'muted',size:real?real.neverBought:0,rate:real?1:0,real:!!real,
+      hint:'Дали согласие, но за всю историю ни одного order_completed — реальный счёт. Первая покупка, скидка на дебют.',
+      rules:[{f:'заказов за всё время',op:'=',v:'0'},{f:'marketing_email',op:'=',v:'verified'}]},
+    {key:'interested',name:'Интересовавшиеся товаром',tone:'sage',size:real?real.interested:0,rate:real?1:0,real:!!real,
+      hint:'Смотрели карточку товара за 30 дней, в корзину не добавляли, дали согласие — реальный счёт. Тот же признак, что у триггера «Брошенный просмотр», но как сегмент для ручной рассылки.',
+      rules:[{f:'событие',op:'=',v:'product_viewed'},{f:'давность',op:'<',v:'30 дней'},{f:'НЕ событие',op:'≠',v:'add_to_cart'},{f:'marketing_email',op:'=',v:'verified'}]}
   ];
 }
 function em_audiences_chip(rule){
@@ -2902,6 +3293,56 @@ EMAIL_TABS.abtest = function(){
     '(≈95%, p&lt;0,05) и выборке от 20 отправок на обе стороны. Метрика — открытия; клики и конверсия '+
     'по вариантам пока не трекаются, поэтому не показаны. Рассылка по любому варианту идёт только по '+
     'верифицированному <span class="mono">marketing_email</span> (fail-closed, 152-ФЗ).'+
+  '</div>';
+  return out;
+};
+
+/* ────────────────────────────────────────────────────────────────────────
+   ПАНЕЛЬ forms («Формы», ▤) — встраиваемые формы сбора e-mail, реальный consent
+   ──────────────────────────────────────────────────────────────────────── */
+var EM_FORM_META = [
+  {type:'popup', name:'Pop-up по центру', desc:'модалка с оверлеем, появляется через 4с', icon:'◱'},
+  {type:'slideout', name:'Плашка снизу-справа', desc:'ненавязчиво, появляется через 2с', icon:'◲'},
+  {type:'embedded', name:'Встроенная в контент', desc:'рендерится сразу в месте <script>, без оверлея', icon:'▭'}
+];
+EMAIL_TABS.forms = function(){
+  var live = liveFetch('forms', TENANT, '/api/forms/stats');
+  var stats = live.data || null;
+  var total = stats ? stats.total : 0;
+  var out = '';
+  out += em_liveNote(live);
+  out += '<div class="note">Встраиваемые формы сбора e-mail на сайт тенанта. Каждая отправка пишет '+
+    'реальное согласие (<code>marketing_email</code>) в тот же индекс, что использует остальная '+
+    'консоль, и запускает триггер «Приветствие» на вкладке «Сценарии».</div>';
+  out += '<div class="grid k3" style="margin-bottom:16px">';
+  out += tile('Подписок за 30д', nf(total), 'через все формы', 'ink');
+  out += tile('Форматов', '3', 'pop-up · slide-out · встроенная', 'gold');
+  out += tile('Согласие', 'явное', 'чекбокс email в форме = сам факт согласия', 'sage');
+  out += '</div>';
+  var cards = '';
+  for(var i=0;i<EM_FORM_META.length;i++){
+    var m = EM_FORM_META[i];
+    var count = stats ? (stats.byType[m.type]||0) : 0;
+    var snippetId = 'em-form-snippet-'+m.type;
+    var origin = (typeof location!=='undefined' && location.origin) ? location.origin : 'https://rf.axiom.rent';
+    var snippet = '<script src="'+esc(origin)+'/forms/'+esc(TENANT)+'/'+m.type+'.js" async><\/script>';
+    cards += '<div class="card em-seg" style="margin-bottom:12px">'+
+      '<div class="em-seg-hd">'+
+        '<span class="em-dot" style="background:'+TONE.gold+'"></span>'+
+        '<span class="em-seg-name serif">'+esc(m.name)+'</span>'+
+        badge(nf(count)+' подписок · 30д', count>0?'sage':'muted')+
+      '</div>'+
+      '<p class="em-seg-hint muted">'+esc(m.icon)+' '+esc(m.desc)+'</p>'+
+      '<pre id="'+snippetId+'" style="background:#1c1510;color:#f5f0e8;padding:10px 12px;border-radius:8px;font-size:12px;overflow-x:auto;margin:0 0 8px;white-space:pre-wrap;word-break:break-all">'+esc(snippet)+'</pre>'+
+      '<button class="em-act" onclick="copyEmbedSnippet(\\''+snippetId+'\\')">Скопировать код</button>'+
+    '</div>';
+  }
+  out += chart('Формы сбора', 'Вставить код перед &lt;/body&gt; на сайте тенанта «'+esc(TENANT)+'»', cards);
+  out += '<div class="note em-ab-note">'+
+    '<b>Как это работает.</b> Скрипт сам решает, показывать ли форму (не показывает повторно тому, '+
+    'кто уже подписался или закрыл — через localStorage). При отправке пишется реальное событие '+
+    '<code class="mono">signup</code> и согласие <code class="mono">marketing_email</code> — не демо, '+
+    'настоящий CDP-профиль. Rate-limit 200 отправок/тенант/час против спама на публичный роут.'+
   '</div>';
   return out;
 };
@@ -3181,6 +3622,7 @@ const EMAIL_SUBTABS = [
   ['flows','Сценарии','⟳'],
   ['audiences','Сегменты','◑'],
   ['abtest','A/B тесты','⚗'],
+  ['forms','Формы','▤'],
   ['deliverability','Доставляемость','◆'],
   ['analytics','Аналитика','▦']
 ];
@@ -3383,7 +3825,7 @@ const VIEWS={
     window.plQuery=''; window.plFilter='all'; window.plPage=1;
     var CH=[['all','Все'],['identified','Опознанные'],['anon','Анонимные'],['buyers','С покупками'],['Активные','Активные'],['Спящие','Спящие'],['Потерянные','Потерянные'],['Новые','Новые']];
     var chips=CH.map(function(c){var on=(c[0]==='all')?' on':'';return '<button class="plchip'+on+'" data-plfilter="'+c[0]+'">'+esc(c[1])+'</button>';}).join('');
-    return '<div class="plbar"><input id="plq" class="plsearch" type="search" placeholder="Поиск: имя, ID, город, источник, событие…" oninput="plSearch(this.value)"><div class="plchips">'+chips+'</div></div><div id="pltbl" class="muted">Загрузка профилей…</div>';
+    return '<div id="pltiers" class="muted" style="margin-bottom:12px">Загрузка обогащения…</div><div class="plbar"><input id="plq" class="plsearch" type="search" placeholder="Поиск: имя, ID, город, источник, событие…" oninput="plSearch(this.value)"><div class="plchips">'+chips+'</div></div><div id="pltbl" class="muted">Загрузка профилей…</div>';
   },
   segments(){return segRender();},
     sources(){
@@ -3516,6 +3958,24 @@ const isSec=id=>SECTIONS.some(s=>s[0]===id);
 function secFromPath(){const seg=(location.pathname.replace(/\\/+$/,'')||'/').slice(1);if(seg==='automations'){window.segTab='flows';return 'segments';}if(seg==='segments'&&window.segTab==null)window.segTab='audience';return isSec(seg)?seg:'overview';}
 function navTo(id){if(!isSec(id))return;if(id==='segments')window.segTab='audience';const q=location.search;if(location.pathname!=='/'+id)history.pushState({id:id},'','/'+id+q);setActive(id);}
 function syncTenantUrl(){var sp=new URLSearchParams(location.search);if(cur!=='email')sp.delete('tab');var qs=sp.toString();var bp=(cur==='segments'&&window.segTab==='flows')?'/automations':('/'+cur);history.replaceState({id:cur},'',bp+(qs?'?'+qs:''));}
+// Обогащение — тир по реальной истории заказов (enrichProfile/tierDistribution на сервере,
+// из первичных данных, не покупных у 3-х лиц). Рендерит #pltiers отдельно от остальной панели
+// Профили, т.к. VIEWS.profiles() синхронна, а тиры приходят асинхронно (тот же паттерн,
+// что уже есть для #pltbl/PROFILES чуть ниже).
+function em_profiles_tiersHtml(t){
+  if(!t) return '';
+  var rows=[
+    {k:'new',l:'Новые (0 заказов, недавно)',tone:'gold'},
+    {k:'one_time',l:'Разовые (1 заказ)',tone:'muted'},
+    {k:'repeat',l:'Повторные (2–4 заказа)',tone:'sage'},
+    {k:'vip',l:'VIP (5+ заказов)',tone:'rust'}
+  ];
+  var chips=rows.map(function(r){
+    return '<span class="em-rule" style="border-color:'+TONE[r.tone]+'55;background:'+TONE[r.tone]+'12;color:'+TONE[r.tone]+'">'+
+      '<b>'+nf(t[r.k]||0)+'</b> <span class="em-op">·</span> '+esc(r.l)+'</span>';
+  }).join('');
+  return '<div class="card" style="margin-bottom:12px"><div class="label" style="margin-bottom:8px">Обогащение · по истории заказов ('+nf(t.customersTotal||0)+' покупателей)</div><div class="em-rules">'+chips+'</div></div>';
+}
 function setActive(id){
   cur=id; const meta=SECTIONS.find(s=>s[0]===id);
   $('#title').textContent=meta?meta[1]:id;
@@ -3524,7 +3984,10 @@ function setActive(id){
   document.querySelectorAll('.nav a').forEach(a=>a.classList.toggle('on',a.dataset.id===id));
   if(!OV){return;}
   $('#view').innerHTML=(VIEWS[id]||VIEWS.overview)();
-  if(id==='profiles') j('/api/profiles?limit=500').then(function(list){window.PROFILES=list||[];window.plPage=1;window.plRenderTable();}).catch(e=>showErr(e.message||e));
+  if(id==='profiles'){
+    j('/api/profiles?limit=500').then(function(list){window.PROFILES=list||[];window.plPage=1;window.plRenderTable();}).catch(e=>showErr(e.message||e));
+    j('/api/profiles/tiers').then(function(t){var el=$('#pltiers'); if(el) el.outerHTML=em_profiles_tiersHtml(t)||'';}).catch(function(){var el=$('#pltiers'); if(el) el.outerHTML='';});
+  }
 }
 async function load(){
   showErr(''); syncTenantUrl();
