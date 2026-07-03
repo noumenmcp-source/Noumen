@@ -1516,7 +1516,8 @@ async function recentConsentJournal(tenant, limit) {
 
 // собственный тестовый трафик (curl-пинги с рабочей машины) — не показываем клиентам как реальные данные.
 // IP 138.124.80.43 — служебный IP владельца (см. reference own-ips-exclude); UA curl* — прямые API-тесты.
-const NOISE_FILTER = { bool: { must_not: [ { term: { 'ip.keyword': '138.124.80.43' } }, { wildcard: { 'ua.keyword': 'curl*' } } ] } };
+// origin novinki-aero.vercel.app — staging/preview-домен (не боевой), тестовые заходы до запуска на боевом novinki.aero.
+const NOISE_FILTER = { bool: { must_not: [ { term: { 'ip.keyword': '138.124.80.43' } }, { wildcard: { 'ua.keyword': 'curl*' } }, { term: { 'origin.keyword': 'https://novinki-aero.vercel.app' } } ] } };
 
 async function aggregate(tenant, nowMs) {
   if (!TENANT_RE.test(tenant)) throw new Error('bad tenant');
