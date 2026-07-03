@@ -1531,8 +1531,11 @@ async function aggregate(tenant, nowMs) {
   if (main._missing) throw new Error('index not found');
   const a = main.aggregations;
 
+  // исключаем свои же тестовые/деплой-домены из витрины источников — не реальный трафик
+  const EXCLUDED_SOURCE_ORIGINS = [/novinki-aero\.vercel\.app/i];
   const srcMap = new Map();
   for (const b of a.sources.buckets) {
+    if (EXCLUDED_SOURCE_ORIGINS.some((re) => re.test(b.key))) continue;
     const m = mapSource(b.key);
     const cur = srcMap.get(m.label) || { label: m.label, tone: m.tone, value: 0 };
     cur.value += b.doc_count; srcMap.set(m.label, cur);
