@@ -437,7 +437,8 @@ const LIFECYCLE_DESC = { Новые: 'первый визит ≤7 дней', А
 
 async function profilesOf(tenant) {
   const q = await es('/cdp_events_' + tenant + '/_search', {
-    size: 0, aggs: { profiles: { terms: { field: 'anonymous_id.keyword', size: 5000 }, aggs: { fs: { min: { field: 'ts' } }, ls: { max: { field: 'ts' } } } } },
+    size: 0, query: NOISE_FILTER,
+    aggs: { profiles: { terms: { field: 'anonymous_id.keyword', size: 5000 }, aggs: { fs: { min: { field: 'ts' } }, ls: { max: { field: 'ts' } } } } },
   });
   if (q._missing) return [];
   return ((q.aggregations && q.aggregations.profiles.buckets) || []).map((b) => ({ id: b.key, firstSeen: b.fs.value_as_string, lastSeen: b.ls.value_as_string }));
@@ -448,6 +449,7 @@ async function profilesList(tenant, limit) {
   if (!TENANT_RE.test(tenant)) throw new Error('bad tenant');
   const q = await es('/cdp_events_' + tenant + '/_search', {
     size: 0,
+    query: NOISE_FILTER,
     aggs: {
       profiles: {
         terms: { field: 'anonymous_id.keyword', size: Math.min(limit || 200, 500), order: { ls: 'desc' } },
@@ -1512,11 +1514,16 @@ async function recentConsentJournal(tenant, limit) {
   });
 }
 
+// собственный тестовый трафик (curl-пинги с рабочей машины) — не показываем клиентам как реальные данные.
+// IP 138.124.80.43 — служебный IP владельца (см. reference own-ips-exclude); UA curl* — прямые API-тесты.
+const NOISE_FILTER = { bool: { must_not: [ { term: { 'ip.keyword': '138.124.80.43' } }, { wildcard: { 'ua.keyword': 'curl*' } } ] } };
+
 async function aggregate(tenant, nowMs) {
   if (!TENANT_RE.test(tenant)) throw new Error('bad tenant');
   const idx = '/cdp_events_' + tenant;
   const main = await es(idx + '/_search', {
     size: 0, track_total_hits: true,
+    query: NOISE_FILTER,
     aggs: {
       uniq: { cardinality: { field: 'anonymous_id.keyword' } },
       ident: { cardinality: { field: 'user_id.keyword' } },
