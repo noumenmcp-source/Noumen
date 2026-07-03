@@ -2481,6 +2481,7 @@ const HTML = /* html */ `<!doctype html><html lang="ru"><head>
 .plpager button{padding:6px 12px;border:1px solid #e0d8cc;border-radius:8px;background:#fff;cursor:pointer;font:inherit;font-size:13px;color:#1c1510}
 .plpager button:disabled{opacity:.4;cursor:default}
 </style></head><body>
+<noscript><div><img src="https://mc.yandex.ru/watch/110369025" style="position:absolute;left:-9999px" alt="" /></div></noscript>
 <aside class="side">
   <div class="brand"><b class="serif">Аксиома</b><span class="bd">РФ · 152-ФЗ</span></div>
   <nav class="nav" id="nav"></nav>
@@ -2494,6 +2495,11 @@ const HTML = /* html */ `<!doctype html><html lang="ru"><head>
   <div id="view"></div>
 </main>
 <script>
+(function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
+m[i].l=1*new Date();for(var j=0;j<e.scripts.length;j++){if(e.scripts[j].src===r){return}}
+k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)})
+(window,document,"script","https://mc.yandex.ru/metrika/tag.js","ym");
+ym(110369025,"init",{clickmap:true,trackLinks:true,accurateTrackBounce:true,webvisor:true});
 const TONE={gold:'#c9a84c',sage:'#4a7c59',rust:'#c4683a',ink:'#1c1510',muted:'#7a6e60',line:'#e0d8cc'};
 const $=s=>document.querySelector(s);
 const nf=n=>(n||0).toLocaleString('ru-RU');
