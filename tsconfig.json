@@ -9,6 +9,7 @@
     { "path": "modules/automation" },
     { "path": "modules/consent" },
     { "path": "modules/email" },
+    { "path": "modules/marketplaces" },
     { "path": "modules/social-intel" },
     { "path": "apps/api" }
   ]
