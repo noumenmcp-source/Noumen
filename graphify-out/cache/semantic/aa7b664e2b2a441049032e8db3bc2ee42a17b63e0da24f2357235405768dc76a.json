@@ -1,0 +1,1 @@
+{"nodes": [], "edges": [{"source": "apps_console", "target": "apps_api", "relation": "references", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "docs/prompts/02-console.md", "source_location": null, "weight": 1.0}], "hyperedges": []}
