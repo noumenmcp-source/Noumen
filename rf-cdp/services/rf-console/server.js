@@ -2480,6 +2480,9 @@ const HTML = /* html */ `<!doctype html><html lang="ru"><head>
 .plpager .pg{display:flex;gap:6px;align-items:center}
 .plpager button{padding:6px 12px;border:1px solid #e0d8cc;border-radius:8px;background:#fff;cursor:pointer;font:inherit;font-size:13px;color:#1c1510}
 .plpager button:disabled{opacity:.4;cursor:default}
+.card.hide{display:none}
+.tdbadge{float:right;font-size:11px;font-weight:600}
+.tdpill{display:inline-block;padding:1px 8px;border-radius:10px;background:#2a2018;font-size:11px}
 </style></head><body>
 <noscript><div><img src="https://mc.yandex.ru/watch/110369025" style="position:absolute;left:-9999px" alt="" /></div></noscript>
 <aside class="side">
@@ -4026,18 +4029,82 @@ window.plRenderTable=function(){
 window.plSearch=function(v){window.plQuery=v;window.plPage=1;window.plRenderTable();};
 window.plSetFilter=function(ff){window.plFilter=ff;window.plPage=1;var cs=document.querySelectorAll('[data-plfilter]');for(var i=0;i<cs.length;i++){cs[i].classList.toggle('on',cs[i].getAttribute('data-plfilter')===ff);}window.plRenderTable();};
 window.plGo=function(pg){window.plPage=pg;window.plRenderTable();};
+window.tdSetFilter=function(cat){
+  document.querySelectorAll('.card[data-cat]').forEach(function(card){
+    if (cat === 'all' || card.getAttribute('data-cat') === cat) {
+      card.classList.remove('hide');
+    } else {
+      card.classList.add('hide');
+    }
+  });
+  document.querySelectorAll('.plchip').forEach(function(chip){
+    chip.classList.toggle('on', chip.getAttribute('data-tdfilter') === cat);
+  });
+};
+window.tdFeedback=function(key,status,btn){
+  fetch('/api/playbook/feedback',{
+    method:'POST',
+    headers:{'content-type':'application/json'},
+    body:JSON.stringify({key:key,status:status})
+  }).catch(function(){});
+  var card=btn.closest('.card');
+  card.querySelectorAll('button.cta').forEach(function(b){b.disabled=true;});
+  var t=document.createElement('span');
+  t.className='muted';
+  t.textContent=' ✓ '+(status==='done'?'Готово':'Скрыто');
+  btn.parentNode.appendChild(t);
+};
 
 const VIEWS={
-  today(){const o=OV.orders,aov=o.count?Math.round(o.revenue/o.count):0;
-    const cards=[
-      {nm:'Выручка за период',big:rub(o.revenue),c:nf(o.count)+' заказов · средний чек '+rub(aov),tone:'gold',cta:'отчёт'},
-      {nm:'Вернуть потерянных',big:nf(lc('Потерянные')),c:'ушли с маркетплейсов, давно не заходили → win-back',tone:'rust',cta:'кампания'},
-      {nm:'Разбудить спящих',big:nf(lc('Спящие')),c:'визит 7–30 дней назад → реактивация',tone:'gold',cta:'кампания'},
-      {nm:'Дожать новых',big:nf(lc('Новые')),c:'первый визит ≤7 дней → онбординг',tone:'sage',cta:'сценарий'},
-      {nm:'Удержать активных',big:nf(lc('Активные')),c:'покупали недавно → допродажа',tone:'sage',cta:'сегмент'},
-      {nm:'Главный источник',big:(OV.sources[0]||{}).label||'—',c:'свой сайт обогнал маркетплейсы',tone:'rust',cta:'атрибуция'}];
-    return '<div class="note">Где деньги: правила над сегментами выбирают действие, Аксиома пишет копию. Ниже — приоритет по объёму×ценности.</div><div class="grid k3">'+
-      cards.map(c=>'<div class="card act"><div><div class="nm">'+esc(c.nm)+'</div><div class="big" style="color:'+TONE[c.tone]+'">'+esc(c.big)+'</div></div><div><div class="c">'+esc(c.c)+'</div><span class="cta">'+esc(c.cta)+' →</span></div></div>').join('')+'</div>';},
+today(){
+  const o = OV.orders, aov = o.count ? Math.round(o.revenue / o.count) : 0;
+  const cards = [
+    {nm:'Выручка за период', big:rub(o.revenue), c:nf(o.count)+' заказов · средний чек '+rub(aov), tone:'gold', cat:'info'},
+    {nm:'Главный источник', big:(OV.sources[0]||{}).label||'—', c:'свой сайт обогнал маркетплейсы', tone:'rust', cat:'info'},
+    {nm:'Разбудить спящих', big:nf(lc('Спящие')), c:'визит 7–30 дней назад → реактивация', tone:'rust', cat:'action', confidence:'высокая', effect:'Реактивация 7–30 дн: вернуть дешевле, чем купить нового.'},
+    {nm:'Дожать новых', big:nf(lc('Новые')), c:'первый визит ≤7 дней → онбординг', tone:'rust', cat:'action', confidence:'средняя', effect:'Онбординг первых ≤7 дней, пока интерес свежий.'},
+    {nm:'Удержать активных', big:nf(lc('Активные')), c:'покупали недавно → допродажа', tone:'sage', cat:'opportunity', confidence:'высокая', effect:'Допродажа недавним покупателям, топ-LTV.'},
+    {nm:'Вернуть потерянных', big:nf(lc('Потерянные')), c:'ушли с маркетплейсов, давно не заходили → win-back', tone:'gold', cat:'watch', confidence:'низкая', effect:'Last-chance для ушедших >30 дней.'}
+  ];
+
+  return '<div class="note">Где деньги: правила над сегментами выбирают действие, Аксиома пишет копию. Ниже — приоритет по объёму×ценности.</div>' +
+    '<div class="grid k3">' +
+      tile('Действие', nf(lc('Спящие') + lc('Новые')), 'срочно', 'rust') +
+      tile('Наблюдение', nf(lc('Потерянные')), 'следить', 'gold') +
+      tile('Возможность', nf(lc('Активные')), 'потенциал', 'sage') +
+    '</div>' +
+    '<div class="plchips">' +
+      '<button class="plchip on" data-tdfilter="all" onclick="tdSetFilter(\\'all\\')">Все</button>' +
+      '<button class="plchip" data-tdfilter="action" onclick="tdSetFilter(\\'action\\')">Действие</button>' +
+      '<button class="plchip" data-tdfilter="watch" onclick="tdSetFilter(\\'watch\\')">Наблюдение</button>' +
+      '<button class="plchip" data-tdfilter="opportunity" onclick="tdSetFilter(\\'opportunity\\')">Возможность</button>' +
+    '</div>' +
+    '<div class="grid k3">' +
+      cards.filter(c => c.cat !== 'info').map(c =>
+        '<div class="card act" data-cat="'+c.cat+'">' +
+          '<div class="tdbadge" style="color:'+TONE[c.cat==='action'?'rust':c.cat==='watch'?'gold':'sage']+'">'+c.cat.toUpperCase()+'</div>' +
+          '<div class="nm">'+esc(c.nm)+'</div>' +
+          '<div class="big">'+esc(c.big)+'</div>' +
+          '<div class="c">'+esc(c.c)+'</div>' +
+          '<div>Ожидаемый эффект: '+esc(c.effect)+'</div>' +
+          '<div><span class="tdpill">Уверенность: '+c.confidence+'</span></div>' +
+          '<div>' +
+            '<button class="cta" onclick="tdFeedback(\\''+c.nm.replace(/\s+/g,'')+'\\',\\'done\\',this)">Отметил как сделано</button>' +
+            '<button class="cta" onclick="tdFeedback(\\''+c.nm.replace(/\s+/g,'')+'\\',\\'dismissed\\',this)">Совет не подходит</button>' +
+          '</div>' +
+        '</div>'
+      ).join('') +
+    '</div>' +
+    '<div class="grid k3">' +
+      cards.filter(c => c.cat === 'info').map(c =>
+        '<div class="card act" data-cat="info">' +
+          '<div class="nm">'+esc(c.nm)+'</div>' +
+          '<div class="big">'+esc(c.big)+'</div>' +
+          '<div class="c">'+esc(c.c)+'</div>' +
+        '</div>'
+      ).join('') +
+    '</div>';
+},
   overview(){const k=OV.kpi,o=OV.orders;
     return '<div class="grid k4" style="margin-bottom:16px">'+
       tile('Профилей',nf(k.profiles),nf(k.identified)+' опознано','ink')+tile('Выручка',rub(o.revenue),nf(o.count)+' заказов','gold')+
