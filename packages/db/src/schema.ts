@@ -6,6 +6,8 @@ import {
   index,
   bigint,
   primaryKey,
+  boolean,
+  numeric,
 } from "drizzle-orm/pg-core";
 
 /** Tenant-scoped schema. US-only. */
@@ -172,4 +174,23 @@ export const usageCounters = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.tenantId, t.metric, t.period] })],
+);
+
+
+export const playbookActionFeedback = pgTable(
+  "playbook_action_feedback",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    actionKey: text("action_key").notNull(),
+    status: text("status").notNull().$type<"done" | "dismissed">(),
+    appliedAt: timestamp("applied_at", { withTimezone: true }).notNull().defaultNow(),
+    metricBefore: numeric("metric_before"),
+    metricAfter: numeric("metric_after"),
+    worked: boolean("worked"),
+    note: text("note"),
+  },
+  (t) => [index("playbook_action_feedback_tenant_key_idx").on(t.tenantId, t.actionKey)],
 );

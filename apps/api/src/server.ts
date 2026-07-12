@@ -51,6 +51,7 @@ import { registerAbTesting } from "./routes/ab-testing.js";
 import { registerAttribution } from "./routes/attribution.js";
 import { registerAudiences } from "./routes/audiences.js";
 import { registerAuditLog } from "./routes/audit-log.js";
+import { registerPlaybookFeedback } from "./routes/playbook-feedback.js";
 import { registerBilling } from "./routes/billing.js";
 import { registerCohorts } from "./routes/cohorts.js";
 import { registerSegments, type LifecycleStore } from "./routes/segments.js";
@@ -249,6 +250,9 @@ export async function buildServer(
   });
   registerEnrichment(app, { tenantStore, tokenStore, profileStore, providers: [] });
   registerAuditLog(app, { tenantStore, tokenStore, store: auditStore });
+  if (process.env.DATABASE_URL) {
+    registerPlaybookFeedback(app, { tenantStore, tokenStore, db: createDb(process.env.DATABASE_URL) });
+  }
   registerBilling(app, { tenantStore, tokenStore, usageMeter });
   registerFunnels(app, {
     tenantStore,

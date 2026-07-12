@@ -24,6 +24,9 @@ export type PlaybookAction = Readonly<{
   /** Relative opportunity = audienceSize × per-head weight (higher = do first). */
   impact: number;
   rationale: string;
+  category: 'action' | 'watch' | 'opportunity';
+  confidence: 'high' | 'medium' | 'low';
+  expectedEffect: string;
 }>;
 
 export type PlaybookInput = Readonly<{
@@ -44,12 +47,65 @@ const RULES: ReadonlyArray<{
   weight: number;
   title: string;
   rationale: string;
+  category: 'action' | 'watch' | 'opportunity';
+  confidence: 'high' | 'medium' | 'low';
+  expectedEffect: string;
 }> = [
-  { kind: "win_back", stage: "dormant", channel: "email", weight: 1, title: "Win back dormant 90+ days → email with an offer", rationale: "Cheaper to win back than to buy new." },
-  { kind: "resell", stage: "vip", channel: "sms", weight: 0.9, title: "Resell to repeat VIPs → SMS", rationale: "Highest-LTV buyers; quick upsell." },
-  { kind: "chase_leads", stage: "new", channel: "task", weight: 0.6, title: "Chase new unconverted signups → task for the rep", rationale: "Fresh intent slips without a human touch." },
-  { kind: "reactivate", stage: "lost", channel: "email", weight: 0.4, title: "Re-activate lost customers → last-chance email", rationale: "Long-gone; lower yield but cheap to try." },
-  { kind: "exclude_junk", stage: "junk", channel: "ad_audience", weight: 0.3, title: "Exclude junk from ads → suppression audience", rationale: "Stop paying to reach non-buyers." },
+  {
+    kind: "win_back",
+    stage: "dormant",
+    channel: "email",
+    weight: 1,
+    title: "Win back dormant 90+ days → email with an offer",
+    rationale: "Cheaper to win back than to buy new.",
+    category: 'action',
+    confidence: 'high',
+    expectedEffect: "Recover 15% of dormant customers' lifetime value with targeted offers."
+  },
+  {
+    kind: "resell",
+    stage: "vip",
+    channel: "sms",
+    weight: 0.9,
+    title: "Resell to repeat VIPs → SMS",
+    rationale: "Highest-LTV buyers; quick upsell.",
+    category: 'opportunity',
+    confidence: 'high',
+    expectedEffect: "Increase VIP customer repeat purchases by 20% through personalized SMS offers."
+  },
+  {
+    kind: "chase_leads",
+    stage: "new",
+    channel: "task",
+    weight: 0.6,
+    title: "Chase new unconverted signups → task for the rep",
+    rationale: "Fresh intent slips without a human touch.",
+    category: 'action',
+    confidence: 'medium',
+    expectedEffect: "Convert 30% more new leads with dedicated rep follow-up."
+  },
+  {
+    kind: "reactivate",
+    stage: "lost",
+    channel: "email",
+    weight: 0.4,
+    title: "Re-activate lost customers → last-chance email",
+    rationale: "Long-gone; lower yield but cheap to try.",
+    category: 'watch',
+    confidence: 'low',
+    expectedEffect: "Recover 5% of lost customers with a final low-cost email campaign."
+  },
+  {
+    kind: "exclude_junk",
+    stage: "junk",
+    channel: "ad_audience",
+    weight: 0.3,
+    title: "Exclude junk from ads → suppression audience",
+    rationale: "Stop paying to reach non-buyers.",
+    category: 'watch',
+    confidence: 'medium',
+    expectedEffect: "Reduce ad spend by 10% by excluding non-buyers from targeting."
+  },
 ];
 
 /**
@@ -71,6 +127,9 @@ export function generatePlaybook(input: PlaybookInput): readonly PlaybookAction[
       audienceSize,
       impact: Math.round(audienceSize * rule.weight),
       rationale: rule.rationale,
+      category: rule.category,
+      confidence: rule.confidence,
+      expectedEffect: rule.expectedEffect,
     };
   })
     .filter((action) => action.audienceSize > 0)
