@@ -1578,7 +1578,13 @@ const server = http.createServer(async (req, res) => {
   try {
     const u = new URL(req.url, 'http://x');
     const p = u.pathname;
-    if (p === '/' || p === '/index.html' || SEC_RE.test(p)) return send(res, 200, HTML, 'html');
+    if (p === '/' || p === '/index.html' || SEC_RE.test(p)) {
+      var autolog = req.headers['x-autologin-token'];
+      var pageHtml = (autolog && /^rfc_[a-z0-9_]+$/i.test(autolog))
+        ? HTML.replace("localStorage.getItem('rfc_token')||''", "localStorage.getItem('rfc_token')||'" + autolog + "'")
+        : HTML;
+      return send(res, 200, pageHtml, 'html');
+    }
     if (p === '/favicon.svg' || p === '/favicon.ico') {
       res.writeHead(200, { 'content-type': 'image/svg+xml; charset=utf-8', 'cache-control': 'public,max-age=86400' });
       return res.end(FAV);
