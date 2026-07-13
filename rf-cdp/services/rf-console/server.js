@@ -1685,6 +1685,34 @@ const server = http.createServer(async (req, res) => {
       if (!ovPrincipal) return send(res, 401, { error: 'unauthorized' });
       return send(res, 200, await aggregate(ovPrincipal.tenant, Date.now()));
     }
+        if (p === '/api/playbook/feedback') {
+          var principal = await authenticate(req);
+          if (!principal) return send(res, 401, { error: 'unauthorized' });
+
+          var body;
+          try {
+            body = await readJsonBody(req, 4*1024);
+          } catch (e) {
+            return send(res, 400, { error: 'invalid body' });
+          }
+
+          if (!body || typeof body.key !== 'string' || !['done', 'dismissed'].includes(body.status)) {
+            return send(res, 400, { error: 'invalid feedback' });
+          }
+
+          try {
+            await es('/cdp_events_' + principal.tenant + '/_doc', {
+              event: 'playbook_feedback',
+              anonymous_id: 'playbook:' + principal.tenant,
+              ts: new Date().toISOString(),
+              properties: { key: body.key, status: body.status }
+            });
+          } catch (e) {
+            console.warn('ES write failed:', e);
+          }
+
+          return send(res, 201, { ok: true });
+        }
     if (p === '/api/profiles') {
       var plPrincipal = await authenticate(req);
       if (!plPrincipal) return send(res, 401, { error: 'unauthorized' });
@@ -2482,7 +2510,13 @@ const HTML = /* html */ `<!doctype html><html lang="ru"><head>
 .plpager button:disabled{opacity:.4;cursor:default}
 .card.hide{display:none}
 .tdbadge{float:right;font-size:11px;font-weight:600}
-.tdpill{display:inline-block;padding:1px 8px;border-radius:10px;background:#2a2018;font-size:11px}
+.tdpill{display:inline-block;padding:2px 9px;border-radius:10px;background:#efe7d6;color:#5a5145;font-size:11px;border:1px solid #e0d6c4}
+.card.act[data-cat="action"] { border-left: 3px solid #b56a4a; }
+.card.act[data-cat="watch"] { border-left: 3px solid #c8a24a; }
+.card.act[data-cat="opportunity"] { border-left: 3px solid #6b8f71; }
+.card.act:hover { box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+.tdbadge { text-transform: uppercase; letter-spacing: 0.5px; }
+.tdpill { border: 1px solid #e0e0e0; border-radius: 12px; padding: 2px 8px; }
 </style></head><body>
 <noscript><div><img src="https://mc.yandex.ru/watch/110369025" style="position:absolute;left:-9999px" alt="" /></div></noscript>
 <aside class="side">
