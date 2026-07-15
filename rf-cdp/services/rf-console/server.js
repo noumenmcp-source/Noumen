@@ -227,20 +227,92 @@ function hashToken(token) {
 function generateToken() {
   return 'rfc_' + crypto.randomBytes(24).toString('hex');
 }
+// ─── Пароли — замена opaque bearer-токена без expiry/rotation (владелец, 2026-07-15: "нормальная
+// авторизация через логин/пароль"). scrypt — в ядре Node, новой зависимости не требует.
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16);
+  const hash = crypto.scryptSync(String(password), salt, 64);
+  return salt.toString('hex') + ':' + hash.toString('hex');
+}
+function verifyPassword(password, stored) {
+  if (!stored || typeof stored !== 'string' || stored.indexOf(':') === -1) return false;
+  var parts = stored.split(':');
+  try {
+    var salt = Buffer.from(parts[0], 'hex');
+    var expected = Buffer.from(parts[1], 'hex');
+    var actual = crypto.scryptSync(String(password), salt, 64);
+    return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+  } catch (e) { return false; }
+}
+function generatePassword() {
+  // без похожих друг на друга символов (0/O, 1/l/I) — печатается руками при первом входе.
+  var alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+  var bytes = crypto.randomBytes(12);
+  var out = '';
+  for (var i = 0; i < 12; i++) out += alphabet[bytes[i] % alphabet.length];
+  return out;
+}
+
+// ─── Сессии: подписанный HMAC-токен с expiry (тот же принцип, что trackSign/trackVerify выше,
+// отдельный секрет — домен безопасности другой: логин, не трекинг писем).
+const SESSION_SECRET = process.env.SESSION_SECRET || (function () {
+  console.warn('SESSION_SECRET не задан — используется небезопасный дефолт, задайте SESSION_SECRET в проде');
+  return 'insecure-dev-session-secret';
+})();
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 дней; протухла — просто перелогин, без skользящего окна
+function signSession(tenant) {
+  var payload = { t: tenant, exp: Date.now() + SESSION_TTL_MS };
+  var b64 = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+  var sig = crypto.createHmac('sha256', SESSION_SECRET).update(b64).digest('base64url');
+  return 'sess_' + b64 + '.' + sig;
+}
+function verifySession(token) {
+  if (!token || token.indexOf('sess_') !== 0) return null;
+  var raw = token.slice(5);
+  var parts = raw.split('.');
+  if (parts.length !== 2) return null;
+  var expected = crypto.createHmac('sha256', SESSION_SECRET).update(parts[0]).digest('base64url');
+  try {
+    var a = Buffer.from(expected), b = Buffer.from(parts[1]);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  } catch (e) { return null; }
+  try {
+    var payload = JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8'));
+    if (!payload.exp || payload.exp < Date.now()) return null;
+    return { tenant: payload.t };
+  } catch (e) { return null; }
+}
+
+// ─── Брутфорс-защита логина: в памяти процесса, сбрасывается при рестарте (осознанный минимум для
+// первой версии, не блокер) — 5 попыток / 15 минут на тенанта.
+const loginAttempts = new Map();
+function loginRateLimited(tenant) {
+  var rec = loginAttempts.get(tenant);
+  if (!rec) return false;
+  if (Date.now() > rec.resetAt) { loginAttempts.delete(tenant); return false; }
+  return rec.count >= 5;
+}
+function recordFailedLogin(tenant) {
+  var rec = loginAttempts.get(tenant);
+  if (!rec || Date.now() > rec.resetAt) loginAttempts.set(tenant, { count: 1, resetAt: Date.now() + 15 * 60 * 1000 });
+  else rec.count++;
+}
+function clearLoginAttempts(tenant) { loginAttempts.delete(tenant); }
+
 async function createTenantAuth(tenant, fromName, fromEmail) {
   if (!TENANT_RE.test(tenant)) throw new Error('bad tenant');
-  const token = generateToken();
+  const password = generatePassword();
   const doc = {
     tenant: tenant,
-    tokenHash: hashToken(token),
+    passwordHash: hashPassword(password),
     fromName: fromName || tenant,
     fromEmail: fromEmail || ('hello@' + tenant + '.invalid'),
     createdAt: new Date().toISOString(),
   };
-  // id = tenant → upsert семантика (перевыпуск токена заменяет старый, не плодит дубли)
+  // id = tenant → upsert семантика (сброс пароля заменяет старый хеш и гасит легаси-токен, не плодит дубли)
   await es('/' + AUTH_INDEX + '/_doc/' + encodeURIComponent(tenant), doc);
   await es('/' + AUTH_INDEX + '/_refresh');
-  return { tenant: tenant, token: token, fromName: doc.fromName, fromEmail: doc.fromEmail };
+  return { tenant: tenant, password: password, fromName: doc.fromName, fromEmail: doc.fromEmail };
 }
 
 async function countRecentSignups(sinceExpr) {
@@ -257,14 +329,17 @@ function escHtml(s) {
   return (s == null ? '' : String(s)).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
 
-function signupWelcomeEmailHtml(companyName, loginUrl) {
+function signupWelcomeEmailHtml(companyName, tenant, password, baseUrl) {
   return '<!doctype html><html><body style="margin:0;padding:0;background:#f5f0e8">' +
     '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f0e8"><tr><td align="center" style="padding:24px 12px">' +
     '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#fffdf9;border-radius:12px;overflow:hidden">' +
     '<tr><td style="padding:28px;font-family:Arial,Helvetica,sans-serif">' +
     '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:22px;font-weight:700;color:#1c1510;margin-bottom:12px">Добро пожаловать в Аксиому, ' + escHtml(companyName) + '</div>' +
-    '<p style="font-size:14px;line-height:1.6;color:#1c1510">Ваша консоль готова. Перейдите по ссылке ниже, чтобы начать работу — она содержит ваш персональный ключ доступа, никому его не передавайте.</p>' +
-    '<div style="text-align:center;margin-top:20px"><a href="' + escHtml(loginUrl) + '" style="display:inline-block;background:#c4683a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px">Открыть консоль</a></div>' +
+    '<p style="font-size:14px;line-height:1.6;color:#1c1510">Ваша консоль готова. Логин и временный пароль ниже — войдите и смените пароль на свой, никому его не передавайте.</p>' +
+    '<div style="margin:16px 0;padding:12px 14px;background:#f5f0e8;border-radius:8px">' +
+    '<div style="color:#7a6e60;font-size:11px">Логин (tenant)</div><div style="font-weight:700;color:#1c1510">' + escHtml(tenant) + '</div>' +
+    '<div style="color:#7a6e60;font-size:11px;margin-top:8px">Пароль</div><div style="font-family:monospace;font-size:15px;color:#c4683a">' + escHtml(password) + '</div></div>' +
+    '<div style="text-align:center;margin-top:20px"><a href="' + escHtml(baseUrl) + '/" style="display:inline-block;background:#c4683a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px">Открыть консоль</a></div>' +
     '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">Если вы не запрашивали доступ к Аксиоме, просто проигнорируйте это письмо.</div>' +
     '</td></tr></table></td></tr></table></body></html>';
 }
@@ -297,18 +372,21 @@ async function findTenantsByEmail(email) {
   if (q._missing) return [];
   return (q.hits && q.hits.hits || []).map((h) => h._source);
 }
-function recoveryEmailHtml(links) {
-  var items = links.map(function (l) {
-    return '<div style="margin:10px 0"><a href="' + escHtml(l.url) + '" style="color:#c4683a;font-weight:700">' + escHtml(l.tenant) + '</a></div>';
+function recoveryEmailHtml(creds, baseUrl) {
+  var items = creds.map(function (c) {
+    return '<div style="margin:14px 0;padding:12px 14px;background:#f5f0e8;border-radius:8px">' +
+      '<div style="font-weight:700;color:#1c1510">' + escHtml(c.tenant) + '</div>' +
+      '<div style="font-family:monospace;font-size:15px;color:#c4683a;margin-top:4px">' + escHtml(c.password) + '</div></div>';
   }).join('');
   return '<!doctype html><html><body style="margin:0;padding:0;background:#f5f0e8">' +
     '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f0e8"><tr><td align="center" style="padding:24px 12px">' +
     '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#fffdf9;border-radius:12px;overflow:hidden">' +
     '<tr><td style="padding:28px;font-family:Arial,Helvetica,sans-serif">' +
     '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:22px;font-weight:700;color:#1c1510;margin-bottom:12px">Восстановление доступа</div>' +
-    '<p style="font-size:14px;line-height:1.6;color:#1c1510">Новая ссылка для входа (старый ключ больше не действует):</p>' +
+    '<p style="font-size:14px;line-height:1.6;color:#1c1510">Новый пароль (старый больше не действует) — войдите и смените его на свой:</p>' +
     items +
-    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">Если вы не запрашивали восстановление, проигнорируйте это письмо — доступ не изменится, пока вы не перейдёте по ссылке.</div>' +
+    '<div style="text-align:center;margin-top:20px"><a href="' + escHtml(baseUrl) + '/" style="display:inline-block;background:#c4683a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:8px">Войти</a></div>' +
+    '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e0d8cc;font-size:11px;color:#7a6e60">Если вы не запрашивали восстановление, проигнорируйте это письмо и сообщите нам — кто-то знает адрес вашей почты.</div>' +
     '</td></tr></table></td></tr></table></body></html>';
 }
 
@@ -338,8 +416,20 @@ async function authenticate(req) {
   const header = req.headers['authorization'] || '';
   const m = /^Bearer\s+(.+)$/i.exec(header);
   if (!m) return null;
-  try { return await resolveTenantFromToken(m[1].trim()); }
-  catch (e) { return null; }
+  const raw = m[1].trim();
+  try {
+    if (raw.indexOf('sess_') === 0) {
+      const s = verifySession(raw);
+      if (!s) return null;
+      const doc = await resolveTenantAuth(s.tenant);
+      if (!doc) return null;
+      return { tenant: doc.tenant, fromName: doc.fromName, fromEmail: doc.fromEmail, legacy: false };
+    }
+    // легаси opaque bearer-токен — переходный период, пока тенант не задал пароль через /api/set-password
+    const legacy = await resolveTenantFromToken(raw);
+    if (!legacy) return null;
+    return { tenant: legacy.tenant, fromName: legacy.fromName, fromEmail: legacy.fromEmail, legacy: true };
+  } catch (e) { return null; }
 }
 function requireAdmin(req) {
   const secret = process.env.ADMIN_SECRET;
@@ -1601,10 +1691,46 @@ const server = http.createServer(async (req, res) => {
       if (!TENANT_RE.test(newTenant)) return send(res, 400, { error: 'invalid_tenant' });
       try {
         var created = await createTenantAuth(newTenant, adminBody.fromName, adminBody.fromEmail);
-        return send(res, 200, { ok: true, tenant: created.tenant, token: created.token, fromName: created.fromName, fromEmail: created.fromEmail });
+        return send(res, 200, { ok: true, tenant: created.tenant, password: created.password, fromName: created.fromName, fromEmail: created.fromEmail });
       } catch (e) {
         return send(res, 502, { error: 'provision_failed', message: String(e.message || e) });
       }
+    }
+    // ─── логин: тенант + пароль → подписанная сессия с expiry (замена вечного bearer-токена) ───
+    if (p === '/api/login' && req.method === 'POST') {
+      var loginBody;
+      try { loginBody = await readJsonBody(req, 1 * 1024); }
+      catch (e) { return send(res, 400, { error: String(e.message || e) }); }
+      var loginTenant = typeof loginBody.tenant === 'string' ? loginBody.tenant.trim().toLowerCase() : '';
+      var loginPassword = typeof loginBody.password === 'string' ? loginBody.password : '';
+      if (!TENANT_RE.test(loginTenant)) return send(res, 400, { error: 'invalid_tenant' });
+      if (loginRateLimited(loginTenant)) return send(res, 429, { error: 'rate_limited', message: 'слишком много попыток, подождите 15 минут' });
+      var loginDoc = await resolveTenantAuth(loginTenant);
+      if (!loginDoc || !loginDoc.passwordHash || !verifyPassword(loginPassword, loginDoc.passwordHash)) {
+        recordFailedLogin(loginTenant);
+        return send(res, 401, { error: 'invalid_credentials' });
+      }
+      clearLoginAttempts(loginTenant);
+      return send(res, 200, { ok: true, session: signSession(loginTenant), tenant: loginTenant });
+    }
+    // ─── самообслуживание: установить/сменить пароль. Работает и с легаси bearer-токеном (миграция
+    // текущих клиентов без вмешательства владельца), и с уже действующей сессией. После смены —
+    // старый tokenHash гасится, назад на токен вернуться нельзя.
+    if (p === '/api/set-password' && req.method === 'POST') {
+      var spPrincipal = await authenticate(req);
+      if (!spPrincipal) return send(res, 401, { error: 'unauthorized' });
+      var spBody;
+      try { spBody = await readJsonBody(req, 1 * 1024); }
+      catch (e) { return send(res, 400, { error: String(e.message || e) }); }
+      var newPassword = typeof spBody.newPassword === 'string' ? spBody.newPassword : '';
+      if (newPassword.length < 8) return send(res, 400, { error: 'weak_password', message: 'минимум 8 символов' });
+      var spDoc = await resolveTenantAuth(spPrincipal.tenant);
+      if (!spDoc) return send(res, 404, { error: 'tenant_not_found' });
+      var updatedDoc = Object.assign({}, spDoc, { passwordHash: hashPassword(newPassword) });
+      delete updatedDoc.tokenHash;
+      await es('/' + AUTH_INDEX + '/_doc/' + encodeURIComponent(spPrincipal.tenant), updatedDoc);
+      await es('/' + AUTH_INDEX + '/_refresh');
+      return send(res, 200, { ok: true, session: signSession(spPrincipal.tenant) });
     }
     // ─── публичный self-signup: без ADMIN_SECRET, токен НЕ возвращается в ответе —
     // отправляется реальным письмом на указанный email (мягкий анти-абьюз гейт +
@@ -1625,13 +1751,12 @@ const server = http.createServer(async (req, res) => {
       try {
         var suCreated = await createTenantAuth(suTenant, suCompany, suEmail);
         var suBaseUrl = process.env.PUBLIC_BASE_URL || 'https://rf.axiom.rent';
-        var loginUrl = suBaseUrl + '/?token=' + encodeURIComponent(suCreated.token);
         try {
           await sendRealEmail({
             to: suEmail,
             from: 'Аксиома <hello@axiom.rent>',
             subject: 'Добро пожаловать в Аксиому — ваш доступ готов',
-            html: signupWelcomeEmailHtml(suCompany, loginUrl),
+            html: signupWelcomeEmailHtml(suCompany, suTenant, suCreated.password, suBaseUrl),
             tags: [{ name: 'tenant', value: suTenant }, { name: 'messageId', value: 'signup-' + suTenant }],
           });
         } catch (mailErr) {
@@ -1639,13 +1764,13 @@ const server = http.createServer(async (req, res) => {
           // но явно сообщаем, чтобы не выглядело как тихая потеря доступа.
           return send(res, 200, { ok: true, tenant: suTenant, emailSent: false, warning: 'Тенант создан, но письмо с доступом не отправилось: ' + (mailErr.message || mailErr) + '. Обратитесь в поддержку.' });
         }
-        return send(res, 200, { ok: true, tenant: suTenant, emailSent: true, message: 'Проверьте почту ' + suEmail + ' — там ссылка для входа.' });
+        return send(res, 200, { ok: true, tenant: suTenant, emailSent: true, message: 'Проверьте почту ' + suEmail + ' — там логин и пароль для входа.' });
       } catch (e) {
         return send(res, 502, { error: 'signup_failed', message: String(e.message || e) });
       }
     }
-    // ─── восстановление доступа: по email ротирует токен(ы) найденных тенантов и шлёт
-    // новую ссылку. Всегда одинаковый generic-ответ — не палит, существует ли email.
+    // ─── восстановление доступа: по email выпускает новый пароль(и) найденных тенантов и шлёт
+    // письмом. Всегда одинаковый generic-ответ — не палит, существует ли email.
     if (p === '/api/recover' && req.method === 'POST') {
       var recBody;
       try { recBody = await readJsonBody(req, 2 * 1024); }
@@ -1659,16 +1784,16 @@ const server = http.createServer(async (req, res) => {
         var matches = await findTenantsByEmail(recEmail);
         if (!matches.length) return send(res, 200, GENERIC_RESPONSE);
         var recBaseUrl = process.env.PUBLIC_BASE_URL || 'https://rf.axiom.rent';
-        var links = [];
+        var creds = [];
         for (var mi = 0; mi < matches.length; mi++) {
           var rotated = await createTenantAuth(matches[mi].tenant, matches[mi].fromName, matches[mi].fromEmail);
-          links.push({ tenant: rotated.tenant, url: recBaseUrl + '/?token=' + encodeURIComponent(rotated.token) });
+          creds.push({ tenant: rotated.tenant, password: rotated.password });
         }
         await sendRealEmail({
           to: recEmail,
           from: 'Аксиома <hello@axiom.rent>',
           subject: 'Восстановление доступа к Аксиоме',
-          html: recoveryEmailHtml(links),
+          html: recoveryEmailHtml(creds, recBaseUrl),
           tags: [{ name: 'tenant', value: 'recovery' }, { name: 'messageId', value: 'recover-' + Date.now() }],
         });
         return send(res, 200, GENERIC_RESPONSE);
@@ -4276,14 +4401,44 @@ function renderProfiles(list){
 }
 
 function showErr(e){$('#err').innerHTML=e?'<div class="err">Ошибка: '+esc(e)+'</div>':'';}
-// ─── авторизация: токен из ?token= (один раз) → localStorage → заголовок Authorization на каждый fetch ───
+// ─── авторизация: сессия (sess_…) из логин-формы, либо легаси ?token= (один раз, переходный период)
+// → localStorage → заголовок Authorization на каждый fetch. Если ничего нет — гасим рендер приложения
+// и показываем форму логина, пока не придёт валидная сессия (2026-07-15, замена вечного bearer-токена).
 window.RFC_TOKEN=(function(){
   var qp=new URLSearchParams(location.search); var fromUrl=qp.get('token');
   if(fromUrl){ localStorage.setItem('rfc_token', fromUrl); qp.delete('token'); var qs=qp.toString();
     history.replaceState({}, '', location.pathname+(qs?'?'+qs:'')); }
   return localStorage.getItem('rfc_token')||'';
 })();
-async function j(u){const r=await fetch(u,{headers:window.RFC_TOKEN?{authorization:'Bearer '+window.RFC_TOKEN}:{}});if(!r.ok){if(r.status===401){localStorage.removeItem('rfc_token');}throw new Error((await r.json().catch(()=>({}))).error||('HTTP '+r.status));}return r.json();}
+function showLoginGate(errMsg){
+  document.documentElement.setAttribute('data-login-gate','1');
+  var wrap=document.createElement('div');
+  wrap.id='rfcLoginGate';
+  wrap.style.cssText='position:fixed;inset:0;background:#0e1b2e;display:flex;align-items:center;justify-content:center;z-index:99999;font-family:Arial,Helvetica,sans-serif;';
+  wrap.innerHTML='<form id="rfcLoginForm" style="background:#fffdf9;border-radius:14px;padding:32px 36px;width:320px;box-shadow:0 8px 40px rgba(0,0,0,.4)">'+
+    '<div style="font-weight:800;font-size:19px;letter-spacing:.1em;color:#c9a84c;margin-bottom:18px">АКСИОМА</div>'+
+    '<label style="font-size:12px;color:#5c6b7e">Тенант</label>'+
+    '<input name="tenant" autocomplete="username" style="display:block;width:100%;box-sizing:border-box;padding:9px 11px;margin:4px 0 14px;border:1px solid #dfe4ea;border-radius:8px;font-size:14px" required>'+
+    '<label style="font-size:12px;color:#5c6b7e">Пароль</label>'+
+    '<input name="password" type="password" autocomplete="current-password" style="display:block;width:100%;box-sizing:border-box;padding:9px 11px;margin:4px 0 14px;border:1px solid #dfe4ea;border-radius:8px;font-size:14px" required>'+
+    '<div id="rfcLoginErr" style="color:#a4432a;font-size:12.5px;min-height:16px;margin-bottom:6px">'+(errMsg?esc(errMsg):'')+'</div>'+
+    '<button type="submit" style="width:100%;padding:11px;background:#c4683a;color:#fff;border:0;border-radius:8px;font-weight:700;font-size:14px;cursor:pointer">Войти</button>'+
+    '</form>';
+  document.body.innerHTML=''; document.body.appendChild(wrap);
+  document.getElementById('rfcLoginForm').addEventListener('submit', async function(e){
+    e.preventDefault();
+    var fd=new FormData(e.target);
+    try{
+      var r=await fetch('/api/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({tenant:fd.get('tenant'),password:fd.get('password')})});
+      var body=await r.json().catch(function(){return {};});
+      if(!r.ok||!body.session){ document.getElementById('rfcLoginErr').textContent=body.message||'Неверный тенант или пароль'; return; }
+      localStorage.setItem('rfc_token', body.session);
+      location.reload();
+    }catch(err){ document.getElementById('rfcLoginErr').textContent='Сеть недоступна, попробуйте ещё раз'; }
+  });
+}
+if(!window.RFC_TOKEN){ showLoginGate(); }
+async function j(u){const r=await fetch(u,{headers:window.RFC_TOKEN?{authorization:'Bearer '+window.RFC_TOKEN}:{}});if(!r.ok){if(r.status===401){localStorage.removeItem('rfc_token'); if(!document.getElementById('rfcLoginGate')) showLoginGate('Сессия истекла, войдите снова');}throw new Error((await r.json().catch(()=>({}))).error||('HTTP '+r.status));}return r.json();}
 
 const isSec=id=>SECTIONS.some(s=>s[0]===id);
 function secFromPath(){const seg=(location.pathname.replace(/\\/+$/,'')||'/').slice(1);if(seg==='automations'){window.segTab='flows';return 'segments';}if(seg==='segments'&&window.segTab==null)window.segTab='audience';return isSec(seg)?seg:'overview';}
@@ -4339,6 +4494,7 @@ async function load(){
   catch(e){ showErr(e.message||e); }
 }
 async function init(){
+  if(!window.RFC_TOKEN){ return; } // логин-гейт (showLoginGate) уже очистил и заменил body — не трогаем DOM дальше
   cur=secFromPath();
   $('#nav').innerHTML=SECTIONS.map(s=>'<a href="/'+s[0]+'" data-id="'+s[0]+'"><span class="ic">'+s[2]+'</span>'+s[1]+'</a>').join('');
   document.querySelectorAll('.nav a').forEach(a=>a.onclick=e=>{if(e.metaKey||e.ctrlKey||e.shiftKey||e.button)return;e.preventDefault();navTo(a.dataset.id);});
@@ -4346,7 +4502,6 @@ async function init(){
   $('#burger').onclick=()=>document.body.classList.toggle('menu');
   $('#bd').onclick=()=>document.body.classList.remove('menu');
   $('#tenant').style.display='none';
-  if(!window.RFC_TOKEN){ showErr('Нет токена доступа. Откройте ссылку вида /?token=ВАШ_ТОКЕН, полученную от администратора.'); return; }
   try{
     const cfg=await j('/api/config');
     TENANT=cfg.tenant; $('#sub').textContent='тенант: '+TENANT;
