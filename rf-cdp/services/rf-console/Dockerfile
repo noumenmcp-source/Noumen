@@ -6,7 +6,7 @@ ENV NODE_ENV=production \
 WORKDIR /app
 COPY package.json ./
 RUN npm install --omit=dev --no-audit --no-fund
-COPY server.js ./
+COPY server.js director.js ./
 USER node
 EXPOSE 8121
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \

@@ -8,6 +8,10 @@
  */
 const http = require('http');
 const { URL } = require('url');
+// Директорская консоль AERO (§10.1) — изолированный модуль, читает crm-postgres, не ES.
+// Загрузка в try: если pg/CRM_DIRECTOR_DB_URL нет — модуль просто выключен, консоль не падает.
+let director = null;
+try { director = require('./director.js'); } catch (e) { console.warn('director module off:', e && e.message); }
 
 const PORT = parseInt(process.env.PORT || '8121', 10);
 const ES_URL = (process.env.ES_URL || 'http://localhost:9200').replace(/\/$/, '');
@@ -1668,6 +1672,11 @@ const server = http.createServer(async (req, res) => {
   try {
     const u = new URL(req.url, 'http://x');
     const p = u.pathname;
+    // ─── AERO директорская консоль (§10.1): изолированный модуль на crm-postgres ───
+    if (director && (p === '/aero-director' || p.indexOf('/aero-director/') === 0)) {
+      const handled = await director.handle(req, res, p, u, { sendTelegramMessage });
+      if (handled) return;
+    }
     if (p === '/' || p === '/index.html' || SEC_RE.test(p)) {
       var autolog = req.headers['x-autologin-token'];
       var pageHtml = (autolog && /^rfc_[a-z0-9_]+$/i.test(autolog))
