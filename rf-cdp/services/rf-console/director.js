@@ -158,15 +158,20 @@ async function loadOverview() {
       `SELECT
          (SELECT count(*) FROM deal) AS deals,
          (SELECT count(*) FROM deal WHERE created_at > now()-interval '7 days') AS new7,
-         (SELECT count(*) FROM message WHERE direction='inbound') AS msg_in,
-         (SELECT count(*) FROM message WHERE direction='outbound_manual') AS msg_out,
+         (SELECT count(*) FROM message m JOIN conversation cv ON cv.conversation_id=m.conversation_id
+            WHERE m.direction='inbound' AND cv.is_internal=false) AS msg_in,
+         (SELECT count(*) FROM message m JOIN conversation cv ON cv.conversation_id=m.conversation_id
+            WHERE m.direction='outbound_manual' AND cv.is_internal=false) AS msg_out,
          (SELECT count(*) FROM partner_referral_source) AS referrals,
          (SELECT coalesce(sum(CASE WHEN kind='refund' THEN -amount ELSE amount END),0)
             FROM payment_transaction WHERE occurred_at > now()-interval '30 days') AS rev30`)).rows[0];
-    // неотвеченные: беседы с inbound новее последнего ответа менеджера
+    // неотвеченные: беседы с inbound новее последнего ответа менеджера. is_internal=false — рабочие
+    // диалоги (коллеги/партнёры) не клиенты, директору их "неотвеченность" ни к чему (найдено
+    // живым анализом переписки — рабочий чат считался наравне с клиентами).
     const unanswered = (await c.query(
       `SELECT count(*)::int AS n FROM conversation cv
-        WHERE EXISTS (SELECT 1 FROM message mi WHERE mi.conversation_id=cv.conversation_id AND mi.direction='inbound'
+        WHERE cv.is_internal=false
+          AND EXISTS (SELECT 1 FROM message mi WHERE mi.conversation_id=cv.conversation_id AND mi.direction='inbound'
                         AND mi.sent_at > coalesce((SELECT max(mo.sent_at) FROM message mo
                               WHERE mo.conversation_id=cv.conversation_id AND mo.direction='outbound_manual'), '-infinity'::timestamptz))`)).rows[0].n;
     await audit(c, 'director_read', { view: 'overview' });
