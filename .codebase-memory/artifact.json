@@ -1,11 +1,11 @@
 {
     "schema_version": 1,
-    "commit": "b3b988ae3ea5d1208c65b8b8a644960e2e3d2872",
-    "indexed_at": "2026-06-26T22:05:26Z",
-    "project": "Users-a1-cdp-us",
-    "nodes": 535,
-    "edges": 888,
-    "original_size": 1966080,
-    "compressed_size": 111983,
+    "commit": "79e84b02d0368734819e92773fa2831a12cbdd3e",
+    "indexed_at": "2026-07-18T06:17:36Z",
+    "project": "Users-a1-cdp-platform-enforcement-.claude-worktrees-vigilant-wu-5df573",
+    "nodes": 5491,
+    "edges": 11148,
+    "original_size": 17301504,
+    "compressed_size": 2369233,
     "compression_level": 3
 }
