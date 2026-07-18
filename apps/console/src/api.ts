@@ -1,4 +1,5 @@
 import { asEvents, asHealth, asModules, asProfiles, asTenant } from "./guards";
+import type { FinanceSummary } from "./finance";
 import type { AudienceEvaluateBody, AudienceResult, FunnelStep, Health, JourneyResult, ModuleManifest, Profile, RetentionPoint, Tenant, TimelineEvent } from "./types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8110";
@@ -87,6 +88,16 @@ export async function getEvents(
 ): Promise<readonly TimelineEvent[]> {
   const query = anonymousId ? `?anonymousId=${encodeURIComponent(anonymousId)}` : "";
   return asEvents(await authed(`/v1/tenants/${tenantId}/events${query}`, token));
+}
+
+/** Финансовая сводка тенанта (раздел «Финансовый учёт»). Возвращает null, если
+ * ответ не той формы — вызывающий откатывается на встроенный снапшот. */
+export async function getFinanceSummary(tenantId: string, token: string): Promise<FinanceSummary | null> {
+  const data = await authed(`/v1/tenants/${tenantId}/finance/summary`, token);
+  const root = data as { summary?: unknown };
+  const s = root.summary as Partial<FinanceSummary> | undefined;
+  if (!s || !Array.isArray(s.months) || !Array.isArray(s.offers)) return null;
+  return { meta: s.meta ?? null, months: s.months, offers: s.offers } as FinanceSummary;
 }
 
 export function trackerSnippet(writeKey: string): string {

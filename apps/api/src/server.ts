@@ -52,6 +52,8 @@ import { registerDeliverability } from "./routes/deliverability.js";
 import { registerEnrichment } from "./routes/enrichment.js";
 import { registerForms } from "./routes/forms.js";
 import { registerFunnels } from "./routes/funnels.js";
+import { registerFinance } from "./routes/finance.js";
+import { defaultFinanceStore } from "./finance-store.js";
 import { registerJourneys } from "./routes/journeys.js";
 import { registerLeadScoring } from "./routes/lead-scoring.js";
 import { registerNotifications } from "./routes/notifications.js";
@@ -178,6 +180,8 @@ export async function buildServer(
     tokenStore,
     events: { readRows: async (tenantId) => (await ingestStore.listByTenant(tenantId)).map(toFunnelRow) },
   });
+
+  registerFinance(app, { tenantStore, tokenStore, finance: defaultFinanceStore() });
   registerLeadScoring(app, { tenantStore, tokenStore, profileStore, now: new Date().toISOString() });
   registerDeliverability(app, { tenantStore, tokenStore, store: suppressionStore });
   registerCohorts(app, {

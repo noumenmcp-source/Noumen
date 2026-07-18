@@ -1,18 +1,15 @@
-// Финансовый учёт — модель данных раздела.
-// Структуры соответствуют чертежу docs/xrm-revenue-kb/04-table-structures-watch.md.
+// Финансовый учёт — типы и помощники раздела.
+// Данные приходят с API (/v1/tenants/:id/finance/summary). Встроенный снапшот
+// (finance-olymp.json — реальный агрегат продаж Ozon тенанта «Олимп бизнес»,
+// 36 899 доставленных заказов) используется как офлайн-фолбэк, если API недоступен.
 //
-// Источник данных — РЕАЛЬНЫЙ: выгрузка продаж Ozon тенанта «Олимп бизнес»
-// (src/finance-olymp.json, сгенерирован из ozon_orders.xlsx, 36 899 доставленных заказов).
-// Это «половина воронки» (продажи): выручка и комиссия маркетплейса — фактические.
-// Закупочная себестоимость, операционные расходы и банковский ДДС — из 1С (не подключены) —
-// честно помечено в UI. Никаких выдуманных цифр под видом реальных.
-//
-// Производные (комиссия %, payout, маржа после Ozon, доли) СЧИТАЮТСЯ из фактических строк —
-// демонстрация тезиса «цифры считаются, не вводятся руками».
+// Honesty: это «половина воронки» (продажи) — выручка и комиссия маркетплейса
+// фактические; закупочная себестоимость, опер.расходы и банковский ДДС — из 1С
+// (не подключены), помечено в meta.note. Производные считаются из фактических строк.
 
-import raw from "./finance-olymp.json";
+import snapshot from "./finance-olymp.json";
 
-export interface OlympMeta {
+export interface FinanceMeta {
   readonly source: string;
   readonly status_filter: string;
   readonly range: string;
@@ -21,9 +18,9 @@ export interface OlympMeta {
 export interface MonthRow {
   readonly key: string;
   readonly label: string;
-  readonly revenue: number; // выручка gross (цена продажи), ₽
-  readonly commission: number; // комиссия Ozon (отрицательная), ₽
-  readonly payout: number; // выплата Олимпу = выручка после маркетплейса, ₽
+  readonly revenue: number;
+  readonly commission: number;
+  readonly payout: number;
   readonly orders: number;
   readonly units: number;
 }
@@ -34,12 +31,18 @@ export interface OfferRow {
   readonly commission: number;
   readonly payout: number;
 }
+export interface FinanceSummary {
+  readonly meta: FinanceMeta | null;
+  readonly months: readonly MonthRow[];
+  readonly offers: readonly OfferRow[];
+}
 
-const data = raw as { readonly meta: OlympMeta; readonly months: readonly MonthRow[]; readonly offers: readonly OfferRow[] };
+/** Офлайн-снапшот (реальный агрегат Олимпа) — фолбэк, когда API недоступен. */
+export const SNAPSHOT: FinanceSummary = snapshot as FinanceSummary;
 
-export const OLYMP_META: OlympMeta = data.meta;
-export const MONTHS: readonly MonthRow[] = data.months;
-export const OFFERS: readonly OfferRow[] = data.offers;
+export function isEmpty(s: FinanceSummary | null): boolean {
+  return !s || (s.months.length === 0 && s.offers.length === 0);
+}
 
 // ── Производные показатели ───────────────────────────────────────────────────
 export function commissionPct(m: { readonly commission: number; readonly revenue: number }): number {
@@ -72,7 +75,6 @@ export function sumMonths(rows: readonly MonthRow[]): Totals {
   );
 }
 
-// Тренд роста комиссии: сравнить первый и последний месяц окна.
 export function commissionTrend(rows: readonly MonthRow[]): { readonly first: number; readonly last: number; readonly deltaPp: number } {
   if (rows.length < 2) return { first: 0, last: 0, deltaPp: 0 };
   const first = commissionPct(rows[0]);

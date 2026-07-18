@@ -1,23 +1,26 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { getFinanceSummary } from "../../src/api";
 import {
-  MONTHS,
-  OFFERS,
-  OLYMP_META,
+  SNAPSHOT,
   avgCheck,
   commissionPct,
   commissionTrend,
+  isEmpty,
   payoutPct,
   pct,
   rub,
   sumMonths,
+  type FinanceSummary,
   type MonthRow,
   type OfferRow,
 } from "../../src/finance";
+import { readSession } from "../../src/session";
 import { Badge, MetricCard, PageHeader, Panel, Shell } from "../../src/ui";
 
 type Tab = "overview" | "pnl" | "offers";
+type Source = "api" | "snapshot";
 
 const TABS: readonly { readonly key: Tab; readonly label: string }[] = [
   { key: "overview", label: "Обзор" },
@@ -27,7 +30,26 @@ const TABS: readonly { readonly key: Tab; readonly label: string }[] = [
 
 export default function FinancePage() {
   const [tab, setTab] = useState<Tab>("overview");
-  const months = MONTHS;
+  const [data, setData] = useState<FinanceSummary>(SNAPSHOT);
+  const [source, setSource] = useState<Source>("snapshot");
+
+  useEffect(() => {
+    const session = readSession();
+    if (!session?.tenantId || !session.apiToken) return; // нет сессии → офлайн-снапшот
+    getFinanceSummary(session.tenantId, session.apiToken)
+      .then((s) => {
+        if (s && !isEmpty(s)) {
+          setData(s);
+          setSource("api");
+        }
+      })
+      .catch(() => {
+        /* API недоступен — остаёмся на встроенном снапшоте */
+      });
+  }, []);
+
+  const months = data.months;
+  const offers = data.offers;
   const last = months[months.length - 1];
   const totals = useMemo(() => sumMonths(months), [months]);
   const trend = useMemo(() => commissionTrend(months), [months]);
@@ -39,12 +61,14 @@ export default function FinancePage() {
           eyebrow="Финансовый учёт · Олимп бизнес"
           title="Финансовый учёт"
           body="Управленческий учёт по данным воронки. Выручка и комиссия маркетплейса — из фактических продаж Ozon; производные показатели считаются автоматически."
-          actions={<Badge tone="ok">данные: реальные (Ozon)</Badge>}
+          actions={<Badge tone={source === "api" ? "ok" : "warm"}>{source === "api" ? "данные: API (live)" : "данные: снапшот (офлайн)"}</Badge>}
         />
 
-        <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
-          <b>Источник:</b> {OLYMP_META.source}. Период: {OLYMP_META.range}. {OLYMP_META.note}
-        </div>
+        {data.meta ? (
+          <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+            <b>Источник:</b> {data.meta.source}. Период: {data.meta.range}. {data.meta.note}
+          </div>
+        ) : null}
 
         {trend.deltaPp > 5 ? (
           <Panel className="border-amber-200 bg-amber-50/60">
@@ -96,7 +120,7 @@ export default function FinancePage() {
         ) : null}
 
         {tab === "pnl" ? <PnlTable rows={months} /> : null}
-        {tab === "offers" ? <OffersTable rows={OFFERS} /> : null}
+        {tab === "offers" ? <OffersTable rows={offers} /> : null}
       </div>
     </Shell>
   );
@@ -150,7 +174,7 @@ function PnlTable(props: { readonly rows: readonly MonthRow[] }) {
 
 function OffersTable(props: { readonly rows: readonly OfferRow[] }) {
   return (
-    <TableWrap caption="Товарная аналитика (топ-15 по выручке): выручка, комиссия Ozon, выплата, маржа после маркетплейса. Полная маржа считается после подключения закупки (1С).">
+    <TableWrap caption="Товарная аналитика (топ по выручке): выручка, комиссия Ozon, выплата, маржа после маркетплейса. Полная маржа считается после подключения закупки (1С).">
       <thead>
         <tr className="border-b border-line bg-field/60">
           <Th>Товар</Th><Th right>Штук</Th><Th right>Выручка</Th><Th right>Комиссия %</Th><Th right>Выплата</Th><Th right>Маржа после Ozon</Th>
