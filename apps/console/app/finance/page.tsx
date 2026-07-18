@@ -2,71 +2,60 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 import {
-  DEMO,
-  DEMO_DDS_INPUT,
-  DEMO_LOCATIONS,
-  DEMO_MONTHS,
-  DEMO_PNL_INPUT,
-  computeDds,
-  computeLocations,
-  computePnl,
+  MONTHS,
+  OFFERS,
+  OLYMP_META,
+  avgCheck,
+  commissionPct,
+  commissionTrend,
+  payoutPct,
   pct,
   rub,
+  sumMonths,
+  type MonthRow,
+  type OfferRow,
 } from "../../src/finance";
 import { Badge, MetricCard, PageHeader, Panel, Shell } from "../../src/ui";
 
-type Tab = "overview" | "dds" | "pnl" | "locations";
+type Tab = "overview" | "pnl" | "offers";
 
 const TABS: readonly { readonly key: Tab; readonly label: string }[] = [
   { key: "overview", label: "Обзор" },
-  { key: "dds", label: "ОДДС" },
-  { key: "pnl", label: "ОПиУ" },
-  { key: "locations", label: "Магазины" },
+  { key: "pnl", label: "Выручка (ОПиУ)" },
+  { key: "offers", label: "Товары" },
 ];
 
 export default function FinancePage() {
   const [tab, setTab] = useState<Tab>("overview");
-
-  const dds = useMemo(() => computeDds(DEMO_DDS_INPUT), []);
-  const pnl = useMemo(() => computePnl(DEMO_PNL_INPUT), []);
-  const locs = useMemo(() => computeLocations(DEMO_LOCATIONS), []);
-
-  // advice-сигнал: месяцы с отрицательным операционным потоком → риск кассового разрыва
-  const gapMonths = dds
-    .map((m, i) => ({ i, m }))
-    .filter((x) => x.m.operatingTotal < 0)
-    .map((x) => DEMO_MONTHS[x.i]?.label ?? "");
-
-  const lastMonth = DEMO_MONTHS.length - 1;
+  const months = MONTHS;
+  const last = months[months.length - 1];
+  const totals = useMemo(() => sumMonths(months), [months]);
+  const trend = useMemo(() => commissionTrend(months), [months]);
 
   return (
     <Shell>
       <div className="grid gap-5">
         <PageHeader
-          eyebrow="Финансовый учёт · XRM"
+          eyebrow="Финансовый учёт · Олимп бизнес"
           title="Финансовый учёт"
-          body="Управленческий учёт по данным воронки: ОДДС, ОПиУ, разрезы. Цифры считаются автоматически из выручки (CDP) и движения денег (1С:Деньги) — ручной ввод сведён к минимуму."
-          actions={<Badge tone="info">методика: МаркФинансист + стандарты</Badge>}
+          body="Управленческий учёт по данным воронки. Выручка и комиссия маркетплейса — из фактических продаж Ozon; производные показатели считаются автоматически."
+          actions={<Badge tone="ok">данные: реальные (Ozon)</Badge>}
         />
 
-        {DEMO ? (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-            <b>Демо-данные (плейсхолдер).</b> Это каркас раздела на заглушечных цифрах. Реальные значения
-            подставляются из выгрузки фин.данных тенанта «Олимп бизнес». Производные строки (маржинальная/чистая
-            прибыль, рентабельности, итоги потоков, деньги на конец) уже считаются автоматически из базовых входов.
-          </div>
-        ) : null}
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+          <b>Источник:</b> {OLYMP_META.source}. Период: {OLYMP_META.range}. {OLYMP_META.note}
+        </div>
 
-        {gapMonths.length ? (
+        {trend.deltaPp > 5 ? (
           <Panel className="border-amber-200 bg-amber-50/60">
             <div className="flex items-start gap-3">
               <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-amber-300 bg-amber-100 text-sm font-semibold text-amber-900">!</span>
               <div>
-                <p className="text-sm font-semibold text-ink">Сигнал: риск кассового разрыва</p>
+                <p className="text-sm font-semibold text-ink">Сигнал: маркетплейс забирает всё больше</p>
                 <p className="mt-1 text-sm text-muted">
-                  Операционный денежный поток отрицательный в: <b>{gapMonths.join(", ")}</b>. Это ранний признак
-                  кассового разрыва — операционка не покрывает выплаты. Первый шаг: проверить вывод средств и
-                  ускорить сбор дебиторки.
+                  Комиссия Ozon выросла с <b>{pct(trend.first)}</b> до <b>{pct(trend.last)}</b> выручки
+                  (+{trend.deltaPp.toFixed(1).replace(".", ",")} п.п. за период). Выплата Олимпу проседает при той же
+                  выручке. Первый шаг: пересчитать цены/ассортимент под новую комиссию, усилить прямой канал (сайт).
                 </p>
               </div>
             </div>
@@ -87,17 +76,27 @@ export default function FinancePage() {
         </nav>
 
         {tab === "overview" ? (
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <MetricCard label={`Выручка · ${DEMO_MONTHS[lastMonth]?.label}`} value={rub(pnl[lastMonth]?.revenue ?? 0)} detail="нетто, без НДС" tone="info" />
-            <MetricCard label="Рентабельность маржи" value={pct(pnl[lastMonth]?.marginRatio ?? 0)} detail="маржинальная ÷ выручка" tone="ok" />
-            <MetricCard label="Чистая прибыль" value={rub(pnl[lastMonth]?.net ?? 0)} detail={`рент. ${pct(pnl[lastMonth]?.netRatio ?? 0)}`} tone={(pnl[lastMonth]?.net ?? 0) >= 0 ? "ok" : "hot"} />
-            <MetricCard label="Деньги на конец" value={rub(dds[lastMonth]?.cashEnd ?? 0)} detail="сверка с остатком по счетам" tone="neutral" />
-          </div>
+          <>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <MetricCard label={`Выручка · ${last?.label ?? ""}`} value={rub(last?.revenue ?? 0)} detail={`заказов: ${last?.orders ?? 0}`} tone="info" />
+              <MetricCard label="Комиссия Ozon" value={pct(last ? commissionPct(last) : 0)} detail="доля выручки" tone="warm" />
+              <MetricCard label="Выплата (после Ozon)" value={rub(last?.payout ?? 0)} detail={`${pct(last ? payoutPct(last) : 0)} выручки`} tone="ok" />
+              <MetricCard label="Средний чек" value={rub(last ? avgCheck(last) : 0)} detail="выручка ÷ заказы" tone="neutral" />
+            </div>
+            <Panel>
+              <p className="text-sm font-medium text-ink">Итого за период ({months.length} мес.)</p>
+              <div className="mt-2 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+                <div><p className="text-muted">Выручка</p><p className="font-semibold text-ink">{rub(totals.revenue)}</p></div>
+                <div><p className="text-muted">Комиссия Ozon</p><p className="font-semibold text-red-700">{rub(totals.commission)}</p></div>
+                <div><p className="text-muted">Выплата</p><p className="font-semibold text-ink">{rub(totals.payout)}</p></div>
+                <div><p className="text-muted">Заказов / штук</p><p className="font-semibold text-ink">{totals.orders.toLocaleString("ru-RU")} / {totals.units.toLocaleString("ru-RU")}</p></div>
+              </div>
+            </Panel>
+          </>
         ) : null}
 
-        {tab === "dds" ? <DdsTable rows={dds} /> : null}
-        {tab === "pnl" ? <PnlTable rows={pnl} /> : null}
-        {tab === "locations" ? <LocationsTable rows={locs} /> : null}
+        {tab === "pnl" ? <PnlTable rows={months} /> : null}
+        {tab === "offers" ? <OffersTable rows={OFFERS} /> : null}
       </div>
     </Shell>
   );
@@ -106,95 +105,69 @@ export default function FinancePage() {
 function Th(props: { readonly children: ReactNode; readonly right?: boolean }) {
   return <th className={`whitespace-nowrap px-3 py-2 text-xs font-medium uppercase text-muted ${props.right ? "text-right" : "text-left"}`}>{props.children}</th>;
 }
-function Num(props: { readonly v: number; readonly bold?: boolean; readonly neg?: boolean }) {
-  const negative = props.neg ?? props.v < 0;
-  return <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${props.bold ? "font-semibold text-ink" : "text-ink"} ${negative ? "text-red-700" : ""}`}>{rub(props.v)}</td>;
+function Cell(props: { readonly children: ReactNode; readonly bold?: boolean; readonly red?: boolean }) {
+  return <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${props.bold ? "font-semibold text-ink" : props.red ? "text-red-700" : "text-ink"}`}>{props.children}</td>;
 }
-function RowLabel(props: { readonly children: ReactNode; readonly strong?: boolean }) {
-  return <td className={`whitespace-nowrap px-3 py-2 ${props.strong ? "font-semibold text-ink" : "text-muted"}`}>{props.children}</td>;
-}
-function TableWrap(props: { readonly children: ReactNode }) {
+function TableWrap(props: { readonly children: ReactNode; readonly caption: string }) {
   return (
-    <Panel className="overflow-x-auto p-0">
-      <table className="w-full border-collapse text-sm">{props.children}</table>
-    </Panel>
+    <div className="grid gap-2">
+      <p className="text-xs text-muted">{props.caption}</p>
+      <Panel className="overflow-x-auto p-0">
+        <table className="w-full border-collapse text-sm">{props.children}</table>
+      </Panel>
+    </div>
   );
 }
 
-function MonthHead() {
+function PnlTable(props: { readonly rows: readonly MonthRow[] }) {
   return (
-    <tr className="border-b border-line bg-field/60">
-      <Th>Статья</Th>
-      {DEMO_MONTHS.map((m) => (
-        <Th key={m.key} right>{m.label}</Th>
-      ))}
-    </tr>
-  );
-}
-
-function DdsTable(props: { readonly rows: ReturnType<typeof computeDds> }) {
-  const r = props.rows;
-  return (
-    <TableWrap>
-      <thead><MonthHead /></thead>
-      <tbody>
-        <tr className="border-b border-line"><RowLabel>Деньги на начало</RowLabel>{r.map((m, i) => <Num key={i} v={m.cashStart} />)}</tr>
-        <tr className="border-b border-line bg-emerald-50/40"><RowLabel strong>Операционный поток — итого</RowLabel>{r.map((m, i) => <Num key={i} v={m.operatingTotal} bold neg={m.operatingTotal < 0} />)}</tr>
-        <tr className="border-b border-line"><RowLabel>— Поступления по осн. деятельности</RowLabel>{r.map((m, i) => <Num key={i} v={m.opInflow} />)}</tr>
-        <tr className="border-b border-line"><RowLabel>— Переменные расходы</RowLabel>{r.map((m, i) => <Num key={i} v={m.opVariable} />)}</tr>
-        <tr className="border-b border-line"><RowLabel>— Постоянные расходы</RowLabel>{r.map((m, i) => <Num key={i} v={m.opFixed} />)}</tr>
-        <tr className="border-b border-line"><RowLabel strong>Инвестиционный поток — итого</RowLabel>{r.map((m, i) => <Num key={i} v={m.investing} bold />)}</tr>
-        <tr className="border-b border-line"><RowLabel strong>Финансовый поток — итого</RowLabel>{r.map((m, i) => <Num key={i} v={m.financing} bold />)}</tr>
-        <tr className="border-b border-line bg-field/40"><RowLabel strong>Итого движение денег</RowLabel>{r.map((m, i) => <Num key={i} v={m.total} bold />)}</tr>
-        <tr><RowLabel strong>Деньги на конец</RowLabel>{r.map((m, i) => <Num key={i} v={m.cashEnd} bold />)}</tr>
-      </tbody>
-    </TableWrap>
-  );
-}
-
-function PnlTable(props: { readonly rows: ReturnType<typeof computePnl> }) {
-  const r = props.rows;
-  return (
-    <TableWrap>
-      <thead><MonthHead /></thead>
-      <tbody>
-        <tr className="border-b border-line"><RowLabel strong>Выручка (нетто)</RowLabel>{r.map((m, i) => <Num key={i} v={m.revenue} bold />)}</tr>
-        <tr className="border-b border-line"><RowLabel>Переменные расходы</RowLabel>{r.map((m, i) => <Num key={i} v={-m.variable} />)}</tr>
-        <tr className="border-b border-line bg-emerald-50/40"><RowLabel strong>Маржинальная прибыль</RowLabel>{r.map((m, i) => <Num key={i} v={m.marginal} bold />)}</tr>
-        <tr className="border-b border-line"><RowLabel>Рентабельность маржи</RowLabel>{r.map((m, i) => <td key={i} className="px-3 py-2 text-right tabular-nums text-muted">{pct(m.marginRatio)}</td>)}</tr>
-        <tr className="border-b border-line"><RowLabel>Постоянные расходы</RowLabel>{r.map((m, i) => <Num key={i} v={-m.fixed} />)}</tr>
-        <tr className="border-b border-line bg-field/40"><RowLabel strong>EBITDA (операционная)</RowLabel>{r.map((m, i) => <Num key={i} v={m.ebitda} bold />)}</tr>
-        <tr className="border-b border-line"><RowLabel>Амортизация</RowLabel>{r.map((m, i) => <Num key={i} v={-m.amort} />)}</tr>
-        <tr className="border-b border-line"><RowLabel>Проценты по кредитам</RowLabel>{r.map((m, i) => <Num key={i} v={-m.interest} />)}</tr>
-        <tr className="border-b border-line"><RowLabel>Налог (по режиму)</RowLabel>{r.map((m, i) => <Num key={i} v={-m.tax} />)}</tr>
-        <tr className="border-b border-line bg-emerald-50/40"><RowLabel strong>Чистая прибыль</RowLabel>{r.map((m, i) => <Num key={i} v={m.net} bold neg={m.net < 0} />)}</tr>
-        <tr><RowLabel>Рентабельность чистой</RowLabel>{r.map((m, i) => <td key={i} className={`px-3 py-2 text-right tabular-nums ${m.net < 0 ? "text-red-700" : "text-muted"}`}>{pct(m.netRatio)}</td>)}</tr>
-      </tbody>
-    </TableWrap>
-  );
-}
-
-function LocationsTable(props: { readonly rows: ReturnType<typeof computeLocations> }) {
-  return (
-    <TableWrap>
+    <TableWrap caption="ОПиУ (Ozon-контур): выручка → минус комиссия маркетплейса → выплата. Закупочная себестоимость и опер.расходы — из 1С (не подключено).">
       <thead>
         <tr className="border-b border-line bg-field/60">
-          <Th>Точка</Th><Th right>Выручка</Th><Th right>Маржин. прибыль</Th><Th right>Рент. маржи</Th>
-          <Th right>EBITDA</Th><Th right>Выручка/аренда</Th><Th right>Выручка/ФОТ</Th>
+          <Th>Месяц</Th><Th right>Выручка</Th><Th right>Комиссия Ozon</Th><Th right>Комиссия %</Th>
+          <Th right>Выплата</Th><Th right>Выплата %</Th><Th right>Заказы</Th>
         </tr>
       </thead>
       <tbody>
-        {props.rows.map((m, i) => {
-          const weakRent = m.revPerRent < 3;
+        {props.rows.map((m) => {
+          const cpHigh = commissionPct(m) > 0.33;
+          return (
+            <tr className="border-b border-line" key={m.key}>
+              <td className="whitespace-nowrap px-3 py-2 font-medium text-ink">{m.label}</td>
+              <Cell bold>{rub(m.revenue)}</Cell>
+              <Cell red>{rub(m.commission)}</Cell>
+              <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${cpHigh ? "bg-amber-50 font-semibold text-amber-900" : "text-muted"}`}>{pct(commissionPct(m))}</td>
+              <Cell bold>{rub(m.payout)}</Cell>
+              <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-muted">{pct(payoutPct(m))}</td>
+              <Cell>{m.orders}</Cell>
+            </tr>
+          );
+        })}
+      </tbody>
+    </TableWrap>
+  );
+}
+
+function OffersTable(props: { readonly rows: readonly OfferRow[] }) {
+  return (
+    <TableWrap caption="Товарная аналитика (топ-15 по выручке): выручка, комиссия Ozon, выплата, маржа после маркетплейса. Полная маржа считается после подключения закупки (1С).">
+      <thead>
+        <tr className="border-b border-line bg-field/60">
+          <Th>Товар</Th><Th right>Штук</Th><Th right>Выручка</Th><Th right>Комиссия %</Th><Th right>Выплата</Th><Th right>Маржа после Ozon</Th>
+        </tr>
+      </thead>
+      <tbody>
+        {props.rows.map((o, i) => {
+          const cp = o.revenue ? Math.abs(o.commission) / o.revenue : 0;
+          const mp = o.revenue ? o.payout / o.revenue : 0;
           return (
             <tr className="border-b border-line" key={i}>
-              <RowLabel strong>{m.name}</RowLabel>
-              <Num v={m.revenue} />
-              <Num v={m.marginal} />
-              <td className="px-3 py-2 text-right tabular-nums text-muted">{pct(m.marginRatio)}</td>
-              <Num v={m.ebitda} neg={m.ebitda < 0} />
-              <td className={`px-3 py-2 text-right tabular-nums ${weakRent ? "bg-amber-50 font-semibold text-amber-900" : "text-ink"}`}>{m.revPerRent.toFixed(1).replace(".", ",")}</td>
-              <td className="px-3 py-2 text-right tabular-nums text-ink">{m.revPerFot.toFixed(1).replace(".", ",")}</td>
+              <td className="max-w-[22rem] truncate px-3 py-2 font-medium text-ink" title={o.name}>{o.name}</td>
+              <Cell>{o.units.toLocaleString("ru-RU")}</Cell>
+              <Cell bold>{rub(o.revenue)}</Cell>
+              <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${cp > 0.33 ? "bg-amber-50 font-semibold text-amber-900" : "text-muted"}`}>{pct(cp)}</td>
+              <Cell>{rub(o.payout)}</Cell>
+              <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink">{pct(mp)}</td>
             </tr>
           );
         })}
