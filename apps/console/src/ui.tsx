@@ -226,6 +226,7 @@ function isActive(pathname: string, href: string): boolean {
 const navItems = [
   { href: "/", label: "Dashboard", marker: "D" },
   { href: "/profiles", label: "Profiles", marker: "P" },
+  { href: "/finance", label: "Финансовый учёт", marker: "Ф" },
   { href: "/activation", label: "Activation", marker: "A" },
   { href: "/modules", label: "Modules", marker: "M" },
   { href: "/connect", label: "Connect", marker: "C" },
