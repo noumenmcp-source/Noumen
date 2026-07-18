@@ -1667,7 +1667,13 @@ function send(res, code, data, type) {
 }
 
 // пути разделов — каждый отдаёт SPA-оболочку, клиент сам показывает нужный раздел (deep-link)
-const SEC_RE = /^\/(today|overview|profiles|segments|sources|email|automations|consent|services)$/;
+// ── Финансовый учёт (тенант «Олимп бизнес»): агрегат РЕАЛЬНЫХ продаж Ozon.
+// Источник: ozon_orders.xlsx (36 899 доставленных заказов) → помесячно + топ-SKU.
+// Honesty: это половина воронки (продажи). Закупочная себестоимость, опер.расходы
+// и банковский ДДС приходят из 1С и сюда НЕ входят — см. meta.note.
+const FIN_OLYMP = {"meta":{"source":"Ozon FBO/FBS заказы (ozon_orders.xlsx), тенант «Олимп бизнес»","status_filter":"delivered","range":"2025-05 … 2026-06 (полные месяцы)","note":"Выручка и комиссия Ozon — реальные (половина воронки: продажи). Закупочная себестоимость, опер.расходы и банковский ДДС — из 1С, пока не подключены."},"months":[{"key":"2025-05","label":"Май 25","revenue":1443182,"commission":-303831,"payout":1142149,"orders":1121,"units":1127},{"key":"2025-06","label":"Июн 25","revenue":1240944,"commission":-344449,"payout":899508,"orders":958,"units":969},{"key":"2025-07","label":"Июл 25","revenue":1554222,"commission":-481640,"payout":1151033,"orders":975,"units":983},{"key":"2025-08","label":"Авг 25","revenue":1623053,"commission":-475913,"payout":1137344,"orders":1047,"units":1051},{"key":"2025-09","label":"Сен 25","revenue":1760009,"commission":-512273,"payout":1219092,"orders":1094,"units":1094},{"key":"2025-10","label":"Окт 25","revenue":2254784,"commission":-692727,"payout":1562784,"orders":1224,"units":1237},{"key":"2025-11","label":"Ноя 25","revenue":2137801,"commission":-805601,"payout":1315303,"orders":1141,"units":1152},{"key":"2025-12","label":"Дек 25","revenue":3048298,"commission":-1184911,"payout":1853322,"orders":1409,"units":1415},{"key":"2026-01","label":"Янв 26","revenue":2034298,"commission":-745550,"payout":1166117,"orders":840,"units":840},{"key":"2026-02","label":"Фев 26","revenue":1878900,"commission":-704128,"payout":1101329,"orders":812,"units":812},{"key":"2026-03","label":"Мар 26","revenue":1865986,"commission":-713059,"payout":1115298,"orders":680,"units":680},{"key":"2026-04","label":"Апр 26","revenue":1726519,"commission":-697844,"payout":978485,"orders":682,"units":682},{"key":"2026-05","label":"Май 26","revenue":1512192,"commission":-586176,"payout":809482,"orders":687,"units":687},{"key":"2026-06","label":"Июн 26","revenue":1495500,"commission":-608831,"payout":840767,"orders":687,"units":687}],"offers":[{"name":"Руководство РМВОК 6-е издание + Agile","units":582,"revenue":6647131,"commission":-1515809,"payout":5028527},{"name":"BABOK. Руководство к своду знаний по бизнес-анализу","units":472,"revenue":5680558,"commission":-1310467,"payout":4137765},{"name":"Теннис. Психология успешной игры","units":3561,"revenue":4386552,"commission":-1161363,"payout":3085235},{"name":"Богатство семьи. Как сохранить в семье человеческий, интелле","units":2160,"revenue":3323419,"commission":-938716,"payout":2353927},{"name":"DAMA-DMBOK: Свод знаний по управлению данными. 2-е издание","units":261,"revenue":2776547,"commission":-590666,"payout":2058200},{"name":"Как управлять рабами","units":1296,"revenue":2749066,"commission":-766643,"payout":1958488},{"name":"Управление проектами. Полный курс МВА","units":1101,"revenue":2661202,"commission":-676985,"payout":1998540},{"name":"Основы корпоративных финансов в 2-х томах","units":155,"revenue":1965907,"commission":-493899,"payout":1344952},{"name":"Топовый нон-фикшн. Как управлять рабами","units":2198,"revenue":1941471,"commission":-561479,"payout":1329936},{"name":"Сбалансированная система показателей. От стратегии к действи","units":1097,"revenue":1893629,"commission":-507160,"payout":1405461},{"name":"Топовый нон-фикшн. Богатство семьи. Как сохранить в семье че","units":2191,"revenue":1876877,"commission":-512793,"payout":1299760},{"name":"Время собственности. Владельческая преемственность и корпора","units":864,"revenue":1671073,"commission":-430581,"payout":1252307},{"name":"Книга решений. 50 моделей стратегического мышления","units":1835,"revenue":1522373,"commission":-405154,"payout":1080548},{"name":"Победа любой ценой. Психологическое оружие в теннисе: уроки ","units":1143,"revenue":1369162,"commission":-359575,"payout":966070},{"name":"Топовый нон-фикшн. Жалоба - это подарок. Как сохранить лояль","units":1526,"revenue":1111297,"commission":-276861,"payout":865121}]};
+
+const SEC_RE = /^\/(today|overview|profiles|segments|sources|email|automations|consent|services|finance)$/;
 const server = http.createServer(async (req, res) => {
   try {
     const u = new URL(req.url, 'http://x');
@@ -1824,6 +1830,11 @@ const server = http.createServer(async (req, res) => {
       var ovPrincipal = await authenticate(req);
       if (!ovPrincipal) return send(res, 401, { error: 'unauthorized' });
       return send(res, 200, await aggregate(ovPrincipal.tenant, Date.now()));
+    }
+    if (p === '/api/finance') {
+      var finPrincipal = await authenticate(req);
+      if (!finPrincipal) return send(res, 401, { error: 'unauthorized' });
+      return send(res, 200, FIN_OLYMP);
     }
         if (p === '/api/playbook/feedback') {
           var principal = await authenticate(req);
@@ -2685,7 +2696,7 @@ const esc=s=>(s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const fmtDt=t=>t?new Date(t).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit'}):'—';
 const SECTIONS=[
   ['overview','Обзор','▦'],['today','Сегодня','◆'],['profiles','Профили','◉'],['segments','Сегменты и сценарии','◑'],
-  ['sources','Источники','⇲'],['email','Email','✉'],['consent','Согласия · 152-ФЗ','⚖'],['services','Сервисы','◰']
+  ['sources','Источники','⇲'],['email','Email','✉'],['finance','Финансовый учёт','₽'],['consent','Согласия · 152-ФЗ','⚖'],['services','Сервисы','◰']
 ];
 let TENANT=null, OV=null, cur='overview';
 
@@ -4230,6 +4241,46 @@ window.tdFeedback=function(key,status,btn){
 };
 
 const VIEWS={
+finance(){
+  var F=window.FIN;
+  if(!F||!F.months) return '<div class="note">Загружаю финансовые данные…</div>';
+  var M=F.months, O=F.offers||[], L=M[M.length-1]||{};
+  var cp=function(m){return m.revenue?Math.abs(m.commission)/m.revenue:0;};
+  var pp=function(m){return m.revenue?m.payout/m.revenue:0;};
+  var pc=function(v){return (v*100).toFixed(1).replace('.',',')+'%';};
+  var first=M[0]?cp(M[0]):0, last=cp(L), dpp=((last-first)*100).toFixed(1).replace('.',',');
+  var tot=M.reduce(function(a,m){return {revenue:a.revenue+m.revenue,commission:a.commission+m.commission,payout:a.payout+m.payout,orders:a.orders+m.orders};},{revenue:0,commission:0,payout:0,orders:0});
+  var h='';
+  h+='<div class="note">'+esc(F.meta?F.meta.source:'')+'. Период: '+esc(F.meta?F.meta.range:'')+'. '+esc(F.meta?F.meta.note:'')+'</div>';
+  if((last-first)*100>5){
+    h+='<div class="card act" data-cat="action"><div class="tdbadge" style="color:'+TONE.rust+'">СИГНАЛ</div>'
+      +'<div class="nm">Маркетплейс забирает всё больше</div>'
+      +'<div class="big">'+pc(first)+' → '+pc(last)+'</div>'
+      +'<div class="c">Комиссия Ozon выросла на '+dpp+' п.п. за период — выплата проседает при той же выручке.</div>'
+      +'<div>Первый шаг: пересчитать цены и ассортимент под новую комиссию, усилить прямой канал (сайт).</div></div>';
+  }
+  h+='<div class="grid k3">'
+    +'<div class="card act" data-cat="info"><div class="nm">Выручка · '+esc(L.label||'')+'</div><div class="big">'+rub(L.revenue)+'</div><div class="c">заказов: '+nf(L.orders)+'</div></div>'
+    +'<div class="card act" data-cat="info"><div class="nm">Комиссия Ozon</div><div class="big">'+pc(last)+'</div><div class="c">доля выручки</div></div>'
+    +'<div class="card act" data-cat="info"><div class="nm">Выплата (после Ozon)</div><div class="big">'+rub(L.payout)+'</div><div class="c">'+pc(pp(L))+' выручки</div></div>'
+    +'</div>';
+  h+='<div class="note">ОПиУ (Ozon-контур): выручка → минус комиссия маркетплейса → выплата. Закупочная себестоимость и опер.расходы — из 1С, пока не подключены.</div>';
+  h+='<div class="tw"><table><thead><tr><th>Месяц</th><th>Выручка</th><th>Комиссия Ozon</th><th>Комиссия %</th><th>Выплата</th><th>Выплата %</th><th>Заказы</th></tr></thead><tbody>';
+  M.forEach(function(m){
+    h+='<tr><td>'+esc(m.label)+'</td><td>'+rub(m.revenue)+'</td><td style="color:'+TONE.rust+'">'+rub(m.commission)+'</td><td>'+pc(cp(m))+'</td><td>'+rub(m.payout)+'</td><td>'+pc(pp(m))+'</td><td>'+nf(m.orders)+'</td></tr>';
+  });
+  h+='<tr><td><b>Итого</b></td><td><b>'+rub(tot.revenue)+'</b></td><td style="color:'+TONE.rust+'"><b>'+rub(tot.commission)+'</b></td><td>—</td><td><b>'+rub(tot.payout)+'</b></td><td>—</td><td><b>'+nf(tot.orders)+'</b></td></tr>';
+  h+='</tbody></table></div>';
+  h+='<div class="note">Товарная аналитика (топ по выручке): маржа после маркетплейса. Полная маржа — после подключения закупки (1С).</div>';
+  h+='<div class="tw"><table><thead><tr><th>Товар</th><th>Штук</th><th>Выручка</th><th>Комиссия %</th><th>Выплата</th><th>Маржа после Ozon</th></tr></thead><tbody>';
+  O.forEach(function(o){
+    var ocp=o.revenue?Math.abs(o.commission)/o.revenue:0, omp=o.revenue?o.payout/o.revenue:0;
+    h+='<tr><td>'+esc(o.name)+'</td><td>'+nf(o.units)+'</td><td>'+rub(o.revenue)+'</td><td>'+pc(ocp)+'</td><td>'+rub(o.payout)+'</td><td>'+pc(omp)+'</td></tr>';
+  });
+  h+='</tbody></table></div>';
+  return h;
+},
+
 today(){
   const o = OV.orders, aov = o.count ? Math.round(o.revenue / o.count) : 0;
   const cards = [
@@ -4495,6 +4546,10 @@ function setActive(id){
   if(id==='consent'){
     j('/api/consent/journal').then(function(r){var el=$('#cjournal'); if(el) el.innerHTML=em_consent_journalRows((r&&r.journal)||[]);})
       .catch(function(e){var el=$('#cjournal'); if(el) el.innerHTML='<tr><td colspan="4" class="muted">не удалось загрузить: '+esc(e.message||e)+'</td></tr>';});
+  }
+  if(id==='finance' && !window.FIN){
+    j('/api/finance').then(function(f){window.FIN=f; if(cur==='finance'){$('#view').innerHTML=VIEWS.finance();}})
+      .catch(function(e){showErr(e.message||e);});
   }
 }
 async function load(){
