@@ -81,7 +81,7 @@ def die(msg, code=1):
     sys.exit(code)
 
 
-def http(method, url, key=None, body=None, timeout=30):
+def http(method, url, key=None, body=None, timeout=30, basic=None):
     """Minimal urllib JSON client — same pattern as scripts/p1_load_all_triggers.py.
 
     Returns (status_code, parsed_json_or_text). Never raises on non-2xx (returns the code so
@@ -91,6 +91,8 @@ def http(method, url, key=None, body=None, timeout=30):
     headers = {"Content-Type": "application/json"}
     if key:
         headers["Authorization"] = f"Bearer {key}"
+    if basic:
+        headers["Authorization"] = "Basic " + base64.b64encode(basic.encode()).decode()
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -111,9 +113,9 @@ def http(method, url, key=None, body=None, timeout=30):
         die(f"cannot reach {url}: {e.reason}")
 
 
-def es_request(method, es_url, path, body=None, timeout=30):
-    """Talk to Elasticsearch (no auth assumed — same as the in-box es-test)."""
-    return http(method, f"{es_url.rstrip('/')}{path}", key=None, body=body, timeout=timeout)
+def es_request(method, es_url, path, body=None, timeout=30, basic=None):
+    """Talk to Elasticsearch. basic="user:pass" when the cluster has security enabled."""
+    return http(method, f"{es_url.rstrip('/')}{path}", key=None, body=body, timeout=timeout, basic=basic)
 
 
 def psql(args, sql):
@@ -319,11 +321,11 @@ ES_MAPPING = {
 def ensure_es_index(args, es_index):
     """PUT cdp_events_<siteId> with the mapping. Idempotent: a pre-existing index is fine."""
     es_url = args.es_url.rstrip("/")
-    code, _ = es_request("GET", es_url, f"/{es_index}")
+    code, _ = es_request("GET", es_url, f"/{es_index}", basic=getattr(args, "es_basic", None))
     if code == 200:
         log("es-index", f"exists: {es_index}")
         return
-    code, data = es_request("PUT", es_url, f"/{es_index}", body=ES_MAPPING)
+    code, data = es_request("PUT", es_url, f"/{es_index}", body=ES_MAPPING, basic=getattr(args, "es_basic", None))
     if code in (200, 201):
         log("es-index", f"created: {es_index}")
         return
@@ -434,6 +436,7 @@ def parse_args(argv=None):
     p.add_argument("--admin-base", required=True, help="Dittofeed base url, e.g. http://localhost:3000")
     p.add_argument("--admin-key", required=True, help="existing (Default-workspace) admin Bearer token")
     p.add_argument("--es-url", required=True, help="Elasticsearch base url, e.g. http://127.0.0.1:9200")
+    p.add_argument("--es-basic", default=None, help="ES credentials as user:pass (omit if cluster has no security)")
     p.add_argument("--origins", default="", help="comma-separated allowed CORS origins (exact or *.wildcard)")
     # Postgres access for the workspace + admin-key steps (no REST flow exists for those in lite).
     p.add_argument("--pg-container", default="dittofeed-postgres-1", help="Dittofeed Postgres container name")
