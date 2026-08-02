@@ -395,6 +395,7 @@ test('HTTP: / serves the AXIOM RU console; /api/overview shapes data', async () 
     assert.match(html, /Жизненный цикл/);
     assert.match(html, /Источники трафика/);
     assert.match(html, /152-ФЗ/);
+    assert.doesNotMatch(html, /mc\.yandex\.ru|\bym\(/, 'authenticated console must not load the marketing Metrika counter');
     const authHeaders = { headers: { authorization: 'Bearer test-token' } };
     const ov = await fetch(`${base}/api/overview`, authHeaders);
     assert.equal(ov.status, 200);
